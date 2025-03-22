@@ -1,0 +1,13 @@
+# define constants
+MINIMIZE = -1
+MAXIMIZE = 1
+
+OPTIMIZE = 2
+SATISFY = 3
+
+INTEGER = 4
+FRACTIONAL = 5
+
+GREATER = 6
+LOWER = 7
+EQUAL = 8

@@ -1,16 +1,4 @@
-# define constants
-MINIMIZE = -1
-MAXIMIZE = 1
-
-OPTIMIZE = 2
-SATISFY = 3
-
-INTEGER = 4
-FRACTIONAL = 5
-
-GREATER = 6
-LOWER = 7
-EQUAL = 8
+from .Constants import *
 
 class Variable:
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
@@ -62,7 +50,7 @@ class Expression:
 		self.expression = literal_1
 
 	def __str__(self):
-		for i in [i for i in self.expression if not isinstance(i, int)]:
+		for i in self:
 			print("[", end="")
 			for j in i:
 				print(f"{j}, ", end="")
@@ -112,9 +100,6 @@ class Expression:
 		if isinstance(other, Expression):
 			raise TypeError("Not allowed operation!")
 
-	def __iter__(self):
-		return self.expression.__iter__()
-
 	def __le__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
@@ -135,3 +120,25 @@ class Expression:
 			self.expression.append(EQUAL)
 			self.expression.append(other)
 			return self
+
+	def __iter__(self):
+		return (i for i in self.expression if not isinstance(i, int))
+
+	def __len__(self):
+		return len([i for i in self.expression if not isinstance(i, int)])
+
+
+	def sum_constants_in_expression(self):
+		pop_it = False
+		constant_index = 0
+		try:
+			for i in range(len(self)):
+				if len(self.expression[i]) == 1:
+					if pop_it:
+						self.expression[constant_index][0] += self.expression[i][0]
+						self.expression.pop(i)
+					if not pop_it:
+						pop_it = True
+						constant_index = i
+		except: pass
+		return self
