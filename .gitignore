@@ -1,3 +1,6 @@
 .idea
 test.py
 venv
+iqs/*.c
+iqs/*.so
+build

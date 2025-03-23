@@ -127,7 +127,6 @@ class Expression:
 	def __len__(self):
 		return len([i for i in self.expression if not isinstance(i, int)])
 
-
 	def sum_constants_in_expression(self):
 		pop_it = False
 		constant_index = 0
@@ -142,3 +141,8 @@ class Expression:
 						constant_index = i
 		except: pass
 		return self
+
+	def index_list(self):
+		return [
+			[j if isinstance(j, int) else j.index for j in i] for i in self.expression if not isinstance(i, int)
+		] + [i for i in [self.expression[-2], self.expression[-1]] if isinstance(self.expression[-2], int)]
