@@ -98,12 +98,11 @@ cdef class state_py:
 
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
 		self.num_states = 1
-		self.arr = array # easier handling when list it required
 		arr = np.array(array, dtype = np.int32)
+		self.arr = arr # easier handling when list it required
 
 		cdef int* ptr = <int *>calloc(arr.shape[0], sizeof(int))
-		for i in range(arr.shape[0]):
-			ptr[i] = <int>arr[i]
+		for i in range(arr.shape[0]): ptr[i] = <int>arr[i]
 		self.state = init_state(ObjVal, ptr, arr.shape[0])
 		free(<void *>ptr)
 

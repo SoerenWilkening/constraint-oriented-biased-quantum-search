@@ -18,10 +18,10 @@ typedef struct {
     lit_t *literals;
     int num_literals;
     int sense;
-    long double rhs;
+    int64_t rhs;
 
     int first_non_closed;
-    long double rhs_adapted;
+    int64_t rhs_adapted;
 
     int digits;
     int evaluated;

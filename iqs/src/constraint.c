@@ -72,8 +72,8 @@ void print_constraints(constraint_list_t *cons){
             }
             printf("] ");
         }
-        if (cons->constraints[i].sense == lessequal) printf("< ");
-        else if (cons->constraints[i].sense == equal) printf("= ");
+        if (cons->constraints[i].sense == LOWER) printf("< ");
+        else if (cons->constraints[i].sense == EQUAL) printf("= ");
         else printf("> ");
         printf("%Lf ", cons->constraints[i].rhs_adapted);
         printf("%d ", cons->constraints[i].digits);
@@ -120,11 +120,11 @@ int eval_constraint(constraint_t *con, int *assignment, int assigned){
             }
         }
     }
-    if (con->sense == equal){
+    if (con->sense == EQUAL){
         if(open_var > 0) return total <= con->rhs;
         else return total == con->rhs;
     }
-    else if (con->sense == lessequal) return total <= con->rhs;
+    else if (con->sense == LOWER) return total <= con->rhs;
     else return total >= con->rhs;
 }
 
@@ -190,11 +190,11 @@ int eval_constraint2(constraint_t *con, state_t *assignment, int assigned, int c
     // update rhs based on already assigned variables
     if(close) con->rhs_adapted = con->rhs_adapted - total;
 
-    if (con->sense == equal){
+    if (con->sense == EQUAL){
         if(open_lit > 0) return total <= rhs;
         else return total == rhs;
     }
-    else if (con->sense == lessequal) return total <= rhs;
+    else if (con->sense == LOWER) return total <= rhs;
     else return total >= rhs;
 }
 
@@ -255,7 +255,6 @@ long double ChangedObjVal(  constraint_list_t *obj, // objective function
     int NTerms = obj->constraints[0].num_literals; // number terms
     int *investigated = calloc(NTerms, sizeof(int)); // was the term evaluated already? (important for quadratic functions)
     // For every changed bit, change, if the respective term changes and adjust the total profit
-    long double add = 0, sub = 0;
     for(int ChangeIndex = 0; ChangeIndex < NumChanges; ChangeIndex++){
         int item = ChangedBits[ChangeIndex];
         for(int term = 0; term < NumIndices[item]; term++){

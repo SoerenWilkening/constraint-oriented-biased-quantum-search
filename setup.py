@@ -16,6 +16,7 @@ extensions = [
 	           os.path.join("iqs", "src", "SearchLib.c"),
 	           os.path.join("iqs", "src", "Branching.c"),
 	           os.path.join("iqs", "src", "intarray.c"),
+	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "constraint.c")],
 	          include_dirs = [os.path.join("iqs", "src")]),
 ]

@@ -9,111 +9,110 @@ int min(int a, int b){
     return (a < b) ? a : b;
 }
 
-void free_state(state_t *state, size_t numStates) {
-    for (size_t i = 0; i < numStates; i++){
-        sw_clear(state[i].vector);
-        sw_clear(state[i].branch);
-    }
-    free(state);
+int compare(int64_t obj, int64_t thr, int sense) {
+    return obj * sense < thr *sense;
 }
 
-int compare(long double obj, long double thr, int sense) {
-    if (sense == maximize) return obj > thr;
-    else if (sense == minimize) return obj < thr;
-}
-
-state_t *init_state(int64_t ObjVal, const int *array, int n) {
-    state_t *state = malloc(sizeof(state_t));
-    state->tot_profit = ObjVal;
-    state->prob = 1.;
-    state->vector = sw_init(n);
-    state->branch = sw_init(n);
-    for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
-    return state;
-}
-
-state_t *copy_state(state_t *state){
-    state_t *copy = malloc(sizeof(state_t));
-    copy->tot_profit = state->tot_profit;
-    copy->prob = state->prob;
-    copy->vector = sw_set(state->vector);
-    copy->branch = sw_set(state->branch);
-    return copy;
-}
-
-void print_state(state_t *state){
-    printf("%lld %f ", state->tot_profit, state->prob);
-    sw_print(state->vector);
-}
-
-state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
-    state_t *parent;
-
-    long double placeholder;
-    size_t estimate = 5000000;
-    parent = calloc(estimate, sizeof(state_t));
-
-    size_t count = 0;
-
-    for (int x = 0; x < num_files; x++){
-        FILE *file = fopen(name[x], "r");
-        if (!file) return NULL;
-
-        for (size_t i = 0; i < estimate; ++i) {
-            if (fscanf(file, "%Lf ", &placeholder) != 1) {
-                fclose(file);
-                break;
-            }
-            parent[i].tot_profit = placeholder;
-            parent[i].vector = sw_init(n);
-            parent[i].branch = sw_init(n);
-            for (int j = 0; j < n; ++j) {
-                int assignment = 0, branching = 0;
-                fscanf(file, "%d %d ", &assignment, &branching);
-                if (assignment) { sw_setbit(parent[i].vector, j);}
-                else { sw_clrbit(parent[i].vector, j);}
-                if (branching) { sw_setbit(parent[i].branch, j); }
-                else { sw_clrbit(parent[i].branch, j); }
-            }
-            if (count == estimate - 1) {
-                // increase the size of parent, if necessary
-                estimate *= 2;
-                parent = realloc(parent, estimate * sizeof(state_t));
-            }
-            count++;
-        }
-    }
-    *NumberStatesFinal = count;
-    parent = realloc(parent, count * sizeof(state_t));
-    return parent;
-}
-
-state_t *updated(state_t *bnb, size_t number_states,
-                size_t *new_number, state_t *threshold, int sense) {
-    state_t *up = calloc(number_states, sizeof(state_t));
-    size_t a = 0;
-    double total = 0;
-
-    for (size_t i = 0; i < number_states; ++i) {
-        if (compare(bnb[i].tot_profit, threshold->tot_profit, sense)) {
-            up[a].tot_profit = bnb[i].tot_profit;
-            up[a].vector = sw_set(bnb[i].vector);
-            up[a].branch = sw_set(bnb[i].branch);
-            StateProbability(&up[a], threshold);
-
-            total += up[a].prob;
-            a++;
-        }
-    }
-    *new_number = a;
-//    printf("total prob = %f\n", total);
-    if (a == 0) {
-        free_state(up, number_states);
-        return NULL;
-    }
-    up = realloc(up, a * sizeof(state_t));
-    return up;
-}
+//void free_state(state_t *state, size_t numStates) {
+//    for (size_t i = 0; i < numStates; i++){
+//        sw_clear(state[i].vector);
+//        sw_clear(state[i].branch);
+//    }
+//    free(state);
+//}
+//
+//
+//state_t *init_state(int64_t ObjVal, const int *array, int n) {
+//    state_t *state = malloc(sizeof(state_t));
+//    state->tot_profit = ObjVal;
+//    state->prob = 1.;
+//    state->vector = sw_init(n);
+//    state->branch = sw_init(n);
+//    for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
+//    return state;
+//}
+//
+//state_t *copy_state(state_t *state){
+//    state_t *copy = malloc(sizeof(state_t));
+//    copy->tot_profit = state->tot_profit;
+//    copy->prob = state->prob;
+//    copy->vector = sw_set(state->vector);
+//    copy->branch = sw_set(state->branch);
+//    return copy;
+//}
+//
+//void print_state(state_t *state){
+//    printf("%lld %f ", state->tot_profit, state->prob);
+//    sw_print(state->vector);
+//}
+////
+////state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
+////    state_t *parent;
+////
+////    long double placeholder;
+////    size_t estimate = 5000000;
+////    parent = calloc(estimate, sizeof(state_t));
+////
+////    size_t count = 0;
+////
+////    for (int x = 0; x < num_files; x++){
+////        FILE *file = fopen(name[x], "r");
+////        if (!file) return NULL;
+////
+////        for (size_t i = 0; i < estimate; ++i) {
+////            if (fscanf(file, "%Lf ", &placeholder) != 1) {
+////                fclose(file);
+////                break;
+////            }
+////            parent[i].tot_profit = placeholder;
+////            parent[i].vector = sw_init(n);
+////            parent[i].branch = sw_init(n);
+////            for (int j = 0; j < n; ++j) {
+////                int assignment = 0, branching = 0;
+////                fscanf(file, "%d %d ", &assignment, &branching);
+////                if (assignment) { sw_setbit(parent[i].vector, j);}
+////                else { sw_clrbit(parent[i].vector, j);}
+////                if (branching) { sw_setbit(parent[i].branch, j); }
+////                else { sw_clrbit(parent[i].branch, j); }
+////            }
+////            if (count == estimate - 1) {
+////                // increase the size of parent, if necessary
+////                estimate *= 2;
+////                parent = realloc(parent, estimate * sizeof(state_t));
+////            }
+////            count++;
+////        }
+////    }
+////    *NumberStatesFinal = count;
+////    parent = realloc(parent, count * sizeof(state_t));
+////    return parent;
+////}
+////
+////state_t *updated(state_t *bnb, size_t number_states,
+////                size_t *new_number, state_t *threshold, int sense) {
+////    state_t *up = calloc(number_states, sizeof(state_t));
+////    size_t a = 0;
+////    double total = 0;
+////
+////    for (size_t i = 0; i < number_states; ++i) {
+////        if (compare(bnb[i].tot_profit, threshold->tot_profit, sense)) {
+////            up[a].tot_profit = bnb[i].tot_profit;
+////            up[a].vector = sw_set(bnb[i].vector);
+////            up[a].branch = sw_set(bnb[i].branch);
+////            StateProbability(&up[a], threshold);
+////
+////            total += up[a].prob;
+////            a++;
+////        }
+////    }
+////    *new_number = a;
+////    if (a == 0) {
+////        free_state(up, number_states);
+////        return NULL;
+////    }
+////    up = realloc(up, a * sizeof(state_t));
+////    return up;
+////}
 
 size_t sampling(const double *probs, size_t numStates) {
     double random = (double) (rand() % 1234567) / 1234567;
@@ -187,11 +186,6 @@ int evaluation(const long double *potentials, const int* S, const long double *S
     return eval;
 }
 
-int LookAehead(){
-    int eval = 1;
-    return eval;
-}
-
 int update_potentials(long double *potentials, const int *S, const long double *S_value, int num){
     int all_positive = 1;
     for (int k = 0; k < num; k++){
@@ -251,7 +245,6 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
     long double potentials[con->num_constraints];
 
     for(int l = 0; l < 4 * j * j; l++){
-//    for(int l = 0; l < 1; l++){
         // Store which bit from the previous solution is flipped
         int NumChanges = 0;
         int *ChangedBits = calloc(n, sizeof(int));
@@ -339,8 +332,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - (int) cur_sol->tot_profit );
         }
 
-        if (as1 && obj->constraints->sense * val < obj->constraints->sense * cur_sol->tot_profit){
-//        if (obj->constraints->sense * val < obj->constraints->sense * cur_sol->tot_profit){
+        if (as1 && compare(cur_sol->tot_profit, val, obj->constraints->sense)){
             // If solution is updated, change the array of fulfilled terms
             for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
             cur_sol->tot_profit = val;
@@ -376,16 +368,6 @@ state_t *ctg(
     double c = 6. / 5;
 
     int initial_value = (int) cur_sol->tot_profit;
-//    printf("count value");
-//    fflush(stdout);
-//    if (solver == SATISFY){
-//        initial_value = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - (int) cur_sol->tot_profit );
-////        printf("satisfied = %d\n", initial_value);
-//        new_sol->tot_profit = initial_value;
-//        cur_sol->tot_profit = initial_value;
-//    }
-//    fflush(stdout);
-//    (int) cur_sol->tot_profit;
 
     int state_feasible = quantum_feasibility2(con, new_sol, n + 1, false);
 
@@ -470,7 +452,7 @@ state_t *ctg(
             // determine if the last literal of a constraint would be forced based on the remaining constraint
             int last_literal = con->constraints[i].num_literals - 1;
             int last_item = con->constraints[i].literals[last_literal].literal[1];
-            if ((con->constraints[i].sense == equal) && (item == last_item)){
+            if ((con->constraints[i].sense == EQUAL) && (item == last_item)){
                 forced[0][item] = 1;
                 forced[1][item] = i;
             }
