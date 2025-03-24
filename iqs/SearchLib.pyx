@@ -92,7 +92,7 @@ cdef class state_py:
 	cdef state_t *state
 	cdef size_t num_states
 	cdef int[:] arr
-	cdef long double objval
+	cdef int64_t objval
 
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
 		self.num_states = 1

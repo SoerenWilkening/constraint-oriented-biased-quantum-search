@@ -1,6 +1,7 @@
 from .Expression import Variable, Expression
 from .Constants import *
-from .SearchLib import state_py, constraints
+from .SearchLib import state_py, constraints, run_ctg
+import os
 
 class Model:
 
@@ -11,7 +12,9 @@ class Model:
 		self.n: int = 0
 		self.variables = {}
 
-		self.initial_state = None
+		self.initial_state: state_py | None = None
+
+		self.solver = SATISFY
 
 	def add_variable(self, index: int = 0, name: str = "x") -> Variable:
 		x = Variable(max(index, self.n), f"{name}{max(index, self.n)})")
@@ -31,15 +34,20 @@ class Model:
 	def set_objective(self, objective: Expression | int | None = None, sense : int = MAXIMIZE) -> None:
 		if sense not in [MINIMIZE, MAXIMIZE]:
 			raise TypeError
-		self.objective += objective.sum_constants_in_expression().index_list() + [sense, 0]
+		self.solver = OPTIMIZE
+
+		expr = objective.merge_expression_terms().index_list() + [sense, 0]
+
+		self.objective += expr
 
 	def add_constraint(self, constraint: Expression | int | None = None) -> None:
-		self.constraint += constraint.sum_constants_in_expression().index_list()
+		expr = constraint.merge_expression_terms().adjust_expression().index_list()
+		self.constraint += expr
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
 
-	def solve(self, M: int = 0, bias: float | int = -1) -> bool:
+	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1) -> bool:
 		"""
 
 		:param M:
@@ -47,11 +55,15 @@ class Model:
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
+		if self.solver == SATISFY: self.objective += [[0], MAXIMIZE, 0]
+
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		if M == 0: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 
-		print(self.initial_state)
-
-		return False
+		res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, "test/results.csv", stop_val)
+		found = res[1].objective_value() != self.initial_state.objective_value()
+		if self.solver == SATISFY: found = res[1].objective_value() == len(self.constraint)
+		print(self.solver, SATISFY, OPTIMIZE)
+		return found, res[0], res[1].objective_value()
 

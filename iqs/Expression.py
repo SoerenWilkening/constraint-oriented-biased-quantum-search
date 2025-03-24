@@ -127,22 +127,62 @@ class Expression:
 	def __len__(self):
 		return len([i for i in self.expression if not isinstance(i, int)])
 
-	def sum_constants_in_expression(self):
+	def merge_expression_terms(self):
 		pop_it = False
 		constant_index = 0
+		# sum all the constant factors
 		try:
 			for i in range(len(self)):
 				if len(self.expression[i]) == 1:
 					if pop_it:
 						self.expression[constant_index][0] += self.expression[i][0]
 						self.expression.pop(i)
+						i -= 1
 					if not pop_it:
 						pop_it = True
 						constant_index = i
 		except: pass
+
+		# merge the remaining terms (x1 + x1 -> 2 * x1)
+		try:
+			for i in range(len(self)):
+				term1 = self.expression[i]
+				# print(*term1, end = " ")
+				try:
+					for j in range(i + 1, len(self)):
+						term2 = self.expression[j]
+						# print(*term2)
+						if term1 == term2:
+							self.expression[i][0] += term2[0]
+							self.expression.pop(j)
+							j -= 1
+				except: continue
+		except:
+			pass
 		return self
 
 	def index_list(self):
 		return [
 			[j if isinstance(j, int) else j.index for j in i] for i in self.expression if not isinstance(i, int)
 		] + [i for i in [self.expression[-2], self.expression[-1]] if isinstance(self.expression[-2], int)]
+
+	def adjust_expression(self):
+		for i in range(len(self)):
+			try:
+				if len(self.expression[i]) == 1:
+					self.expression[-1] -= self.expression[i][0]
+					self.expression.pop(i)
+			except:
+				continue
+
+		if self.expression[-2] == GREATER:
+			self.expression[-2] = LOWER
+			for i in self:
+				i[0] *= -1
+
+		potential = 0
+		for i in self:
+			if i[0] < 0: potential -= i[0]
+		self.expression[-1] += potential
+
+		return self

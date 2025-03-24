@@ -1,4 +1,3 @@
-
 #include "constraint.h"
 
 constraint_list_t init_con_list(){

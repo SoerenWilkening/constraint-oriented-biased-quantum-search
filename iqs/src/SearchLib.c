@@ -222,6 +222,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         if (solver == SATISFY) {
             val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - (int) cur_sol->tot_profit );
         }
+//        printf(" objective value %lld %d %d\n", val, obj->constraints->sense, MAXIMIZE);
 
         if (as1 && compare(cur_sol->tot_profit, val, obj->constraints->sense)){
             // If solution is updated, change the array of fulfilled terms
@@ -368,7 +369,7 @@ state_t *ctg(
         );
         if (res) {
             FILE *inbetween = fopen(store, "a");
-            fprintf(inbetween, "%.0Lf,%zu,%d,qae_estimate\n", new_sol->tot_profit, *qtg_applications, initial_value);
+            fprintf(inbetween, "%lld,%zu,%d,qae_estimate\n", new_sol->tot_profit, *qtg_applications, initial_value);
             fflush(inbetween);
             fclose(inbetween);
             UpdateCount++;
