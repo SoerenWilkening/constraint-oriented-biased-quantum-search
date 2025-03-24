@@ -40,13 +40,8 @@ cdef class constraints:
 	def __len__(self):
 		return self.num_constraints
 
-	def eval(self, assignment):
-		l = np.array(assignment, dtype = np.int32)
-		l_p = <int *> calloc(len(assignment), sizeof(int))
-		for i in range(len(assignment)):
-			l_p[i] = <int> l[i]
-
-		return quantum_feasibility(self.pointer, l_p, len(assignment))
+	def eval(self, state: state_py):
+		return quantum_feasibility2(self.pointer, state.state, state.state[0].vector.bits, False)
 
 	def obj(self, st: state_py):
 		return ObjVal(st.state, self.pointer)

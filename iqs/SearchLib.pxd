@@ -64,10 +64,7 @@ cdef extern from "src/constraint.h":
 	void add_sense(constraint_t *con, int sense);
 	void add_rhs(constraint_t *con, int64_t rhs);
 	void print_constraints(constraint_list_t *cons);
-
-	# int eval_constraint(constraint_t *con, int *assignment, int assigned);
-	int quantum_feasibility(constraint_list_t *con, int *assignment, int assigned);
-
+	int quantum_feasibility2(constraint_list_t *con, state_t *assignment, int assigned, int close)
 	int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int assigned, int close,
 	                                int allowed_false);
 

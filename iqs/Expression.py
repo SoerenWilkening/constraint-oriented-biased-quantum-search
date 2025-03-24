@@ -177,6 +177,7 @@ class Expression:
 
 		if self.expression[-2] == GREATER:
 			self.expression[-2] = LOWER
+			self.expression[-1] *= -1
 			for i in self:
 				i[0] *= -1
 

@@ -51,13 +51,6 @@ void add_rhs(constraint_t *con, int64_t rhs){
     con->first_non_closed = 0;
 }
 
-void reset_constraint_list(constraint_list_t *cons){
-    for(int i = 0; i < cons->num_constraints; i++){
-        cons->constraints[i].rhs_adapted = cons->constraints[i].rhs;
-        cons->constraints[i].first_non_closed = 0;
-    }
-}
-
 void print_constraints(constraint_list_t *cons){
     for (int i = 0; i < cons->num_constraints; i++){
         for (int j = 0; j < cons->constraints[i].num_literals; j++){
@@ -74,66 +67,6 @@ void print_constraints(constraint_list_t *cons){
         printf("%lld ", cons->constraints[i].rhs_adapted);
         printf("%lld\n", cons->constraints[i].rhs);
     }
-}
-
-
-int eval_constraint(constraint_t *con, int *assignment, int assigned){
-    int64_t total = 0;
-    int open_var = con->num_literals;
-
-    for(int i = 0; i < con->num_literals; i++){
-        lit_t *lit = &con->literals[i];
-
-        // is it a constant expression
-        if (lit->len_literal == 1) total = total + con->literals[i].factor;
-        // is it a linear expression?
-        else if (lit->len_literal == 2){
-            // is the variable already assigned?
-            if (lit->variables[0] < assigned){
-                // is it a negative coefficient?
-                if (lit->factor < 0){
-                    total = total - lit->factor * (1 - assignment[lit->variables[0]]);
-                }
-                else{
-                    total = total + lit->factor * assignment[lit->variables[0]];
-                }
-                // the variable is not "open" anymore
-                open_var--;
-            }
-        }
-        // is it a quadratic expression?
-        else{
-            // are both variables assigned already?
-            if ((lit->variables[0] < assigned) && (lit->variables[1] < assigned) ){
-                // is it a negative coefficient?
-                if (lit->factor < 0){
-                    total = total - lit->factor * \
-                        (1 - assignment[lit->variables[0]] * assignment[lit->variables[1]]);
-                }
-                else{
-                    total += lit->factor * \
-                        assignment[lit->variables[0]] * assignment[con->literals[i].variables[1]];
-                }
-                open_var = open_var - (lit->variables[0] < assigned) - (lit->variables[1] < assigned);
-            }
-        }
-    }
-    if (con->sense == EQUAL){
-        if(open_var > 0) return total <= con->rhs;
-        else return total == con->rhs;
-    }
-    else if (con->sense == LOWER) return total <= con->rhs;
-    else return total >= con->rhs;
-}
-
-int quantum_feasibility(constraint_list_t *con, int *assignment, int assigned){
-    if (assigned == 0) return true;
-    for (int i = 0; i < con->num_constraints; i++){
-        if (!eval_constraint(&con->constraints[i], assignment, assigned)){
-            return false;
-        }
-    }
-    return true;
 }
 
 
