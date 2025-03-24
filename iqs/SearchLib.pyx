@@ -160,7 +160,6 @@ def run_ctg(
 		M: int,
 		depth_look_ahead: int,
 		solver: int,
-		store: str,
 		int64_t stop_val,
 		object callback):
 
@@ -174,7 +173,7 @@ def run_ctg(
 	# BranchingStats.bias = bias
 	cur_sol : state_py = copy(initial)
 	t1 = time()
-	ctg(cur_sol.state, con.pointer, obj.pointer, M, &qtg_applications, depth_look_ahead, solver, store.encode('utf-8'), stop_val, cb_ptr)
+	ctg(cur_sol.state, con.pointer, obj.pointer, M, &qtg_applications, depth_look_ahead, solver, stop_val, cb_ptr)
 	t = time() - t1
 	cur_sol.get_x()
 

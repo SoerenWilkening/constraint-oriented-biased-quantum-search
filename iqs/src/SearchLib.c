@@ -64,12 +64,12 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
     return NULL;
 }
 
-int evaluation(const int64_t *potentials, const int* S, const int64_t *S_value, int num){
+int evaluation(int64_t *potentials, int* S, int64_t *S_value, int num){
     int eval = 1;
     // check, if assignment does not exceed potentials
     for (int k = 0; k < num; k++){
         // if only one constraint is false: break
-        if (potentials[S[k]] < abs(S_value[k])) {
+        if (potentials[S[k]] < labs(S_value[k])) {
             eval = 0;
             break;
         }
@@ -77,10 +77,10 @@ int evaluation(const int64_t *potentials, const int* S, const int64_t *S_value, 
     return eval;
 }
 
-int update_potentials(int64_t *potentials, const int *S, const int64_t *S_value, int num){
+int update_potentials(int64_t *potentials, int *S, int64_t *S_value, int num){
     int all_positive = 1;
     for (int k = 0; k < num; k++){
-        potentials[S[k]] -= abs(S_value[k]);
+        potentials[S[k]] -= labs(S_value[k]);
         if (potentials[S[k]] < 0.) {
             all_positive = 0;
             break;
@@ -89,27 +89,25 @@ int update_potentials(int64_t *potentials, const int *S, const int64_t *S_value,
     return all_positive;
 }
 
-int invert_update_potentials(int64_t *potentials, const int *S, const int64_t *S_value, int num){
-    int all_positive = 1;
+int invert_update_potentials(int64_t *potentials, int *S, int64_t *S_value, int num){
     for (int k = 0; k < num; k++){
-        potentials[S[k]] += abs(S_value[k]);
+        potentials[S[k]] += labs(S_value[k]);
     }
-    return all_positive;
+    return 1;
 }
 
 
 // look ahead to evaluate all possible solutions from certain position up to certain depth
 int look_ahead( int index, int next_assignment, int depth, int *count_solutions, int64_t *potentials,
-                const int **S_plus, const int64_t **S_plus_value, const int *num_plus,
-                const int **S_minus, const int64_t **S_minus_value, const int *num_minus){
-    int all_positive = 1;
+                int **S_plus, int64_t **S_plus_value, int *num_plus,
+                int **S_minus, int64_t **S_minus_value, int *num_minus){
     // check, if assignment does not exceed potentials
     int bool_ = 1;
     if (next_assignment) bool_ *= evaluation(potentials, S_plus[index], S_plus_value[index], num_plus[index]);
     else bool_ *= evaluation(potentials, S_minus[index], S_minus_value[index], num_minus[index]);
 
-    if (next_assignment) all_positive *= update_potentials(potentials, S_plus[index], S_plus_value[index], num_plus[index]);
-    else all_positive *= update_potentials(potentials, S_minus[index], S_minus_value[index], num_minus[index]);
+    if (next_assignment) update_potentials(potentials, S_plus[index], S_plus_value[index], num_plus[index]);
+    else update_potentials(potentials, S_minus[index], S_minus_value[index], num_minus[index]);
 
     if (bool_){
         if (index == depth) (*count_solutions)++;
@@ -126,11 +124,11 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
 
 
 int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
-            const constraint_list_t *con, const constraint_list_t *obj,
-            const int **S_plus, const int64_t **S_plus_value, const int *num_plus,
-            const int **S_minus, const int64_t **S_minus_value, const int *num_minus,
-            const int **Indices, int *NumIndices, int *Fulfilled, int **forced,
-            int depth_look_ahead, solver_t solver, char *store
+            constraint_list_t *con, constraint_list_t *obj,
+            int **S_plus, int64_t **S_plus_value, int *num_plus,
+            int **S_minus, int64_t **S_minus_value, int *num_minus,
+            int **Indices, int *NumIndices, int *Fulfilled, int **forced,
+            int depth_look_ahead, solver_t solver
             ){
     // potentials for every constraint
     int64_t potentials[con->num_constraints];
@@ -204,7 +202,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             // was a bit flipped?
             if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
-            int all_positive = 1;
+            int all_positive;
             if (new_bit) all_positive = update_potentials(potentials, S_plus[i], S_plus_value[i], num_plus[i]);
             else all_positive = update_potentials(potentials, S_minus[i], S_minus_value[i], num_minus[i]);
             if (!all_positive && solver == OPTIMIZE) break;
@@ -249,21 +247,15 @@ state_t *ctg(
                 size_t *qtg_applications,
                 int depth_look_ahead,
                 solver_t solver,
-                char *store,
                 int64_t stop_val,
                 callback_t callback){
     state_t *new_sol = copy_state(cur_sol);
     int m_tot = 0;
     int n = cur_sol->vector.bits;
     int rounds = 0;
-    int iterations = 0;
     double c = 6. / 5;
 
     clock_t start = clock();
-
-    int initial_value = (int) cur_sol->tot_profit;
-
-    int state_feasible = quantum_feasibility2(con, new_sol, n + 1, false);
 
     int NTerms = obj->constraints[0].num_literals; // number terms
     // For the initial solution, determine the which objective terms are fulfilled
@@ -350,7 +342,6 @@ state_t *ctg(
     }
 
     // Start sampling after preprocessing
-    int UpdateCount = 0;
     while (m_tot < M){
         int m = ceil(pow(c, rounds));
         int j = rand() % (m + 1);
@@ -364,13 +355,12 @@ state_t *ctg(
             S_plus, S_plus_value, num_plus,
             S_minus, S_minus_value, num_minus,
             Indices, NumIndices, Fulfilled, forced,
-            depth_look_ahead, solver, store
+            depth_look_ahead, solver
         );
         if (res) {
             if (callback) {
                 callback(new_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
             }
-            UpdateCount++;
             m_tot = 0;
             rounds = 0;
             if((solver == SATISFY && cur_sol->tot_profit == con->num_constraints) || (new_sol->tot_profit >= stop_val && stop_val != -1)) {

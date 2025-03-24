@@ -17,10 +17,20 @@ class Model:
 		self.solver = SATISFY
 
 		self.runtime: float = 0
+		self.grover_iterations: int = 0
 		self.quantum_cycles: int = 0
 		self.objective_value: int = 0
 		self.final_state: state_py | None = None
 		self.improved : bool = False
+
+	def __str__(self):
+		if not self.improved:
+			return "No better solution found"
+		return f"""
+Found solution with Objective = {self.objective_value}
+using either {self.grover_iterations} grover iterations 
+or {self.runtime}s sampling
+		"""
 
 	def reset(self):
 		self.runtime: float = 0
@@ -60,7 +70,7 @@ class Model:
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
 
-	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1, callback = None) -> tuple[bool, int, int]:
+	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1, callback = None) -> None:
 		"""
 
 		:param M:
@@ -74,8 +84,12 @@ class Model:
 		if M == 0: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 
-		res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, "test/results.csv", stop_val, callback)
-		found = res[1].objective_value() != self.initial_state.objective_value()
-		if self.solver == SATISFY: found = res[1].objective_value() == len(self.constraint)
-		return found, res[0], res[1].objective_value()
+		res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)
+		self.improved = res[1].objective_value() != self.initial_state.objective_value()
+		if self.solver == SATISFY: self.improved = res[1].objective_value() == len(self.constraint)
 
+		self.objective_value = res[1].objective_value()
+		self.runtime = res[2]
+		self.grover_iterations = res[0]
+		self.quantum_cycles = res[0]
+		self.final_state = res[1]

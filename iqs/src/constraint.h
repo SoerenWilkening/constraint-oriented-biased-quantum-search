@@ -54,15 +54,15 @@ int eval_constraint2(constraint_t *con, state_t *assignment, int assigned, int c
 int quantum_feasibility2(constraint_list_t *con, state_t *assignment, int assigned, int close);
 int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int assigned, int close, int allowed_false);
 
-int64_t ObjVal(const state_t *state, const constraint_list_t *obj);
+int64_t ObjVal(state_t *state, constraint_list_t *obj);
 
 int64_t ChangedObjVal(  constraint_list_t *obj, // objective function
                             state_t *new, // new state
                             int NumChanges, // how many bits were flipped
-                            const int *ChangedBits, // which bits were flipped
-                            const int **Indices, // objective term indices involving every item
-                            const int *NumIndices, // in how many terms every item occours
-                            const int *Fulfilled, // are terms of objective fulfilled
+                            int *ChangedBits, // which bits were flipped
+                            int **Indices, // objective term indices involving every item
+                            int *NumIndices, // in how many terms every item occours
+                            int *Fulfilled, // are terms of objective fulfilled
                             int *ChangedTerms,
                             int *NumChangedTerms
                             );
