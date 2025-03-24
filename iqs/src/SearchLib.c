@@ -5,115 +5,6 @@
 #include "SearchLib.h"
 #include <time.h>
 
-int min(int a, int b){
-    return (a < b) ? a : b;
-}
-
-int compare(int64_t obj, int64_t thr, int sense) {
-    return obj * sense < thr *sense;
-}
-
-//void free_state(state_t *state, size_t numStates) {
-//    for (size_t i = 0; i < numStates; i++){
-//        sw_clear(state[i].vector);
-//        sw_clear(state[i].branch);
-//    }
-//    free(state);
-//}
-//
-//
-//state_t *init_state(int64_t ObjVal, const int *array, int n) {
-//    state_t *state = malloc(sizeof(state_t));
-//    state->tot_profit = ObjVal;
-//    state->prob = 1.;
-//    state->vector = sw_init(n);
-//    state->branch = sw_init(n);
-//    for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
-//    return state;
-//}
-//
-//state_t *copy_state(state_t *state){
-//    state_t *copy = malloc(sizeof(state_t));
-//    copy->tot_profit = state->tot_profit;
-//    copy->prob = state->prob;
-//    copy->vector = sw_set(state->vector);
-//    copy->branch = sw_set(state->branch);
-//    return copy;
-//}
-//
-//void print_state(state_t *state){
-//    printf("%lld %f ", state->tot_profit, state->prob);
-//    sw_print(state->vector);
-//}
-////
-////state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
-////    state_t *parent;
-////
-////    long double placeholder;
-////    size_t estimate = 5000000;
-////    parent = calloc(estimate, sizeof(state_t));
-////
-////    size_t count = 0;
-////
-////    for (int x = 0; x < num_files; x++){
-////        FILE *file = fopen(name[x], "r");
-////        if (!file) return NULL;
-////
-////        for (size_t i = 0; i < estimate; ++i) {
-////            if (fscanf(file, "%Lf ", &placeholder) != 1) {
-////                fclose(file);
-////                break;
-////            }
-////            parent[i].tot_profit = placeholder;
-////            parent[i].vector = sw_init(n);
-////            parent[i].branch = sw_init(n);
-////            for (int j = 0; j < n; ++j) {
-////                int assignment = 0, branching = 0;
-////                fscanf(file, "%d %d ", &assignment, &branching);
-////                if (assignment) { sw_setbit(parent[i].vector, j);}
-////                else { sw_clrbit(parent[i].vector, j);}
-////                if (branching) { sw_setbit(parent[i].branch, j); }
-////                else { sw_clrbit(parent[i].branch, j); }
-////            }
-////            if (count == estimate - 1) {
-////                // increase the size of parent, if necessary
-////                estimate *= 2;
-////                parent = realloc(parent, estimate * sizeof(state_t));
-////            }
-////            count++;
-////        }
-////    }
-////    *NumberStatesFinal = count;
-////    parent = realloc(parent, count * sizeof(state_t));
-////    return parent;
-////}
-////
-////state_t *updated(state_t *bnb, size_t number_states,
-////                size_t *new_number, state_t *threshold, int sense) {
-////    state_t *up = calloc(number_states, sizeof(state_t));
-////    size_t a = 0;
-////    double total = 0;
-////
-////    for (size_t i = 0; i < number_states; ++i) {
-////        if (compare(bnb[i].tot_profit, threshold->tot_profit, sense)) {
-////            up[a].tot_profit = bnb[i].tot_profit;
-////            up[a].vector = sw_set(bnb[i].vector);
-////            up[a].branch = sw_set(bnb[i].branch);
-////            StateProbability(&up[a], threshold);
-////
-////            total += up[a].prob;
-////            a++;
-////        }
-////    }
-////    *new_number = a;
-////    if (a == 0) {
-////        free_state(up, number_states);
-////        return NULL;
-////    }
-////    up = realloc(up, a * sizeof(state_t));
-////    return up;
-////}
-
 size_t sampling(const double *probs, size_t numStates) {
     double random = (double) (rand() % 1234567) / 1234567;
     double cumulated = 0;
@@ -173,7 +64,7 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
     return NULL;
 }
 
-int evaluation(const long double *potentials, const int* S, const long double *S_value, int num){
+int evaluation(const int64_t *potentials, const int* S, const int64_t *S_value, int num){
     int eval = 1;
     // check, if assignment does not exceed potentials
     for (int k = 0; k < num; k++){
@@ -186,7 +77,7 @@ int evaluation(const long double *potentials, const int* S, const long double *S
     return eval;
 }
 
-int update_potentials(long double *potentials, const int *S, const long double *S_value, int num){
+int update_potentials(int64_t *potentials, const int *S, const int64_t *S_value, int num){
     int all_positive = 1;
     for (int k = 0; k < num; k++){
         potentials[S[k]] -= abs(S_value[k]);
@@ -198,7 +89,7 @@ int update_potentials(long double *potentials, const int *S, const long double *
     return all_positive;
 }
 
-int invert_update_potentials(long double *potentials, const int *S, const long double *S_value, int num){
+int invert_update_potentials(int64_t *potentials, const int *S, const int64_t *S_value, int num){
     int all_positive = 1;
     for (int k = 0; k < num; k++){
         potentials[S[k]] += abs(S_value[k]);
@@ -208,9 +99,9 @@ int invert_update_potentials(long double *potentials, const int *S, const long d
 
 
 // look ahead to evaluate all possible solutions from certain position up to certain depth
-int look_ahead( int index, int next_assignment, int depth, int *count_solutions, long double *potentials,
-                const int **S_plus, const long double **S_plus_value, const int *num_plus,
-                const int **S_minus, const long double **S_minus_value, const int *num_minus){
+int look_ahead( int index, int next_assignment, int depth, int *count_solutions, int64_t *potentials,
+                const int **S_plus, const int64_t **S_plus_value, const int *num_plus,
+                const int **S_minus, const int64_t **S_minus_value, const int *num_minus){
     int all_positive = 1;
     // check, if assignment does not exceed potentials
     int bool_ = 1;
@@ -236,13 +127,13 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
 
 int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             const constraint_list_t *con, const constraint_list_t *obj,
-            const int **S_plus, const long double **S_plus_value, const int *num_plus,
-            const int **S_minus, const long double **S_minus_value, const int *num_minus,
+            const int **S_plus, const int64_t **S_plus_value, const int *num_plus,
+            const int **S_minus, const int64_t **S_minus_value, const int *num_minus,
             const int **Indices, int *NumIndices, int *Fulfilled, int **forced,
             int depth_look_ahead, solver_t solver, char *store
             ){
     // potentials for every constraint
-    long double potentials[con->num_constraints];
+    int64_t potentials[con->num_constraints];
 
     for(int l = 0; l < 4 * j * j; l++){
         // Store which bit from the previous solution is flipped
@@ -321,7 +212,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         // if the previous loop broke earlier, determine all bit changes
         for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;
 
-        long double val = 0;
+        int64_t val = 0;
         int as1 = true;
         if (solver == OPTIMIZE) as1 = quantum_feasibility2(con, new_sol, n + 1, false);
 
@@ -355,11 +246,11 @@ state_t *ctg(
                 constraint_list_t *con,
                 constraint_list_t *obj,
                 int M,
-                int *qtg_applications,
+                size_t *qtg_applications,
                 int depth_look_ahead,
                 solver_t solver,
                 char *store,
-                long double stop_val){
+                int64_t stop_val){
     state_t *new_sol = copy_state(cur_sol);
     int m_tot = 0;
     int n = cur_sol->vector.bits;
@@ -377,11 +268,10 @@ state_t *ctg(
     for (int terms = 0; terms < NTerms; terms++){
         int assign = 1;
         // if any item of the term is unassigned, the term is not fulfilled
-        for (int item = 1; item < obj->constraints[0].literals[terms].len_literal; item++){
-            if (!sw_tstbit(cur_sol->vector, (int) obj->constraints[0].literals[terms].literal[item]))
+        for (int item = 0; item < obj->constraints[0].literals[terms].len_literal - 1; item++){
+            if (!sw_tstbit(cur_sol->vector, (int) obj->constraints[0].literals[terms].variables[item]))
                 assign = 0;
         }
-//        Fulfilled[terms] = assign * state_feasible;
         Fulfilled[terms] = assign;
     }
 
@@ -394,8 +284,8 @@ state_t *ctg(
         // test every term, if it contains the item
         for (int terms = 0; terms < NTerms; terms++){
             // check every literal of the term if it is the respective item
-            for (int lits = 1; lits < obj->constraints[0].literals[terms].len_literal; lits++){
-                if (obj->constraints[0].literals[terms].literal[lits] == item){
+            for (int lits = 0; lits < obj->constraints[0].literals[terms].len_literal - 1; lits++){
+                if (obj->constraints[0].literals[terms].variables[lits] == item){
                     Indices[item][NumIndices[item]++] = terms;
                     break;
                 }
@@ -425,33 +315,33 @@ state_t *ctg(
     int **S_minus = calloc(n, sizeof(int *));
     for (int i = 0; i < n; i++) S_minus[i] = calloc(con->num_constraints, sizeof(int));
 
-    long double **S_plus_value = calloc(n, sizeof(long double *));
-    for (int i = 0; i < n; i++) S_plus_value[i] = calloc(con->num_constraints, sizeof(long double));
-    long double **S_minus_value = calloc(n, sizeof(long double *));
-    for (int i = 0; i < n; i++) S_minus_value[i] = calloc(con->num_constraints, sizeof(long double));
+    int64_t **S_plus_value = calloc(n, sizeof(long double *));
+    for (int i = 0; i < n; i++) S_plus_value[i] = calloc(con->num_constraints, sizeof(int64_t));
+    int64_t **S_minus_value = calloc(n, sizeof(long double *));
+    for (int i = 0; i < n; i++) S_minus_value[i] = calloc(con->num_constraints, sizeof(int64_t));
 
     for (int item = 0; item < n; item++){
         for (int i = 0; i < con->num_constraints; i++){
             for (int j = 0; j < con->constraints[i].num_literals; j++){
                 // only linear constraints
-                if (con->constraints[i].literals[j].literal[1] == item){
-                    if (con->constraints[i].literals[j].literal[0] < 0) {
-                        S_minus_value[item][num_minus[item]] = con->constraints[i].literals[j].literal[0];
+                if (con->constraints[i].literals[j].variables[0] == item){
+                    if (con->constraints[i].literals[j].factor < 0) {
+                        S_minus_value[item][num_minus[item]] = con->constraints[i].literals[j].factor;
                         S_minus[item][num_minus[item]++] = i;
                     }
                     else {
-                        S_plus_value[item][num_plus[item]] = con->constraints[i].literals[j].literal[0];
+                        S_plus_value[item][num_plus[item]] = con->constraints[i].literals[j].factor;
                         S_plus[item][num_plus[item]++] = i;
                     }
                     break;
                 }
                 // literals are sorted by ascending item index
-                if (con->constraints[i].literals[j].literal[1] > item) break;
+                if (con->constraints[i].literals[j].variables[0] > item) break;
             }
 
             // determine if the last literal of a constraint would be forced based on the remaining constraint
             int last_literal = con->constraints[i].num_literals - 1;
-            int last_item = con->constraints[i].literals[last_literal].literal[1];
+            int last_item = con->constraints[i].literals[last_literal].variables[0];
             if ((con->constraints[i].sense == EQUAL) && (item == last_item)){
                 forced[0][item] = 1;
                 forced[1][item] = i;
@@ -461,9 +351,7 @@ state_t *ctg(
 
     // Start sampling after preprocessing
     int UpdateCount = 0;
-//    printf("number = %d\n", con->num_constraints);
     while (m_tot < M){
-//    for(int i = 0; i < 1; i++){
         int m = ceil(pow(c, rounds));
         int j = rand() % (m + 1);
         m_tot += 2 * j + 1;
@@ -479,7 +367,6 @@ state_t *ctg(
             depth_look_ahead, solver, store
         );
         if (res) {
-//            printf("initial = %d\n", initial_value);
             FILE *inbetween = fopen(store, "a");
             fprintf(inbetween, "%.0Lf,%zu,%d,qae_estimate\n", new_sol->tot_profit, *qtg_applications, initial_value);
             fflush(inbetween);

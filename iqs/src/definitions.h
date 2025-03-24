@@ -2,7 +2,9 @@
 #define TYPEDEFS_H
 
 
-//# define constants
+// define constants
+//#define UNDEFINED -2
+
 #define MINIMIZE 1
 #define MAXIMIZE -1
 
@@ -22,13 +24,5 @@
 #define MIN(a,b)                ((a) < (b) ? (a) : (b))
 #define false 0
 #define true 1
-
-//#define minimize 1
-//#define maximize (-1)
-//#define lessequal -1
-//#define equal 0
-//#define greaterequal 1
-
-//#define undetermined 2
 
 #endif

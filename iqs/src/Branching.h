@@ -36,6 +36,8 @@ void set_constraint_dependence(double *dependence, int n);
 double BranchingFunction(int index, int bit_S, int bit_T, int diffcount);
 
 double StateProbability(state_t *state, state_t *threshold);
+
+state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense);
 /* TODO:
      -> all the other branching rules
 */

@@ -1,12 +1,12 @@
 from .Expression import Variable, Expression
 from .Constants import *
-from .SearchLib import state_py
+from .SearchLib import state_py, constraints
 
 class Model:
 
 	def __init__(self):
-		self.objective: Expression | None = None
-		self.constraint: Expression | None = None
+		self.objective: constraints  = constraints()
+		self.constraint: constraints = constraints()
 
 		self.n: int = 0
 		self.variables = {}
@@ -28,13 +28,13 @@ class Model:
 
 		return x
 
-	def set_objective(self, objective: Expression | int | None = None) -> None:
-		self.objective = objective.sum_constants_in_expression()
-		print(self.objective.index_list())
+	def set_objective(self, objective: Expression | int | None = None, sense : int = MAXIMIZE) -> None:
+		if sense not in [MINIMIZE, MAXIMIZE]:
+			raise TypeError
+		self.objective += objective.sum_constants_in_expression().index_list() + [sense, 0]
 
 	def add_constraint(self, constraint: Expression | int | None = None) -> None:
-		self.constraint = constraint.sum_constants_in_expression()
-		print(self.constraint.index_list())
+		self.constraint += constraint.sum_constants_in_expression().index_list()
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
