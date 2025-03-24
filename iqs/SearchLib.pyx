@@ -146,9 +146,9 @@ def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int a, size_t b):
+cdef void my_callback_c(int a, size_t b, double c):
 	if python_callback is not None:
-		python_callback(a, b)
+		python_callback(a, b, c)
 
 # python function to store the callback
 cdef object python_callback = None

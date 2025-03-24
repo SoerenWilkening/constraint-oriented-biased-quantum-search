@@ -14,7 +14,7 @@ cdef extern from "src/intarray.h":
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
-	ctypedef void (*callback_t)(int, size_t)
+	ctypedef void (*callback_t)(int, size_t, double)
 
 	ctypedef struct state_t:
 		int64_t tot_profit

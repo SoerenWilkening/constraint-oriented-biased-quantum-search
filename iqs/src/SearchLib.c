@@ -259,6 +259,8 @@ state_t *ctg(
     int iterations = 0;
     double c = 6. / 5;
 
+    clock_t start = clock();
+
     int initial_value = (int) cur_sol->tot_profit;
 
     int state_feasible = quantum_feasibility2(con, new_sol, n + 1, false);
@@ -293,9 +295,6 @@ state_t *ctg(
             }
         }
     }
-
-    clock_t start, end;
-    double time_prep = 0, time_obj = 0, time_obj2 = 0;
 
     // preprocess the constraints for usage in the sampling routine
     // go through every item and collect all the constraint indices containing the items
@@ -368,7 +367,9 @@ state_t *ctg(
             depth_look_ahead, solver, store
         );
         if (res) {
-            if (callback) callback(new_sol->tot_profit, *qtg_applications);
+            if (callback) {
+                callback(new_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
+            }
             UpdateCount++;
             m_tot = 0;
             rounds = 0;

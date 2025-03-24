@@ -16,6 +16,19 @@ class Model:
 
 		self.solver = SATISFY
 
+		self.runtime: float = 0
+		self.quantum_cycles: int = 0
+		self.objective_value: int = 0
+		self.final_state: state_py | None = None
+		self.improved : bool = False
+
+	def reset(self):
+		self.runtime: float = 0
+		self.quantum_cycles: int = 0
+		self.objective_value: int = 0
+		self.final_state: state_py | None = None
+		self.improved: bool = False
+
 	def add_variable(self, index: int = 0, name: str = "x") -> Variable:
 		x = Variable(max(index, self.n), f"{name}{max(index, self.n)})")
 		self.variables[max(index, self.n)] = x
