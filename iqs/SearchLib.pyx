@@ -142,12 +142,39 @@ def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 
 	return res, iterations, rounds
 
-def run_ctg(initial: state_py, con: constraints, obj: constraints, M: int, depth_look_ahead: int, solver: int, store: str, int64_t stop_val):
+
+# define callback functionality ===============================
+
+# Python-compatible C wrapper
+cdef void my_callback_c(int a, size_t b):
+	if python_callback is not None:
+		python_callback(a, b)
+
+# python function to store the callback
+cdef object python_callback = None
+
+def run_ctg(
+		initial: state_py,
+		con: constraints,
+		obj: constraints,
+		M: int,
+		depth_look_ahead: int,
+		solver: int,
+		store: str,
+		int64_t stop_val,
+		object callback):
+
 	cdef size_t qtg_applications = 0;
+	global python_callback
+	python_callback = callback
+
+	# python callback to c callback
+	cdef callback_t cb_ptr = <callback_t> my_callback_c
+
 	# BranchingStats.bias = bias
 	cur_sol : state_py = copy(initial)
 	t1 = time()
-	ctg(cur_sol.state, con.pointer, obj.pointer, M, &qtg_applications, depth_look_ahead, solver, store.encode('utf-8'), stop_val)
+	ctg(cur_sol.state, con.pointer, obj.pointer, M, &qtg_applications, depth_look_ahead, solver, store.encode('utf-8'), stop_val, cb_ptr)
 	t = time() - t1
 	cur_sol.get_x()
 

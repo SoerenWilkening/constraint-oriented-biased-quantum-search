@@ -47,7 +47,7 @@ class Model:
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
 
-	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1) -> bool:
+	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1, callback = None) -> tuple[bool, int, int]:
 		"""
 
 		:param M:
@@ -61,9 +61,8 @@ class Model:
 		if M == 0: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 
-		res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, "test/results.csv", stop_val)
+		res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, "test/results.csv", stop_val, callback)
 		found = res[1].objective_value() != self.initial_state.objective_value()
 		if self.solver == SATISFY: found = res[1].objective_value() == len(self.constraint)
-		print(self.solver, SATISFY, OPTIMIZE)
 		return found, res[0], res[1].objective_value()
 

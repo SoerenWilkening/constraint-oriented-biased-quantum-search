@@ -14,6 +14,8 @@ cdef extern from "src/intarray.h":
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
+	ctypedef void (*callback_t)(int, size_t)
+
 	ctypedef struct state_t:
 		int64_t tot_profit
 		double prob
@@ -27,7 +29,7 @@ cdef extern from "src/SearchLib.h":
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M)
-	state_t *ctg(state_t *cur_sol, constraint_list_t *con, constraint_list_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, char *store, int64_t stop_val)
+	state_t *ctg(state_t *cur_sol, constraint_list_t *con, constraint_list_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, char *store, int64_t stop_val, callback_t callback)
 
 cdef extern from "src/constraint.h":
 	int true
