@@ -1,0 +1,87 @@
+#include "Expression.h"
+
+expression_t *init_expression(){
+    expression_t *expr = malloc(sizeof(expression_t));
+    memset(expr->len_literal, 0, size * sizeof(int));
+    memset(expr->literals, 0, 3 * size * sizeof(int));
+    expr->expr_size = 0;
+    return expr;
+}
+
+
+void add_constant(expression_t *expr, int64_t constant){
+    for (int i = 0; i < expr->expr_size; i++){
+        if (expr->len_literal[i] == 1){
+            expr->literals[i][0] += constant;
+            return;
+        }
+    }
+
+    expr->literals[expr->expr_size][0] = constant;
+    expr->len_literal[expr->expr_size]++;
+    expr->expr_size++;
+}
+
+void add_variable(expression_t *expr, int64_t index){
+    expr->literals[expr->expr_size][0] = 1;
+    expr->literals[expr->expr_size][1] = index;
+    expr->len_literal[expr->expr_size] += 2;
+    expr->expr_size++;
+}
+
+void add_expression(expression_t *expr1, expression_t *expr2){
+    for (int i = 0; i < expr2->expr_size; i++){
+        for (int j = 0; j < expr2->len_literal[i]; j++){
+            expr1->literals[expr1->expr_size][j] = expr2->literals[i][j];
+        }
+        expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
+       expr1->expr_size++;
+    }
+    free(expr2);
+}
+
+void sub_constant(expression_t *expr, int64_t constant){
+    for (int i = 0; i < expr->expr_size; i++){
+        if (expr->len_literal[i] == 1){
+            expr->literals[i][0] -= constant;
+            return;
+        }
+    }
+
+    expr->literals[expr->expr_size][0] = -constant;
+    expr->len_literal[expr->expr_size]++;
+    expr->expr_size++;
+}
+
+void sub_variable(expression_t *expr, int64_t index){
+    expr->literals[expr->expr_size][0] = -1;
+    expr->literals[expr->expr_size][1] = index;
+    expr->len_literal[expr->expr_size] += 2;
+    expr->expr_size++;
+}
+
+void sub_expression(expression_t *expr1, expression_t *expr2){
+    for (int i = 0; i < expr2->expr_size; i++){
+        expr1->literals[expr1->expr_size][0] = -1 * expr2->literals[i][0];
+        for (int j = 1; j < expr2->len_literal[i]; j++){
+            expr1->literals[expr1->expr_size][j] = expr2->literals[i][j];
+        }
+        expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
+        expr1->expr_size++;
+    }
+    free(expr2);
+}
+
+void multiply_constant(expression_t *expr, int64_t constant){
+    for (int i = 0; i < expr->expr_size; i++){
+        expr->literals[i][0] *= constant;
+    }
+}
+
+void multiply_variable(expression_t *expr, int64_t index){
+    for (int i = 0; i < expr->expr_size; i++){
+        expr->literals[i][expr->len_literal[i]++] = index;
+    }
+}
+
+// maybe no need to implement "multiply_expression"

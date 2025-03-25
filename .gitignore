@@ -4,3 +4,5 @@ venv
 iqs/*.c
 iqs/*.so
 build
+iqs/src/test
+iqs/src/test.c
