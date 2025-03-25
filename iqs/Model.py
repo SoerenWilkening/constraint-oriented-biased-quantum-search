@@ -1,7 +1,7 @@
 from .Expression import Variable, Expression
 from .Constants import *
-from .SearchLib import state_py, constraints, run_ctg
-import os
+from .SearchLib import state_py, constraints, run_ctg, set_seed
+from time import time
 
 class Model:
 
@@ -58,7 +58,7 @@ or {self.runtime}s sampling
 		if sense not in [MINIMIZE, MAXIMIZE]:
 			raise TypeError
 		self.solver = OPTIMIZE
-
+		# print(objective.merge_expression_terms().index_list())
 		expr = objective.merge_expression_terms().index_list() + [sense, 0]
 
 		self.objective += expr
@@ -78,6 +78,7 @@ or {self.runtime}s sampling
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
+		set_seed(time())
 		if self.solver == SATISFY: self.objective += [[0], MAXIMIZE, 0]
 
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)

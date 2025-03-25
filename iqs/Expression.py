@@ -1,4 +1,5 @@
 from .Constants import *
+import numpy as np
 
 class Variable:
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
@@ -13,43 +14,75 @@ class Variable:
 
 	def __add__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[other], [1, self]])
-		if isinstance(other, Variable): return Expression([[1, self], [1, other]])
+		if isinstance(other, int):
+			expr = Expression(other)
+			expr.expression[1] = [1, self]
+			expr.length += 1
+			return expr
+			# return Expression([[other], [1, self]])
+		if isinstance(other, Variable):
+			expr = Expression([1, self])
+			expr.expression[1] = [1, other]
+			expr.length += 1
+			return expr
 		if isinstance(other, Expression):
-			other.expression.append([1, self])
+			other.expression[other.length] = [1, self]
+			other.length += 1
 			return other
 
 	def __radd__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[other], [1, self]])
+		if isinstance(other, int):
+			expr = Expression([other])
+			expr.expression[1] = [1, self]
+			expr.length += 1
+			return expr
+			# return Expression([[other], [1, self]])
 
 	def __sub__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[-other], [1, self]])
+		if isinstance(other, int):
+			expr = Expression([-other])
+			expr.expression[1] = [1, self]
+			expr.length += 1
+			return expr
+			# return Expression([[-other], [1, self]])
 		if isinstance(other, Variable): return Expression([[1, self], [-1, other]])
 
 	def __rsub__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[other], [-1, self]])
+		if isinstance(other, int):
+			expr = Expression([other])
+			expr.expression[1] = [-1, self]
+			expr.length += 1
+			return expr
+			# return Expression([[other], [-1, self]])
 
 	def __mul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[other, self]])
-		if isinstance(other, Variable): return Expression([[1, self, other]])
-		if isinstance(other, Expression):
-			for i in range(len(other.expression)):
-				other.expression[i].append(self)
-			return other
+		if isinstance(other, int): return Expression([other, self])
+		if isinstance(other, Variable): return Expression([1, self, other])
+		# if isinstance(other, Expression):
+		# 	for i in range(len(other)):
+		# 		other.expression[i].append(self)
+		# 	return other
 
 	def __rmul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
-		if isinstance(other, int): return Expression([[other, self]])
+		if isinstance(other, int): return Expression([other, self])
 
 class Expression:
-	def __init__(self, literal_1):
-		self.expression = literal_1
+
+	# TODO:
+	#  dont use append to save time
+	def __init__(self, literal):
+		self.expression = [0 for _ in range(100_000)]
+		self.length = 1
+		self.expression[0] = literal
+
 
 	def __str__(self):
+		# print(self.expression)
 		for i in self:
 			print("[", end="")
 			for j in i:
@@ -65,36 +98,48 @@ class Expression:
 	def __add__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			self.expression.append([other])
+			self.expression[self.length] = [other]
+			self.length += 1
 			return self
 		if isinstance(other, Variable):
-			self.expression.append([1, other])
+			self.expression[self.length] = [1, other]
+			self.length += 1
 			return self
 		if isinstance(other, Expression):
+			# print("add expression")
 			for i in other:
-				self.expression.append(i)
+				# print(i)
+				self.expression[self.length] = i
+				self.length += 1
+				# self.expression.append(i)
 			return self
 
 	def __radd__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			self.expression.append([other])
+			self.expression[self.length] = [other]
+			self.length += 1
 			return self
 		if isinstance(other, Variable):
-			self.expression.append([1, other])
+			self.expression[self.length] = [1, other]
+			self.length += 1
 			return self
 		if isinstance(other, Expression):
+			# print("add expression")
 			for i in other:
-				self.expression.append(i)
+				# print(i)
+				self.expression[self.length] = i
+				self.length += 1
+			# self.expression.append(i)
 			return self
 
 	def __mul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			for i in range(len(self.expression)):
+			for i in range(len(self)):
 				self.expression[i][0] *= other
 		if isinstance(other, Variable):
-			for i in range(len(self.expression)):
+			for i in range(len(self)):
 				self.expression[i].append(other)
 			return self
 		if isinstance(other, Expression):
@@ -103,37 +148,42 @@ class Expression:
 	def __le__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			self.expression.append(LOWER)
-			self.expression.append(other)
+			self.expression[self.length] = LOWER
+			self.expression[self.length + 1] = other
+			self.length += 2
 			return self
 
 	def __ge__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			self.expression.append(GREATER)
-			self.expression.append(other)
+			self.expression[self.length] = GREATER
+			self.expression[self.length + 1] = other
+			self.length += 2
 			return self
 
 	def __eq__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			self.expression.append(EQUAL)
-			self.expression.append(other)
+			self.expression[self.length] = EQUAL
+			self.expression[self.length + 1] = other
+			self.length += 2
 			return self
 
 	def __iter__(self):
 		return (i for i in self.expression if not isinstance(i, int))
 
 	def __len__(self):
-		return len([i for i in self.expression if not isinstance(i, int)])
+		return self.length
+		# return len([i for i in self.expression if not isinstance(i, int)])
 
 	def merge_expression_terms(self):
+		self.expression = self.expression[:self.length]
 		pop_it = False
 		constant_index = 0
 		# sum all the constant factors
 		try:
 			for i in range(len(self)):
-				if len(self.expression[i]) == 1:
+				if self.literaL_length[i] == 1:
 					if pop_it:
 						self.expression[constant_index][0] += self.expression[i][0]
 						self.expression.pop(i)
@@ -183,6 +233,7 @@ class Expression:
 
 		potential = 0
 		for i in self:
+			# print(i)
 			if i[0] < 0: potential -= i[0]
 		self.expression[-1] += potential
 
