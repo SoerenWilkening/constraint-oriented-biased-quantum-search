@@ -156,7 +156,7 @@ cdef class Expression2:
 
 	def __str__(self):
 		for i in range(self.expr[0].expr_size):
-			print(self.expr[0].literals[i][0], self.expr[0].literals[i][1], self.expr[0].literals[i][2])
+			print(self.expr[0].literals[3 * i + 0], self.expr[0].literals[3 * i + 1], self.expr[0].literals[3 * i + 2])
 		return ""
 
 	cdef add_expr(self, other: Expression2):

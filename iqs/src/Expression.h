@@ -9,7 +9,7 @@
 //#define size 500000
 
 typedef struct{
-    int64_t literals[100000][3];
+    int64_t literals[100000 * 3];
     int len_literal[100000];
     int expr_size;
 } expression_t;
