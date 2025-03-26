@@ -8,9 +8,9 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
 extensions = [
-	Extension("iqs.Constants",["iqs/Constants.py"]),
-	Extension("iqs.Expression",["iqs/Expression.py"]),
-	Extension("iqs.Model",["iqs/Model.py"]),
+	Extension("iqs.Constants", ["iqs/Constants.py"]),
+	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"]),
+	Extension("iqs.Model", ["iqs/Model.py"]),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
 	           os.path.join("iqs", "src", "SearchLib.c"),
@@ -39,9 +39,9 @@ extensions = [
 
 setup(
 	name = 'iqs',
-	packages=find_packages(),
-	package_data={'QAE_solver.generators': ['main.m']},
-	include_package_data=True,  # Include package data
+	packages = find_packages(),
+	package_data = {'QAE_solver.generators': ['main.m']},
+	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions, compiler_directives = {'language_level': "3"})
+	ext_modules = cythonize(extensions)
 )

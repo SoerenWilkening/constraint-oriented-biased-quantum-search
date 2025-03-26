@@ -6,11 +6,11 @@
 #include <string.h>
 #include "definitions.h"
 
-#define size 500000
+//#define size 500000
 
 typedef struct{
-    int64_t literals[size][3];
-    int len_literal[size];
+    int64_t literals[100000][3];
+    int len_literal[100000];
     int expr_size;
 } expression_t;
 
