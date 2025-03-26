@@ -2,11 +2,13 @@ from libc.stdint cimport int64_t
 
 cdef extern from "src/Expression.h":
 	ctypedef struct expression_t:
-		int64_t literals[100000 * 3];
-		int len_literal[100000];
+		int64_t *literals;
+		int *len_literal;
 		int expr_size;
 
 	expression_t *init_expression();
+	void free_expression(expression_t *expr);
+	void merge_expression(expression_t *expr);
 
 	void add_constant(expression_t *expr, int64_t constant);
 	void add_variable(expression_t *expr, int64_t index);

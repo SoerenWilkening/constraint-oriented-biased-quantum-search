@@ -99,6 +99,9 @@ cdef class state_py:
 		self.state = init_state(ObjVal, ptr, arr.shape[0])
 		free(<void *>ptr)
 
+	def __init__(self, ObjVal, array):
+		pass
+
 	def load(self, file):
 		f = open(file, "r").read().split()
 		return state_py(float(f[0]), list(map(int, f[1:])))
@@ -121,6 +124,13 @@ cdef class state_py:
 
 	def objective_value(self):
 		return self.objval
+
+	def integer_liste(self):
+		step = [[
+			self.state[0].vector.part[i] & 0xFFFFFFFF,
+			(self.state[0].vector.part[i] >> 32) & 0xFFFFFFFF
+		] for i in range(self.state[0].vector.n)]
+		return [j for i in step for j in i]
 
 	def assignment(self):
 		return list(self.arr)

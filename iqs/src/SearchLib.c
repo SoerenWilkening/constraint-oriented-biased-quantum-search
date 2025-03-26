@@ -133,6 +133,8 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
     // potentials for every constraint
     int64_t potentials[con->num_constraints];
 
+//    printf("bias = %f\n", BranchingStats.bias);
+
     for(int l = 0; l < 4 * j * j; l++){
         // Store which bit from the previous solution is flipped
         int NumChanges = 0;
@@ -167,7 +169,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 count[1] = bool_plus;
             }
             // when both assignments dont lead to a feasible solution: break
-            if (count[0] == 0 && count[1] == 0  && solver == OPTIMIZE) break;
+//            if (count[0] == 0 && count[1] == 0  && solver == OPTIMIZE) break;
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
@@ -194,7 +196,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             // we are forced to go left
             if (forced[0][i] && potentials[forced[1][i]] == 1.){
                 // but if right don't lead to feasible solution: break
-                if (count[1] == 0 && solver == OPTIMIZE) break;
+//                if (count[1] == 0 && solver == OPTIMIZE) break;
                 sw_setbit(new_sol->vector, i);
                 new_bit = 1;
             }
@@ -205,7 +207,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             int all_positive;
             if (new_bit) all_positive = update_potentials(potentials, S_plus[i], S_plus_value[i], num_plus[i]);
             else all_positive = update_potentials(potentials, S_minus[i], S_minus_value[i], num_minus[i]);
-            if (!all_positive && solver == OPTIMIZE) break;
+//            if (!all_positive && solver == OPTIMIZE) break;
         }
         // if the previous loop broke earlier, determine all bit changes
         for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;

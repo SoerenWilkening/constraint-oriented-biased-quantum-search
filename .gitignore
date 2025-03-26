@@ -6,3 +6,4 @@ iqs/*.so
 build
 iqs/src/test
 iqs/src/test.c
+cmake-build-debug

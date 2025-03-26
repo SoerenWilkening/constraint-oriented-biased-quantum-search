@@ -1,76 +1,6 @@
 from .Constants import *
 import numpy as np
 
-# class Variable:
-# 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
-# 		self.vtype = vtype
-# 		self.index = index
-# 		self.name = name
-# 		if name == "__": self.name = f"x{index}"
-# 		self.lb, self.ub = lb, ub
-#
-# 	def __str__(self):
-# 		return f"{self.name}"
-#
-# 	def __add__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int):
-# 			expr = Expression(other)
-# 			expr.expression[1] = [1, self]
-# 			expr.length += 1
-# 			return expr
-# 			# return Expression([[other], [1, self]])
-# 		if isinstance(other, Variable):
-# 			expr = Expression([1, self])
-# 			expr.expression[1] = [1, other]
-# 			expr.length += 1
-# 			return expr
-# 		if isinstance(other, Expression):
-# 			other.expression[other.length] = [1, self]
-# 			other.length += 1
-# 			return other
-#
-# 	def __radd__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int):
-# 			expr = Expression([other])
-# 			expr.expression[1] = [1, self]
-# 			expr.length += 1
-# 			return expr
-# 			# return Expression([[other], [1, self]])
-#
-# 	def __sub__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int):
-# 			expr = Expression([-other])
-# 			expr.expression[1] = [1, self]
-# 			expr.length += 1
-# 			return expr
-# 			# return Expression([[-other], [1, self]])
-# 		if isinstance(other, Variable): return Expression([[1, self], [-1, other]])
-#
-# 	def __rsub__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int):
-# 			expr = Expression([other])
-# 			expr.expression[1] = [-1, self]
-# 			expr.length += 1
-# 			return expr
-# 			# return Expression([[other], [-1, self]])
-#
-# 	def __mul__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int): return Expression([other, self])
-# 		if isinstance(other, Variable): return Expression([1, self, other])
-# 		# if isinstance(other, Expression):
-# 		# 	for i in range(len(other)):
-# 		# 		other.expression[i].append(self)
-# 		# 	return other
-#
-# 	def __rmul__(self, other):
-# 		if isinstance(other, float): raise TypeError("Not allowed type!")
-# 		if isinstance(other, int): return Expression([other, self])
-
 class Variable:
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
 		self.vtype = vtype
@@ -150,9 +80,13 @@ class Variable:
 
 cdef class Expression2:
 	cdef expression_t *expr
+	cdef int sense
+	cdef int rhs
 
 	def __cinit__(self):
 		self.expr = <expression_t *> init_expression()
+		self.sense = -2
+		self.rhs = -2
 
 	def __str__(self):
 		for i in range(self.expr[0].expr_size):
@@ -161,6 +95,44 @@ cdef class Expression2:
 
 	cdef add_expr(self, other: Expression2):
 		add_expression(<expression_t *> self.expr, <expression_t *> other.expr)
+
+	def merge(self):
+		merge_expression(self.expr)
+		return self
+
+	cdef c_liste(self):
+		l = [
+			[self.expr[0].literals[3 * j + i] for i in range(self.expr[0].len_literal[j])]
+			for j in range(self.expr[0].expr_size) if self.expr[0].len_literal[j] != 0
+		]
+		if self.sense != -2:
+			l += [self.sense, self.rhs]
+		return l
+
+	def linear_vector_form(self, n):
+		array = [0] * n
+		for i in range(self.expr[0].expr_size):
+			if self.expr[0].len_literal[i] == 2:
+				index = self.expr[0].literals[3 * i + 1]  # linear terms occupy the diagonal matrix entries
+				array[index] = self.expr[0].literals[3 * i]
+		return array
+
+	def linear_matrix_form(self, n):
+		array = [0] * n * n
+		for i in range(self.expr[0].expr_size):
+			if self.expr[0].len_literal[i] == 2:
+				index = self.expr[0].literals[3 * i + 1] # linear terms occupy the diagonal matrix entries
+				array[n * index + index] = self.expr[0].literals[3 * i]
+
+			if self.expr[0].len_literal[i] == 3:
+				index1 = self.expr[0].literals[3 * i + 1]
+				index2 = self.expr[0].literals[3 * i + 2]
+				array[n * index2 + index1] = self.expr[0].literals[3 * i]
+
+		return array
+
+	def __iter__(self):
+		return self.c_liste().__iter__()
 
 	def __add__(self, other):
 		# cdef expression_t *temp
@@ -205,6 +177,50 @@ cdef class Expression2:
 		if isinstance(other, Variable):
 			multiply_variable(self.expr, other.index)
 			return self
+
+	def __le__(self, other):
+		if isinstance(other, float): raise TypeError("Not allowed type!")
+		if isinstance(other, int):
+			self.sense = LOWER
+			self.rhs = other
+			return self
+
+	def __ge__(self, other):
+		if isinstance(other, float): raise TypeError("Not allowed type!")
+		if isinstance(other, int):
+			potential = 0
+
+			multiply_constant(self.expr, -1)
+			# negate_expression(self.expr)
+			for i in range(self.expr[0].expr_size):
+				if self.expr[0].literals[3 * i] < 0:
+					potential -= self.expr[0].literals[3 * i]
+
+			self.sense = LOWER # originally GREATER
+			self.rhs = -other + potential
+			return self
+
+	def __eq__(self, other):
+		if isinstance(other, float): raise TypeError("Not allowed type!")
+		if isinstance(other, int):
+			self.sense = EQUAL
+			self.rhs = other
+			return self
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class Expression:
