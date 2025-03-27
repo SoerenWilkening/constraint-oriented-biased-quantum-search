@@ -11,6 +11,12 @@ extensions = [
 	Extension("iqs.Constants", ["iqs/Constants.py"]),
 	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"]),
 	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx"]),
+	Extension("iqs.generators", [
+		os.path.join("iqs", "generators", "c_ilp_generator.py"),
+		os.path.join("iqs", "generators", "c_sat_generator.py"),
+		os.path.join("iqs", "generators", "metal_sat_generator.py"),
+		os.path.join("iqs", "generators", "metal_ilp_generator.py"),
+	]),
 	Extension("iqs.Model", ["iqs/Model.py"]),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
@@ -25,7 +31,8 @@ extensions = [
 setup(
 	name = 'iqs',
 	packages = find_packages(),
+	package_data={'iqs.generators': ['main.m']},
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions)
+	ext_modules = cythonize(extensions, language_level=3),
 )

@@ -5,6 +5,11 @@ from .Expression import Variable, Expression2
 from .Metal_executor import metal_executor
 from .SearchLib import state_py, constraints, run_ctg, set_seed, set_bias_wrapper
 
+from .generators.c_ilp_generator import *
+from .generators.c_sat_generator import *
+from .generators.metal_ilp_generator import *
+from .generators.metal_sat_generator import *
+
 import numpy as np
 
 import sys
@@ -90,10 +95,51 @@ or {self.runtime}s sampling
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
 
-	def compile(self):
+	# def compile(self):
+	# 	self.gpu_compiled = True
+	# 	self.met = metal_executor(self.n, self.linear_obj_form, self.linear_con_form, len(self.constraint),
+	# 		                     self.constraint.liste(), self.objective.liste())
+
+	def compile(self, lp_factor = 0, lp_opt = None, num_integers = None):
 		self.gpu_compiled = True
-		self.met = metal_executor(self.n, self.linear_obj_form, self.linear_con_form, len(self.constraint),
-			                     self.constraint.liste(), self.objective.liste())
+		if lp_opt is None: lp_opt = [0] * self.n
+		if num_integers is None: num_integers = int(self.n / 32 + 0.9)
+
+		if self.linear_obj_form != []:
+			f = open("build/objective.txt", "w")
+			for i in self.linear_obj_form: f.write(f"{i} ")
+			f.close()
+
+		if self.linear_con_form != []:
+			f = open("build/constraint.txt", "w")
+			for i in self.linear_con_form: f.write(f"{i} ")
+			f.close()
+
+		if self.solver == SATISFY:
+			generate_sat_metal(self.n,
+			                   len(self.constraint.liste()),
+			                   self.constraint.liste(),
+			                   lp_factor, lp_opt,
+			                   True, direction = ".")
+
+			generate_sat_gpu(self.n,
+			                 len(self.constraint.liste()),
+			                 self.constraint.liste(),
+			                 lp_factor, lp_opt,
+			                 True, num_integers, direction = ".")
+		else:
+			generate_ilp_metal(self.n,
+			                   len(self.constraint.liste()),
+			                   self.constraint.liste(),
+			                   self.objective.liste(),
+			                   direction = ".")
+
+			generate_ilp_gpu(self.n,
+			                 len(self.constraint.liste()),
+			                 self.constraint.liste(),
+			                 self.objective.liste(),
+			                 lp_factor, lp_opt,
+			                 True, num_integers, direction = ".")
 
 	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu") -> None:
 		"""
@@ -113,21 +159,25 @@ or {self.runtime}s sampling
 		set_bias_wrapper(bias)
 
 		if arch == "gpu":
+			# print("compile now")
 			if not self.gpu_compiled:
 				self.compile()
 
+			# print("compiled")
+
 			t1 = time()
 			initial = self.initial_state.integer_liste()
-			initial = initial[: min(len(initial), int(np.ceil(self.n / 32)))]
+			initial = [0] + initial[: min(len(initial), int(np.ceil(self.n / 32)))]
 
-			res, qtg_applications = self.met.gpu_ctg(0, initial, M = M)
+			# res, qtg_applications = self.met.gpu_ctg(0, initial, M = M)
+			res = run_hardcode_gpu(self.n, M, bias, 15 * time(), initial, arch, direction = ".")
 
-			self.runtime = time() - t1
+			self.runtime = res["c-time"]
 			self.improved = (res != self.initial_state.objective_value())
-			self.objective_value = res
-			self.grover_iterations = qtg_applications
-			self.quantum_cycles = qtg_applications
-			self.final_state = state_py(res, [1 if val & (1 << i) != 0 else 0 for val in initial for i in range(32)])
+			self.objective_value = res["count"]
+			self.grover_iterations = res["applications"]
+			self.quantum_cycles = res["applications"]
+			self.final_state = state_py(res["count"], [1 if val & (1 << i) != 0 else 0 for val in list(map(int, res["sol"])) for i in range(32)][:self.n])
 			return
 
 		# otherwise old cpu colde will be executed
