@@ -121,7 +121,6 @@ def run_hardcode_gpu(n, M, bias, seed, array, arch = "gpu", direction = "."):
 	# print(" ".join([f"./build/run_gpu", f"{n}", f"{M}", f"{bias}", f"{seed}", arch, *array]))
 	res = subprocess.run([f"./build/run_gpu", f"{n}", f"{M}", f"{int(bias)}", f"{int(seed)}", arch, *list(map(str, array))], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 	# res = subprocess.run([f"./build/run_gpu", f"{n}", f"{M}", f"{int(bias)}", f"{int(seed)}", arch, *list(map(str, array))])
-
 	if res.returncode != 0:
 		print(res)
 		exit(1)
@@ -131,6 +130,10 @@ def run_hardcode_gpu(n, M, bias, seed, array, arch = "gpu", direction = "."):
 		"count", "'count'").replace(
 		"applications","'applications'").replace(
 		"sol", "'sol'")
-	res = ast.literal_eval(res)
+
+	sp = res.split("\n")
+
+	intermetiates = [[int(i.split()[0]), int(i.split()[1]), float(i.split()[2])] for i in sp[:-1]]
+	res = ast.literal_eval(sp[-1])
 	res["sol"] = [str(i) for i in res["sol"]]
-	return res
+	return res, intermetiates

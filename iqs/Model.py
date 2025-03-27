@@ -170,7 +170,11 @@ or {self.runtime}s sampling
 			initial = [0] + initial[: min(len(initial), int(np.ceil(self.n / 32)))]
 
 			# res, qtg_applications = self.met.gpu_ctg(0, initial, M = M)
-			res = run_hardcode_gpu(self.n, M, bias, 15 * time(), initial, arch, direction = ".")
+			res, intermediates = run_hardcode_gpu(self.n, M, bias, 15 * time(), initial, arch, direction = ".")
+
+			if callback:
+				for i in intermediates:
+					callback(*i)
 
 			self.runtime = res["c-time"]
 			self.improved = (res != self.initial_state.objective_value())

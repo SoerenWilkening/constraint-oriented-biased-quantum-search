@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
 	 * argv[6]: current objective value
 	 * argv[7+]: solution to bias to
 	 * */
+    clock_t t1 = clock();
 
 	int n = atoi(argv[1]);
 	int num_integers = n / 32 + 1;
@@ -54,7 +55,9 @@ int main(int argc, char *argv[]) {
 	uint globalSeed = atoi(argv[4]);
 	srand(globalSeed);
 	uint32_t seed[size];
-	for (uint i = 0; i < size; i++) seed[i] = globalSeed +i;
+	for (uint i = 0; i < size; i++) {
+	    seed[i] = globalSeed + arc4random();
+	}
 
 	bool gpu = strcmp(argv[5], "gpu") == 0;
 
@@ -105,10 +108,10 @@ int main(int argc, char *argv[]) {
 	CHECK_ERROR(pipelineState, "Failed to create pipeline state");
 
 	// Step 4: Create buffers
-	id <MTLBuffer> cur_val_Buffer = [device newBufferWithBytes:cur_val length:sizeof(int32_t) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> cur_val_Buffer = [device newBufferWithBytes:cur_val length:sizeof(int) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> cur_array_Buffer = [device newBufferWithBytes:cur_array length:num_integers *
 	                                                                              sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	id <MTLBuffer> new_val_Buffer = [device newBufferWithLength:size * sizeof(int32_t) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> new_val_Buffer = [device newBufferWithLength:size * sizeof(int) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> arrays_Buffer = [device newBufferWithLength:size * num_integers * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> reps_Buffer = [device newBufferWithLength:sizeof(int) options:MTLResourceStorageModeShared];
 
@@ -147,7 +150,6 @@ int main(int argc, char *argv[]) {
 
     sprintf(name, "results.csv", direction());
 
-    clock_t t1 = clock();
 	while (m_tot < M) {
 // 	for (int i = 0; i < 1; i++){
 		int m = ceil(pow(lambda, rounds));
@@ -163,9 +165,10 @@ int main(int argc, char *argv[]) {
 		else res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
 // 		res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
 		if (res != -1) {
-		    FILE *file = fopen(name, "a");
-		    fprintf(file, "%d,%d,%s,qtg\n", res, qtg_applications, argv[6]);
-	        fclose(file);
+		    printf("%d %d %f\n", res, qtg_applications, ((double) clock() - t1) / CLOCKS_PER_SEC);
+// 		    FILE *file = fopen(name, "a");
+// 		    fprintf(file, "%d,%d,%s,qtg\n", res, qtg_applications, argv[6]);
+// 	        fclose(file);
 			cur_val[0] = res;
 			rounds = 0;
 			m_tot = 0;
@@ -191,7 +194,7 @@ int run_kernel(int reps,
                uint32_t *x,
                gpu_info_t *info) {
 
-    int32_t * new_values = (int *) [info->new_val_Buffer contents];
+    int * new_values = (int *) [info->new_val_Buffer contents];
     for (int i = 0; i < size; i++){new_values[i] = 0;}
     [info->new_val_Buffer didModifyRange:NSMakeRange(0, size)];
 
@@ -207,7 +210,7 @@ int run_kernel(int reps,
 	id <MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
 	[computeEncoder setComputePipelineState:info->pipelineState];
 
-    int32_t *cur_val = (int *) [info->cur_val_Buffer contents];
+    int *cur_val = (int *) [info->cur_val_Buffer contents];
     cur_val[0] = val;
 	[info->cur_val_Buffer didModifyRange:NSMakeRange(0, 1)];
 
@@ -247,7 +250,7 @@ int run_kernel(int reps,
 	int i = -1;
 	int counter = 0;
 
-	while (i++, i < size && counter < total_reps) {
+	while (i++, i < size && counter <= total_reps) {
 		counter += reps;
 		if (cur_val[0] < new_values[i]) {
 			int value = new_values[i];
