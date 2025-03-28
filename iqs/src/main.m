@@ -1,4 +1,3 @@
-// #include <Metal/Metal.h>
 #include <stdio.h>
 #include <string.h>
 #include <mach/mach_time.h>
@@ -6,16 +5,13 @@
 #include <time.h>
 #include "main.h"
 
-// extern int32_t QSearch(float *probs, int32_t val, uint32_t *x, int total_reps, int *constraint, int *objective);
-
 int run_kernel(int reps, int size, int num_integers, int total_reps, int32_t val, uint32_t *x, gpu_info_t *info);
-
-char *direction() {return "./build/";}
 
 gpu_info_t *init_buffers(   int *constraint, int c_terms,
                             int *objective, int o_terms,
                             double bias, uint32_t globalSeed,
-                            int num_integers){
+                            int num_integers,
+                            char *shader){
 
     int size = 512;
 
@@ -32,24 +28,16 @@ gpu_info_t *init_buffers(   int *constraint, int c_terms,
 
     // Step 1: Create new_val Metal device
 	id <MTLDevice> device = MTLCreateSystemDefaultDevice();
-// 	CHECK_ERROR(device, "Failed to create Metal device");
 
 	// Step 2: Create new_val command queue
 	id <MTLCommandQueue> commandQueue = [device newCommandQueue];
 
 	// Step 3: Load the Metal kernel
-	sprintf(name, "build/shader.metal", direction());
-
 	NSError *error = nil;
-	NSString *filePath = [NSString stringWithUTF8String:name];
-	NSString *metalSource = [NSString stringWithContentsOfFile:filePath encoding:NSUTF8StringEncoding error:&error];
-// 	CHECK_ERROR(metalSource, "Failed to load Metal shader");
-	id <MTLLibrary> library = [device newLibraryWithSource:metalSource options:nil error:&error];
-// 	CHECK_ERROR(library, "Failed to compile Metal library");
+    NSString *sourceString = [NSString stringWithUTF8String:shader];
+	id <MTLLibrary> library = [device newLibraryWithSource:sourceString options:nil error:&error];
 	id <MTLFunction> kernelFunction = [library newFunctionWithName:@"add_arrays"];
-// 	CHECK_ERROR(kernelFunction, "Failed to find Metal kernel function");
 	id <MTLComputePipelineState> pipelineState = [device newComputePipelineStateWithFunction:kernelFunction error:&error];
-// 	CHECK_ERROR(pipelineState, "Failed to create pipeline state");
 
 	// Step 4: Create buffers
 	id <MTLBuffer> cur_val_Buffer = [device newBufferWithLength:sizeof(int) options:MTLResourceStorageModeShared];
@@ -79,23 +67,12 @@ gpu_info_t *init_buffers(   int *constraint, int c_terms,
     return info;
 }
 
-// int main(int argc, char *argv[]) {
 int gpu_qmax_search_c(int n, int M,
                     int *constraint, int c_terms,
                     int *objective, int o_terms,
                     int cur, uint32_t *arr,
                     gpu_info_t *gpu_info
                     ) {
-
-	/*
-	 * argv[1]: n: number of items
-	 * argv[2]: M: number of grover iterations
-	 * argv[3]: bias
-	 * argv[4]: seed
-	 * argv[5]: flag if gpu should be used
-	 * argv[6]: current objective value
-	 * argv[7+]: solution to bias to
-	 * */
     uint64_t t1 = mach_absolute_time();
 	int num_integers = n / 32 + 1;
 

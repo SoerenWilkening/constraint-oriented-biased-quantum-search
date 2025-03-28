@@ -20,12 +20,11 @@ typedef struct {
 
 #define CHECK_ERROR(cond, msg) if (!(cond)) { printf("%s\n", msg); return -1; }
 
-char *direction();
-
 gpu_info_t *init_buffers(   int *constraint, int c_terms,
                             int *objective, int o_terms,
                             double bias, uint32_t globalSeed,
-                            int num_integers);
+                            int num_integers,
+                            char *shader);
 
 int gpu_qmax_search_c(int n, int M,
                     int *constraint, int c_terms,
