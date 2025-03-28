@@ -82,7 +82,8 @@ or {self.runtime}s sampling
 		expr = objective
 		expr.merge()
 
-		self.linear_obj_form += expr.linear_matrix_form(self.n)
+		# self.linear_obj_form += expr.linear_matrix_form(self.n)
+		self.linear_obj_form += expr.linear_vector_form(self.n)
 
 		self.objective += list(expr) + [sense, 0]
 

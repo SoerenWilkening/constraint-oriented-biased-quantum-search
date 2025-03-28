@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 	 * argv[6]: current objective value
 	 * argv[7+]: solution to bias to
 	 * */
-    clock_t t1 = clock();
+    uint64_t t1 = mach_absolute_time();
 
 	int n = atoi(argv[1]);
 	int num_integers = n / 32 + 1;
@@ -165,10 +165,13 @@ int main(int argc, char *argv[]) {
 		else res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
 // 		res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
 		if (res != -1) {
-		    printf("%d %d %f\n", res, qtg_applications, ((double) clock() - t1) / CLOCKS_PER_SEC);
-// 		    FILE *file = fopen(name, "a");
-// 		    fprintf(file, "%d,%d,%s,qtg\n", res, qtg_applications, argv[6]);
-// 	        fclose(file);
+		    uint64_t t_step = mach_absolute_time();
+		    mach_timebase_info_data_t info;
+            mach_timebase_info(&info);
+            uint64_t elapsedNano = (t_step - t1) * info.numer / info.denom;
+            double elapsedSec = elapsedNano / 1.0e9;
+
+		    printf("%d %d %f\n", res, qtg_applications, elapsedSec);
 			cur_val[0] = res;
 			rounds = 0;
 			m_tot = 0;
@@ -176,8 +179,13 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-    clock_t t2 = clock();
-    printf("{count: %d, applications: %d, c-time: %f, sol:[", cur_val[0], qtg_applications, ((double) t2 - t1) / CLOCKS_PER_SEC);
+    uint64_t t2 = mach_absolute_time();
+    mach_timebase_info_data_t info;
+    mach_timebase_info(&info);
+    uint64_t elapsedNano = (t2 - t1) * info.numer / info.denom;
+    double elapsedSec = elapsedNano / 1.0e9;
+
+    printf("{count: %d, applications: %d, c-time: %f, sol:[", cur_val[0], qtg_applications, elapsedSec);
     for (int i = 0; i < num_integers; i++) printf("%lu,", cur_array[i]);
     printf("]}");
 

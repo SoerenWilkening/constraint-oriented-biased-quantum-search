@@ -10,4 +10,4 @@ cmake-build-debug
 iqs/generators/*.c
 results.csv
 plot.py
-stores.csv
+stores*.csv
