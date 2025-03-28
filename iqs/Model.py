@@ -1,12 +1,10 @@
 from time import time
-
+import ctypes
 from .Constants import *
 from .Expression import Variable, Expression2
-from .Metal_executor import metal_executor
+from iqs.Metal_executor import Executor
 from .SearchLib import state_py, constraints, run_ctg, set_seed, set_bias_wrapper
 
-from .generators.c_ilp_generator import *
-from .generators.c_sat_generator import *
 from .generators.metal_ilp_generator import *
 from .generators.metal_sat_generator import *
 
@@ -17,9 +15,14 @@ import os
 
 sys.stderr = open(os.devnull, 'w')  # Suppress stderr
 
+
 class Model:
 
 	def __init__(self):
+		self.gpu_imported: bool = False
+
+		self.gpu_executor: Executor | None = None
+
 		self.calls = 0
 		self.met = None
 		self.objective: constraints = constraints()
@@ -122,12 +125,6 @@ or {self.runtime}s sampling
 			                   self.constraint.liste(),
 			                   lp_factor, lp_opt,
 			                   True, direction = ".")
-
-			generate_sat_gpu(self.n,
-			                 len(self.constraint.liste()),
-			                 self.constraint.liste(),
-			                 lp_factor, lp_opt,
-			                 True, num_integers, direction = ".")
 		else:
 			generate_ilp_metal(self.n,
 			                   len(self.constraint.liste()),
@@ -135,12 +132,7 @@ or {self.runtime}s sampling
 			                   self.objective.liste(),
 			                   direction = ".")
 
-			generate_ilp_gpu(self.n,
-			                 len(self.constraint.liste()),
-			                 self.constraint.liste(),
-			                 self.objective.liste(),
-			                 lp_factor, lp_opt,
-			                 True, num_integers, direction = ".")
+		self.gpu_executor = Executor(self.n, self.n / 4, 42, self.linear_con_form, self.linear_obj_form)
 
 	def solve(self, M: int = 0, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu") -> None:
 		"""
@@ -168,21 +160,10 @@ or {self.runtime}s sampling
 
 			t1 = time()
 			initial = self.initial_state.integer_liste()
-			initial = [0] + initial[: min(len(initial), int(np.ceil(self.n / 32)))]
+			initial = initial[: min(len(initial), int(np.ceil(self.n / 32)))]
 
-			# res, qtg_applications = self.met.gpu_ctg(0, initial, M = M)
-			res, intermediates = run_hardcode_gpu(self.n, M, bias, 15 * time(), initial, arch, direction = ".")
+			self.gpu_executor.gpu_qmax_search(self.n, M, 0, initial)
 
-			if callback:
-				for i in intermediates:
-					callback(*i)
-
-			self.runtime = res["c-time"]
-			self.improved = (res != self.initial_state.objective_value())
-			self.objective_value = res["count"]
-			self.grover_iterations = res["applications"]
-			self.quantum_cycles = res["applications"]
-			self.final_state = state_py(res["count"], [1 if val & (1 << i) != 0 else 0 for val in list(map(int, res["sol"])) for i in range(32)][:self.n])
 			return
 
 		# otherwise old cpu colde will be executed

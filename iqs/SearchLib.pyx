@@ -1,8 +1,30 @@
-import os
 from copy import copy
 from time import time
 
 import numpy as np
+
+# def gpu_qmax_search(n: int, M: int, bias: float, gloabalSeed: int,
+#                     constraint: list[int], c_terms: int,
+#                     objective: list[int], o_terms: int,
+#                     cur: int, arr: list[int]):
+#
+# 	cdef int * obj_c = <int *> calloc(len(objective), sizeof(int))
+# 	for i in range(len(objective)):
+# 		obj_c[i] = <int> objective[i]
+#
+# 	cdef int * con_c = <int *> calloc(len(constraint), sizeof(int))
+# 	for i in range(len(constraint)):
+# 		con_c[i] = <int> constraint[i]
+#
+# 	cdef uint32_t * arr_c = <uint32_t*> calloc(len(arr), sizeof(uint32_t))
+# 	for i in range(len(arr)):
+# 		arr_c[i] = <uint32_t> arr[i]
+#
+# 	gpu_qmax_search_c(n, M, bias, gloabalSeed,
+# 	                  con_c, len(constraint),
+# 	                  obj_c, len(objective),
+# 	                  cur, arr_c)
+
 
 def set_seed(seed):
 	srand(seed)

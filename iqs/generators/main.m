@@ -1,94 +1,38 @@
-#include <Metal/Metal.h>
+// #include <Metal/Metal.h>
 #include <stdio.h>
+#include <string.h>
 #include <mach/mach_time.h>
 #include <CommonCrypto/CommonCrypto.h>
-#include <string.h>
 #include <time.h>
+#include "main.h"
 
-typedef struct {
-	id <MTLDevice> device;
-	id <MTLCommandQueue> commandQueue;
-	id <MTLComputePipelineState> pipelineState;
-	id <MTLBuffer> cur_val_Buffer;
-	id <MTLBuffer> cur_array_Buffer;
-	id <MTLBuffer> new_val_Buffer;
-	id <MTLBuffer> arrays_Buffer;
-	id <MTLBuffer> reps_Buffer;
-	id <MTLBuffer> bias_Buffer;
-	id <MTLBuffer> objective_Buffer;
-	id <MTLBuffer> constraint_Buffer;
-	id <MTLBuffer> seed_Buffer;
-} gpu_info_t;
-
-// Function to check for Metal errors
-#define CHECK_ERROR(cond, msg) if (!(cond)) { printf("%s\n", msg); return -1; }
-
-int32_t QSearch(float *probs, int32_t val, uint32_t *x, int total_reps, int *constraint, int *objective);
+// extern int32_t QSearch(float *probs, int32_t val, uint32_t *x, int total_reps, int *constraint, int *objective);
 
 int run_kernel(int reps, int size, int num_integers, int total_reps, int32_t val, uint32_t *x, gpu_info_t *info);
 
-int objective_terms();
+char *direction() {return "./build/";}
 
-int constraint_terms();
+gpu_info_t *init_buffers(   int *constraint, int c_terms,
+                            int *objective, int o_terms,
+                            double bias, uint32_t globalSeed,
+                            int num_integers){
 
-char *direction();
+    int size = 512;
 
-int main(int argc, char *argv[]) {
-	/*
-	 * argv[1]: n: number of items
-	 * argv[2]: M: number of grover iterations
-	 * argv[3]: bias
-	 * argv[4]: seed
-	 * argv[5]: flag if gpu should be used
-	 * argv[6]: current objective value
-	 * argv[7+]: solution to bias to
-	 * */
-    uint64_t t1 = mach_absolute_time();
+    char name[1024];
 
-	int n = atoi(argv[1]);
-	int num_integers = n / 32 + 1;
-
-	// Input data
-	const int size = 512;
-	float bias[1] = {(float) atoi(argv[3])};
-
-	uint globalSeed = atoi(argv[4]);
-	srand(globalSeed);
-	uint32_t seed[size];
+    uint32_t seed[size];
 	for (uint i = 0; i < size; i++) {
 	    seed[i] = globalSeed + arc4random();
 	}
 
-	bool gpu = strcmp(argv[5], "gpu") == 0;
+	double b[] = {bias};
 
-    char name[1024];
+    gpu_info_t *info = malloc(sizeof(gpu_info_t));
 
-	int *objective = calloc(objective_terms(), sizeof(int));
-    if (objective_terms() != 0){
-        sprintf(name, "build/objective.txt", direction());
-	    FILE *obj = fopen(name, "r");
-	    for (int i = 0; i < objective_terms(); i++) fscanf(obj, "%d ", &objective[i]);
-	    fclose(obj);
-	}
-
-	int constraint[constraint_terms()];
-	if (constraint_terms() != 0){
-	    sprintf(name, "build/constraint.txt", direction());
-	    FILE *obj = fopen(name, "r");
-	    for (int i = 0; i < constraint_terms(); i++) fscanf(obj, "%d ", &constraint[i]);
-	    fclose(obj);
-	}
-
-	uint32_t new_array[num_integers];
-	memset(new_array, 0, num_integers * sizeof(uint32_t));
-
-	uint32_t cur_array[num_integers];
-	int32_t cur_val[1] = {atoi(argv[6])};
-	for (int i = 0; i < num_integers; i++) {cur_array[i] = atoi(argv[7 + i]);}
-
-	// Step 1: Create new_val Metal device
+    // Step 1: Create new_val Metal device
 	id <MTLDevice> device = MTLCreateSystemDefaultDevice();
-	CHECK_ERROR(device, "Failed to create Metal device");
+// 	CHECK_ERROR(device, "Failed to create Metal device");
 
 	// Step 2: Create new_val command queue
 	id <MTLCommandQueue> commandQueue = [device newCommandQueue];
@@ -99,59 +43,84 @@ int main(int argc, char *argv[]) {
 	NSError *error = nil;
 	NSString *filePath = [NSString stringWithUTF8String:name];
 	NSString *metalSource = [NSString stringWithContentsOfFile:filePath encoding:NSUTF8StringEncoding error:&error];
-	CHECK_ERROR(metalSource, "Failed to load Metal shader");
+// 	CHECK_ERROR(metalSource, "Failed to load Metal shader");
 	id <MTLLibrary> library = [device newLibraryWithSource:metalSource options:nil error:&error];
-	CHECK_ERROR(library, "Failed to compile Metal library");
+// 	CHECK_ERROR(library, "Failed to compile Metal library");
 	id <MTLFunction> kernelFunction = [library newFunctionWithName:@"add_arrays"];
-	CHECK_ERROR(kernelFunction, "Failed to find Metal kernel function");
+// 	CHECK_ERROR(kernelFunction, "Failed to find Metal kernel function");
 	id <MTLComputePipelineState> pipelineState = [device newComputePipelineStateWithFunction:kernelFunction error:&error];
-	CHECK_ERROR(pipelineState, "Failed to create pipeline state");
+// 	CHECK_ERROR(pipelineState, "Failed to create pipeline state");
 
 	// Step 4: Create buffers
-	id <MTLBuffer> cur_val_Buffer = [device newBufferWithBytes:cur_val length:sizeof(int) options:MTLResourceStorageModeShared];
-	id <MTLBuffer> cur_array_Buffer = [device newBufferWithBytes:cur_array length:num_integers *
-	                                                                              sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> cur_val_Buffer = [device newBufferWithLength:sizeof(int) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> cur_array_Buffer = [device newBufferWithLength:num_integers * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> new_val_Buffer = [device newBufferWithLength:size * sizeof(int) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> arrays_Buffer = [device newBufferWithLength:size * num_integers * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> reps_Buffer = [device newBufferWithLength:sizeof(int) options:MTLResourceStorageModeShared];
 
-	id <MTLBuffer> objective_Buffer = [device newBufferWithBytes:objective length:objective_terms() * sizeof(int) options:MTLResourceStorageModeShared];
-	id <MTLBuffer> constraint_Buffer = [device newBufferWithBytes:constraint length:constraint_terms() * sizeof(int) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> objective_Buffer = [device newBufferWithBytes:objective length: o_terms * sizeof(int) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> constraint_Buffer = [device newBufferWithBytes:constraint length: c_terms * sizeof(int) options:MTLResourceStorageModeShared];
 
-	id <MTLBuffer> bias_Buffer = [device newBufferWithBytes:bias length:sizeof(float) options:MTLResourceStorageModeShared];
+	id <MTLBuffer> bias_Buffer = [device newBufferWithBytes:b length:sizeof(float) options:MTLResourceStorageModeShared];
 	id <MTLBuffer> seed_Buffer = [device newBufferWithBytes:seed length:size * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	gpu_info_t gpu_info;
+	info->commandQueue = commandQueue;
+	info->pipelineState = pipelineState;
+	info->cur_val_Buffer = cur_val_Buffer;
+	info->cur_array_Buffer = cur_array_Buffer;
+	info->new_val_Buffer = new_val_Buffer;
+	info->arrays_Buffer = arrays_Buffer;
+	info->reps_Buffer = reps_Buffer;
+	info->objective_Buffer = objective_Buffer;
+	info->constraint_Buffer = constraint_Buffer;
+	info->bias_Buffer = bias_Buffer;
+	info->seed_Buffer = seed_Buffer;
 
-	gpu_info.commandQueue = commandQueue;
-	gpu_info.pipelineState = pipelineState;
-	gpu_info.cur_val_Buffer = cur_val_Buffer;
-	gpu_info.cur_array_Buffer = cur_array_Buffer;
-	gpu_info.new_val_Buffer = new_val_Buffer;
-	gpu_info.arrays_Buffer = arrays_Buffer;
-	gpu_info.reps_Buffer = reps_Buffer;
-	gpu_info.objective_Buffer = objective_Buffer;
-	gpu_info.constraint_Buffer = constraint_Buffer;
-	gpu_info.bias_Buffer = bias_Buffer;
-	gpu_info.seed_Buffer = seed_Buffer;
+    return info;
+}
 
+// int main(int argc, char *argv[]) {
+int gpu_qmax_search_c(int n, int M,
+                    int *constraint, int c_terms,
+                    int *objective, int o_terms,
+                    int cur, uint32_t *arr,
+                    gpu_info_t *gpu_info
+                    ) {
+
+	/*
+	 * argv[1]: n: number of items
+	 * argv[2]: M: number of grover iterations
+	 * argv[3]: bias
+	 * argv[4]: seed
+	 * argv[5]: flag if gpu should be used
+	 * argv[6]: current objective value
+	 * argv[7+]: solution to bias to
+	 * */
+    uint64_t t1 = mach_absolute_time();
+	int num_integers = n / 32 + 1;
+
+    char name[1024];
+
+	const int size = 512;
+
+	uint32_t new_array[num_integers];
+	memset(new_array, 0, num_integers * sizeof(uint32_t));
+
+	uint32_t cur_array[num_integers];
+	int32_t cur_val[] = {cur};
+	for (int i = 0; i < num_integers; i++) {cur_array[i] = arr[i];}
 
 	/*
 	 * Run QMaxSearch routine:
 	 *
 	 * */
-	unsigned int M = atoi(argv[2]);
 	unsigned int qtg_applications = 0;
 	unsigned int m_tot = 0;
 	unsigned int rounds = 0;
 	double lambda = 6. / 5;
 	int res;
-	float probs[] = {(1. + bias[0]) / (bias[0] + 2), 1. / (bias[0] + 2)};
-
-    sprintf(name, "results.csv", direction());
 
 	while (m_tot < M) {
-// 	for (int i = 0; i < 1; i++){
 		int m = ceil(pow(lambda, rounds));
 		int j = rand() % (m + 1);
 		m_tot += 2 * j + 1;
@@ -159,11 +128,7 @@ int main(int argc, char *argv[]) {
 		rounds++;
 
 		int reps = MAX((int) ceil(4 * j * j / size), 1);
-// 		int reps = 1;
-// 		res = run_kernel(reps, size, num_integers, 4 * j * j, cur_val[0], cur_array, &gpu_info);
-		if (4 * j * j >= 30 && gpu) res = run_kernel(reps, size, num_integers, 4 * j * j, cur_val[0], cur_array, &gpu_info);
-		else res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
-// 		res = QSearch(probs, cur_val[0], cur_array, 4 * j * j, constraint, objective);
+		res = run_kernel(reps, size, num_integers, 4 * j * j, cur_val[0], cur_array, gpu_info);
 		if (res != -1) {
 		    uint64_t t_step = mach_absolute_time();
 		    mach_timebase_info_data_t info;
@@ -175,7 +140,6 @@ int main(int argc, char *argv[]) {
 			cur_val[0] = res;
 			rounds = 0;
 			m_tot = 0;
-// 			if (res == 218 || res == 430 || res == 325) break;
 		}
 	}
 
@@ -188,8 +152,6 @@ int main(int argc, char *argv[]) {
     printf("{count: %d, applications: %d, c-time: %f, sol:[", cur_val[0], qtg_applications, elapsedSec);
     for (int i = 0; i < num_integers; i++) printf("%lu,", cur_array[i]);
     printf("]}");
-
-    free(objective);
 
 	return 0;
 }
