@@ -97,7 +97,7 @@ or {self.runtime}s sampling
 
 	def compile(self):
 		self.gpu_compiled = True
-		self.gpu_executor = Executor(self.n, self.n / 4, 42, self.linear_con_form,  self.linear_obj_form,
+		self.gpu_executor = Executor(self.n, self.n / 4, int(time()), self.linear_con_form,  self.linear_obj_form,
 		                             len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
 		                             self.solver)
 
@@ -129,8 +129,11 @@ or {self.runtime}s sampling
 			initial = self.initial_state.integer_liste()
 			initial = initial[: min(len(initial), int(np.ceil(self.n / 32)))]
 
-			self.gpu_executor.gpu_qmax_search(self.n, M, 0, initial)
-
+			res, oracle, t = self.gpu_executor.gpu_qmax_search(self.n, M, 0, initial, callback)
+			self.objective_value = res
+			self.runtime = t
+			self.grover_iterations = oracle
+			self.quantum_cycles = oracle
 			return
 
 		# otherwise old cpu colde will be executed

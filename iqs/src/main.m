@@ -19,7 +19,8 @@ gpu_info_t *init_buffers(   int *constraint, int c_terms,
 
     uint32_t seed[size];
 	for (uint i = 0; i < size; i++) {
-	    seed[i] = globalSeed + arc4random();
+// 	    seed[i] = globalSeed + arc4random();
+	    seed[i] = globalSeed + 100 * i;
 	}
 
 	double b[] = {bias};
@@ -71,8 +72,9 @@ int gpu_qmax_search_c(int n, int M,
                     int *constraint, int c_terms,
                     int *objective, int o_terms,
                     int cur, uint32_t *arr,
-                    gpu_info_t *gpu_info
-                    ) {
+                    gpu_info_t *gpu_info,
+                    callback_t callback,
+                    int *total_applications) {
     uint64_t t1 = mach_absolute_time();
 	int num_integers = n / 32 + 1;
 
@@ -113,7 +115,9 @@ int gpu_qmax_search_c(int n, int M,
             uint64_t elapsedNano = (t_step - t1) * info.numer / info.denom;
             double elapsedSec = elapsedNano / 1.0e9;
 
-		    printf("%d %d %f\n", res, qtg_applications, elapsedSec);
+            if (callback){
+                callback(res, qtg_applications, elapsedSec);
+            }
 			cur_val[0] = res;
 			rounds = 0;
 			m_tot = 0;
@@ -126,11 +130,9 @@ int gpu_qmax_search_c(int n, int M,
     uint64_t elapsedNano = (t2 - t1) * info.numer / info.denom;
     double elapsedSec = elapsedNano / 1.0e9;
 
-    printf("{count: %d, applications: %d, c-time: %f, sol:[", cur_val[0], qtg_applications, elapsedSec);
-    for (int i = 0; i < num_integers; i++) printf("%lu,", cur_array[i]);
-    printf("]}");
+    *total_applications = qtg_applications;
 
-	return 0;
+	return cur_val[0];
 }
 
 int run_kernel(int reps,

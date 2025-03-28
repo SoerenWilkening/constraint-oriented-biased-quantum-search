@@ -18,6 +18,9 @@ typedef struct {
 	id <MTLBuffer> seed_Buffer;
 } gpu_info_t;
 
+// define callback functionality
+typedef void (*callback_t)(int, size_t, double);
+
 #define CHECK_ERROR(cond, msg) if (!(cond)) { printf("%s\n", msg); return -1; }
 
 gpu_info_t *init_buffers(   int *constraint, int c_terms,
@@ -30,7 +33,8 @@ int gpu_qmax_search_c(int n, int M,
                     int *constraint, int c_terms,
                     int *objective, int o_terms,
                     int cur, uint32_t *arr,
-                    gpu_info_t *gpu_info
-                    );
+                    gpu_info_t *gpu_info,
+                    callback_t callback,
+                    int *total_applications);
 
 #endif // MAIN_H

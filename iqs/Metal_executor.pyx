@@ -1,5 +1,6 @@
 from libc.stdint cimport uint32_t
 from libc.stdlib cimport calloc
+from time import time
 
 from .Constants import *
 
@@ -7,6 +8,8 @@ cdef extern from "objc/objc.h":
 	ctypedef void * id
 
 cdef extern from "src/main.h":
+	ctypedef void (*callback_t)(int, size_t, double)
+
 	ctypedef struct gpu_info_t:
 		id device
 		id commandQueue
@@ -31,8 +34,17 @@ cdef extern from "src/main.h":
 	                      int *constraint, int c_terms,
 	                      int *objective, int o_terms,
 	                      int cur, uint32_t *arr,
-	                      gpu_info_t *info
-	                      );
+	                      gpu_info_t *info,
+	                      callback_t callback,
+	                      int *total_applications);
+
+# Python-compatible C wrapper
+cdef void my_callback_obj_c(int a, size_t b, double c):
+	if python_callback_2 is not None:
+		python_callback_2(a, b, c)
+
+# python function to store the callback
+cdef object python_callback_2 = None
 
 cdef class Executor:
 	cdef gpu_info_t *info
@@ -46,7 +58,6 @@ cdef class Executor:
 	              constraint: list[int],
 	              objective: list[int],
 	              C, con, obj, solver):
-
 		self.obj_c = <int *> calloc(len(objective), sizeof(int))
 		for i in range(len(objective)): self.obj_c[i] = <int> objective[i]
 
@@ -71,17 +82,27 @@ cdef class Executor:
 		pass
 
 	def gpu_qmax_search(self, n: int, M: int,
-	                    cur: int, arr: list[int]):
+	                    cur: int, arr: list[int],
+	                    object callback):
+
 		cdef uint32_t * arr_c = <uint32_t *> calloc(len(arr), sizeof(uint32_t))
 		for i in range(len(arr)):
 			arr_c[i] = <uint32_t> arr[i]
 
-		# print("Method included!")
+		global python_callback_2
+		python_callback_2 = callback
 
-		gpu_qmax_search_c(n, M,
+		cdef callback_t cb_ptr = <callback_t> my_callback_obj_c
+
+		cdef int oracle_applications = 0
+
+		t1 = time()
+		res = gpu_qmax_search_c(n, M,
 		                  self.con_c, self.c_terms_c,
 		                  self.obj_c, self.o_terms_c,
-		                  cur, arr_c, self.info)
+		                  cur, arr_c, self.info, cb_ptr, &oracle_applications)
+
+		return res, oracle_applications, time() - t1
 
 	def generate_itl_metal(self, n, C, constraints, obj, sense = ">"):
 		num_integers = int(n / 32) + 1

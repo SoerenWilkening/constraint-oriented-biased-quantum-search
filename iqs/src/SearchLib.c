@@ -390,9 +390,7 @@ state_t *ctg(
     free(NumIndices);
     free(Indices);
     free(Fulfilled);
-//    printf("%f %f\n", time_prep, time_obj2);
     free_state(new_sol, 0);
-//    printf("UpdateCount = %d\n", UpdateCount);
     fflush(stdout);
     return cur_sol;
 }
