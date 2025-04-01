@@ -36,7 +36,7 @@ cdef extern from "src/main.h":
 	                      int cur, uint32_t *arr,
 	                      gpu_info_t *info,
 	                      callback_t callback,
-	                      int *total_applications);
+	                      int *total_applications, int stop_val);
 
 # Python-compatible C wrapper
 cdef void my_callback_obj_c(int a, size_t b, double c):
@@ -83,7 +83,7 @@ cdef class Executor:
 
 	def gpu_qmax_search(self, n: int, M: int,
 	                    cur: int, arr: list[int],
-	                    object callback):
+	                    object callback, int stop_val = -1):
 
 		cdef uint32_t * arr_c = <uint32_t *> calloc(len(arr), sizeof(uint32_t))
 		for i in range(len(arr)):
@@ -100,7 +100,10 @@ cdef class Executor:
 		res = gpu_qmax_search_c(n, M,
 		                  self.con_c, self.c_terms_c,
 		                  self.obj_c, self.o_terms_c,
-		                  cur, arr_c, self.info, cb_ptr, &oracle_applications)
+		                  cur, arr_c, self.info, cb_ptr, &oracle_applications, stop_val)
+
+		# for i in range(n // 32 + 1):
+		# 	print(arr_c[i])
 
 		return res, oracle_applications, time() - t1
 
@@ -115,7 +118,7 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
                        const device float *bias [[ buffer(5) ]],        // bias
                        const device int *objective [[ buffer(6) ]],
                        const device int *constraint [[ buffer(7) ]],
-                       device long *additional_seed [[ buffer(8) ]], // add to thread id
+                       device uint32_t *additional_seed [[ buffer(8) ]], // add to thread id
                        uint id [[ thread_position_in_grid ]]            // Thread ID
 ) {{
     int cur = cur_val[0];
@@ -135,11 +138,11 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
     uint step;
     uint branch;
 
-    uint seed = additional_seed[id]; // Each thread gets a unique seed
+    uint32_t seed = additional_seed[id] + id; // Each thread gets a unique seed
 
     float probs[2] = {{ (1. + bias[0]) / (bias[0] + 2), 1. / (bias[0] + 2) }};
 
-	for(int reps=0; reps < num_reps[0]; reps++){{
+	for(int reps=0; reps < num_reps[id]; reps++){{
 		for (int i = 0; i < {num_integers}; i++) y[i] = 0;
 		obj = 0;
 		"""
@@ -149,19 +152,20 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 
 		metal_file += f"""
 		for(int item = 0; item < {n}; item++){{
+			// new_val[id] = P[1];
 			b_plus = 1;
 			b_minus = 1;
 			for (int con = 0; con < {C}; con++){{
-				if (constraint[con * {n} + item] >= 0) b_plus &= P[con] >= constraint[con * {n} + item];
-				else b_minus &= P[con] >= - constraint[con * {n} + item];
+				if (constraint[con * {n} + item] >= 0) b_plus = b_plus && (P[con] >= constraint[con * {n} + item]);
+				else b_minus = b_minus && (P[con] >= - constraint[con * {n} + item]);
 			}}
-			seed ^= seed << 21;
-			seed ^= seed >> 35;
-			seed ^= seed << 4;
-			branch =  (uint) (((float) seed / 0xFFFFFFFF) > probs[(x[item / 32] & (1 << item % 32)) != 0]);
+			seed ^= seed << 13;
+			seed ^= seed >> 17;
+			seed ^= seed << 5;
+			branch =  (uint) (( ((float)(seed % 123456)) / 123455) > probs[(x[item / 32] & (1 << (item % 32))) != 0]);
 
-			step = (uint(b_plus) & uint(b_minus) & uint(branch)) | uint(1 - b_minus);
-			y[item / 32] |= (step << item % 32);
+			step = uint(b_plus && b_minus && branch || !b_minus);
+			y[item / 32] |= (step << (item % 32));
 
 			for (int con = 0; con < {C}; con++){{
 				if (constraint[con * {n} + item] >= 0) P[con] -= int(step) * constraint[con * {n} + item];
@@ -172,13 +176,13 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 		# sum the objective value
 		if len(obj[0][:-1][0]) == 2:
 			metal_file += f"""
-		for(int i = 0; i < {n}; i++){{ obj += objective[i] * ((y[i / 32] & (1 << i % 32)) != 0); }}
+		for(int i = 0; i < {n}; i++){{ obj += objective[i] * int((y[i / 32] & (1 << (i % 32))) != 0); }}
 		"""
 		if len(obj[0][:-1][0]) == 3:
 			metal_file += f"""
 		for(int i = 0; i < {n}; i++){{
 			for(int j = i; j < {n}; j++){{
-				obj += objective[i * {n} + j] * ((y[i / 32] & (1 << i % 32)) != 0) * ((y[j / 32] & (1 << j % 32)) != 0);
+				obj += objective[i * {n} + j] * int((y[i / 32] & (1 << (i % 32))) != 0) * int((y[j / 32] & (1 << (j % 32))) != 0);
 			}}
 		}}
 		"""
@@ -186,10 +190,10 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 		metal_file += f"""
 		sum = 1;
 		for (int i = 0; i < {C}; i++) {{ sum = sum && (P[i] >= 0); }}
-		bool up = (obj {sense} cur && update && sum);
-		for (int i = 0; i < {num_integers}; i++) x[i] = up * y[i] + (!up) * x[i];
+		bool up = ((obj {sense} cur) && update && sum);
+		for (int i = 0; i < {num_integers}; i++) x[i] = int(up) * y[i] + int(!up) * x[i];
 
-		cur = (up) * obj + (!up) * cur;
+		cur = int(up) * obj + int(!up) * cur;
 		update = update && (!up); // if !(obj {sense} cur) or !su^m we still have to update
 	}}
 	for (int i = 0; i < {num_integers}; i++){{
@@ -200,6 +204,7 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 }}"""
 		return metal_file
 	def generate_sat_metal(self, n, C, constraints):
+		# print(constraints)
 		"""
 		arrays are stored in bits rather in bytes:
 		slightly slower, but gpu programming requires more compact data
@@ -245,7 +250,7 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 
     float probs[2] = {{ (1. + bias[0]) / (bias[0] + 2), 1. / (bias[0] + 2) }};
 
-	for(int reps=0; reps < num_reps[0]; reps++){{
+	for(int reps=0; reps < num_reps[id]; reps++){{
 		for (int i = 0; i < {num_integers}; i++) y[i] = 0;
 	"""
 		for i in range(C):
@@ -269,30 +274,30 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 		b_minus = b_minus && (P[{s}] >= 1);"""
 		# counter += 1
 
-		metal_file += f"""
+			metal_file += f"""
 		seed ^= seed << 21;
 		seed ^= seed >> 35;
 		seed ^= seed << 4;
-		branch =  (char) (((float) seed / 0xFFFFFFFF) > probs[(x[{int(item / 32)}] & (1 << {item % 32} ) ) != 0]);
+		branch =  (char) (( float(seed % 123456) / 123455) > probs[(x[{int(item / 32)}] & (1 << {item % 32}) ) != 0]);
 
-		step = (char(b_plus) & char(b_minus) & char(branch)) | char(1 - b_minus);
+		step = char(b_plus && b_minus && branch || !b_minus);
 		// step = char(branch);
 		y[{int(item / 32)}] |= (step << {item % 32});
 	"""
-		for s in S_plus:
-			metal_file += f"""
+			for s in S_plus:
+				metal_file += f"""
 		P[{s}] -= step;"""
 
-		for s in S_minus:
-			metal_file += f"""
+			for s in S_minus:
+				metal_file += f"""
 		P[{s}] -= 1 - step;"""
 
 		metal_file += f"""
 		sum = 0;
-		for (int i = 0; i < {C}; i++) {{ sum += (P[i] >= 0); }}
-		for (int i = 0; i < {num_integers}; i++) x[i] = (sum > cur && update) * y[i] + (sum <= cur || !update) * x[i];
+		for (int i = 0; i < {C}; i++) {{ sum += int(P[i] >= 0); }}
+		for (int i = 0; i < {num_integers}; i++) x[i] = int(sum > cur && update) * y[i] + int(sum <= cur || !update) * x[i];
 
-		cur = (sum > cur && update) * sum + (sum <= cur || !update) * cur;
+		cur = int(sum > cur && update) * sum + int(sum <= cur || !update) * cur;
 		update = update && (sum <= cur);
 	}}
 	for (int i = 0; i < {num_integers}; i++){{
@@ -301,4 +306,5 @@ kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Curre
 	additional_seed[id] = seed;
 	new_val[id] = cur;
 }}"""
+		# print(metal_file)
 		return metal_file

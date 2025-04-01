@@ -5,7 +5,7 @@
 #include <time.h>
 #include "main.h"
 
-int run_kernel(int reps, int size, int num_integers, int total_reps, int32_t val, uint32_t *x, gpu_info_t *info);
+int run_kernel(int reps, int size, int num_integers, int total_reps, int val, uint32_t *x, gpu_info_t *info);
 
 gpu_info_t *init_buffers(   int *constraint, int c_terms,
                             int *objective, int o_terms,
@@ -13,17 +13,21 @@ gpu_info_t *init_buffers(   int *constraint, int c_terms,
                             int num_integers,
                             char *shader){
 
-    int size = 512;
+    int size = 128;
 
     char name[1024];
 
     uint32_t seed[size];
 	for (uint i = 0; i < size; i++) {
-// 	    seed[i] = globalSeed + arc4random();
-	    seed[i] = globalSeed + 100 * i;
+	    seed[i] = globalSeed + arc4random();
+// 	    seed[i] = globalSeed + 100 * i;
 	}
+// 	for (int j = 0; j < size; j++){ printf("%lu ", seed[j]); }
+//     printf("\n\n");
 
 	double b[] = {bias};
+
+//     printf("bias = %f\n", b[0]);
 
     gpu_info_t *info = malloc(sizeof(gpu_info_t));
 
@@ -65,6 +69,10 @@ gpu_info_t *init_buffers(   int *constraint, int c_terms,
 	info->bias_Buffer = bias_Buffer;
 	info->seed_Buffer = seed_Buffer;
 
+// 	uint32_t *seeds = (uint32_t *) [info->seed_Buffer contents];
+// 	for (int j = 0; j < size; j++){ printf("%lu ", seeds[j]); }
+// 	printf("\n\n");
+
     return info;
 }
 
@@ -74,13 +82,13 @@ int gpu_qmax_search_c(int n, int M,
                     int cur, uint32_t *arr,
                     gpu_info_t *gpu_info,
                     callback_t callback,
-                    int *total_applications) {
+                    int *total_applications, int stop_val) {
     uint64_t t1 = mach_absolute_time();
 	int num_integers = n / 32 + 1;
 
     char name[1024];
 
-	const int size = 512;
+	const int size = 256;
 
 	uint32_t new_array[num_integers];
 	memset(new_array, 0, num_integers * sizeof(uint32_t));
@@ -100,14 +108,16 @@ int gpu_qmax_search_c(int n, int M,
 	int res;
 
 	while (m_tot < M) {
+// 	for (int i = 0; i < 1; i++) {
 		int m = ceil(pow(lambda, rounds));
 		int j = rand() % (m + 1);
 		m_tot += 2 * j + 1;
 		qtg_applications += 2 * j + 1;
 		rounds++;
 
-		int reps = MAX((int) ceil(4 * j * j / size), 1);
+		int reps = (int) ceil(((double) 4 * j * j) / size);
 		res = run_kernel(reps, size, num_integers, 4 * j * j, cur_val[0], cur_array, gpu_info);
+// 		res = run_kernel(10, size, num_integers, size, cur_val[0], cur_array, gpu_info);
 		if (res != -1) {
 		    uint64_t t_step = mach_absolute_time();
 		    mach_timebase_info_data_t info;
@@ -117,6 +127,10 @@ int gpu_qmax_search_c(int n, int M,
 
             if (callback){
                 callback(res, qtg_applications, elapsedSec);
+            }
+            if (res >= stop_val && stop_val != -1) {
+                *total_applications = qtg_applications;
+                return res;
             }
 			cur_val[0] = res;
 			rounds = 0;
@@ -139,7 +153,7 @@ int run_kernel(int reps,
                int size,
                int num_integers,
                int total_reps,
-               int32_t val,
+               int val,
                uint32_t *x,
                gpu_info_t *info) {
 
@@ -149,8 +163,8 @@ int run_kernel(int reps,
 
 	// update number of repetitions per thread
 	int *repetitions = (int *) [info->reps_Buffer contents];
-	repetitions[0] = reps;
-	[info->reps_Buffer didModifyRange:NSMakeRange(0, 1)];
+	for (int i = 0; i < size; i++){ repetitions[i] = reps; }
+	[info->reps_Buffer didModifyRange:NSMakeRange(0, size)];
 
 	// 1. Create a command buffer
 	id <MTLCommandBuffer> commandBuffer = [info->commandQueue commandBuffer];
@@ -199,18 +213,25 @@ int run_kernel(int reps,
 	int i = -1;
 	int counter = 0;
 
+// 	uint32_t *seeds = (uint32_t *) [info->seed_Buffer contents];
+// 	for (int j = 0; j < size; j++){ printf("%lu ", seeds[j]); }
+//     printf("\n");
+
 	while (i++, i < size && counter <= total_reps) {
+// 	    printf("%d | ", new_values[0]);
+// 	    for (int j = 0; j < num_integers; ++j) { printf("%lu ", x[j]); }
 		counter += reps;
 		if (cur_val[0] < new_values[i]) {
 			int value = new_values[i];
 			for (int j = 0; j < num_integers; ++j) {
 			    x[j] = new_arrays[i * num_integers + j];
-// 			    printf("%d %lu %lu\n", value, x[j], new_arrays[i * num_integers + j]);
+// 			    printf("%lu ", x[j]);
 			}
 			[computeEncoder release];
 			[commandBuffer release];
 			return value;
 		}
+//         printf("\n");
 	}
 	[computeEncoder release];
 	[commandBuffer release];

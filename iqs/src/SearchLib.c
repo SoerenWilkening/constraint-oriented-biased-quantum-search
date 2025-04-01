@@ -361,7 +361,7 @@ state_t *ctg(
         );
         if (res) {
             if (callback) {
-                callback(new_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
+                callback(cur_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
             }
             m_tot = 0;
             rounds = 0;

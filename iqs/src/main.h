@@ -35,6 +35,6 @@ int gpu_qmax_search_c(int n, int M,
                     int cur, uint32_t *arr,
                     gpu_info_t *gpu_info,
                     callback_t callback,
-                    int *total_applications);
+                    int *total_applications, int stop_val);
 
 #endif // MAIN_H

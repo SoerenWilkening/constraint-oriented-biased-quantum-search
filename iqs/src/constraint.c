@@ -23,7 +23,12 @@ lit_t init_literal(int64_t *literal, int len_literal){
     lit_t lit;
     lit.variables = calloc(len_literal - 1, sizeof(int64_t));
     lit.factor = literal[0];
-    for (int i = 0; i < len_literal - 1; i++) lit.variables[i] = literal[i + 1];
+//    printf("variables = ");
+    for (int i = 0; i < len_literal - 1; i++) {
+        lit.variables[i] = literal[i + 1];
+//        printf("%d ", literal[i + 1]);
+    }
+//    printf("\n");
     lit.len_literal = len_literal;
 
     return lit;
@@ -146,12 +151,12 @@ int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int
     int count = 0;
     int false_cons = 0;
     for (int i = 0; i < con->num_constraints; i++){
-        if (eval_constraint2(&con->constraints[i], assignment, assigned, close)) count++;
-        else{
-            false_cons++;
-            if (false_cons > allowed_false) return count;
-        }
-//        count += eval_constraint2(&con->constraints[i], assignment, assigned, close);
+//        if (eval_constraint2(&con->constraints[i], assignment, assigned, close)) count++;
+//        else{
+//            false_cons++;
+//            if (false_cons > allowed_false) return count;
+//        }
+        count += eval_constraint2(&con->constraints[i], assignment, assigned, close);
     }
     return count;
 }

@@ -1,6 +1,7 @@
 from copy import copy
 from time import time
 import numpy as np
+from .Constants import *
 
 def set_seed(seed):
 	srand(seed)
@@ -19,6 +20,7 @@ cdef class constraints:
 		self.num_constraints += 1
 		cdef constraint_t con = init_con()
 		liste, sense, rhs = other[:-2], other[-2], other[-1]
+		# print(liste, sense, rhs)
 		for i in liste:
 			l_p = <int64_t *> calloc(len(i), sizeof(int64_t))
 			for j in range(len(i)):
@@ -52,7 +54,7 @@ cdef class constraints:
 
 	def liste(self):
 		return [[[self.con.constraints[i].literals[j].factor] +
-		         [self.con.constraints[i].literals[j].variables[k] for k in range(1, self.con.constraints[i].literals[j].len_literal)]
+		         [self.con.constraints[i].literals[j].variables[k] for k in range(0, self.con.constraints[i].literals[j].len_literal - 1)]
 			            for j in range(self.con.constraints[i].num_literals)] + [self.con.constraints[i].rhs]
 		        for i in range(self.con.num_constraints)
 		]
@@ -149,14 +151,14 @@ def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int a, size_t b, double c):
+cdef void my_callback_c(int a, size_t b, double c) with gil:
 	if python_callback is not None:
 		python_callback(a, b, c)
 
 # python function to store the callback
 cdef object python_callback = None
 
-def run_ctg(
+cpdef run_ctg(
 		initial: state_py,
 		con: constraints,
 		obj: constraints,
@@ -166,23 +168,46 @@ def run_ctg(
 		int64_t stop_val,
 		object callback):
 
-	cdef size_t qtg_applications = 0;
+
+	# with nogil:
 	global python_callback
 	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-
-	# BranchingStats.bias = bias
 	cur_sol : state_py = copy(initial)
-	t1 = time()
-	ctg(cur_sol.state, con.pointer, obj.pointer, M, &qtg_applications, depth_look_ahead, solver, stop_val, cb_ptr)
-	t = time() - t1
-	cur_sol.get_x()
 
+	cdef size_t qtg_applications = 0;
+	cdef int dpth = depth_look_ahead
+	cdef int slvr = solver
+	cdef int stpvl = stop_val
+	cdef int M_c = M
+	cdef state_t *stt = cur_sol.state
+	cdef constraint_list_t *cnstrs = con.pointer
+	cdef constraint_list_t *obctv = obj.pointer
+
+	if solver == OPTIMIZE:
+		# Run sampling for optimization based on user input
+		with nogil:
+			ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+	else:
+		# Run satisfyability solver with increasing delta (only up to 7)
+		# delta determines M and bias
+		stpvl = con.num_constraints
+		for delta in range(1, 7):
+			M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
+			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
+
+			with nogil:
+				ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+
+			if cur_sol.state[0].tot_profit == stpvl: break
+
+	cur_sol.get_x()
 	arr = []
 	for i in range(cur_sol.state[0].vector.bits):
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return qtg_applications, cur_sol, t
+	return cur_sol, qtg_applications
+	# return qtg_applications

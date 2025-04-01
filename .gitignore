@@ -4,10 +4,12 @@ venv
 iqs/*.c
 iqs/*.so
 build
-iqs/src/test
-iqs/src/test.c
+../UNI/Promotion/Projects/QuantumAmplitudeEngineering/iqs/src/test
+../UNI/Promotion/Projects/QuantumAmplitudeEngineering/iqs/src/test.c
 cmake-build-debug
 iqs/generators/*.c
 results.csv
 plot.py
 stores*.csv
+iqs.egg-info
+*.whl
