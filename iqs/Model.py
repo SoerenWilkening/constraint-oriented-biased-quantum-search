@@ -107,7 +107,7 @@ or {self.runtime}s sampling
 		                             self.solver)
 
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
-	          num_threads = 12) -> float | None:
+	          num_threads = 12, max_delta = 7) -> float | None:
 		"""
 
 		:param M:
@@ -133,13 +133,9 @@ or {self.runtime}s sampling
 		if arch == "gpu":
 			raise TypeError("needs some fixing, currently doesnt seems to work properly!")
 
-			# print("compile now")
 			if not self.gpu_compiled:
 				self.compile()
 
-			# print("compiled")
-
-			t1 = time()
 			initial = self.initial_state.integer_liste()
 			initial = initial[: min(len(initial), int(np.ceil(self.n / 32)))]
 
@@ -155,11 +151,10 @@ or {self.runtime}s sampling
 			res = [run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)]
 		else:
 			res = Parallel(n_jobs = num_threads, backend = "threading", batch_size = 1)(
-				delayed(run_ctg)(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)
+				delayed(run_ctg)(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback, max_delta)
 				for _ in range(num_threads)
 			)
 
-		# for i in res: print(*i)
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
 		self.objective_value = max(i[0].objective_value() for i in res)
 		self.grover_iterations = min(list(i[1] for i in res if i[0].objective_value() == self.objective_value))
@@ -167,17 +162,3 @@ or {self.runtime}s sampling
 			if i[0].objective_value() == self.objective_value:
 				self.final_state = i[0]
 				break
-
-		# t1 = time()
-		# res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)
-		# print("time single process ", time() - t1)
-	# res = run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)
-
-	# self.improved = res[1].objective_value() != self.initial_state.objective_value()
-	# # if self.solver == SATISFY: self.improved = res[1].objective_value() == len(self.constraint)
-	#
-	# self.objective_value = res[1].objective_value()
-	# self.runtime = res[2]
-	# self.grover_iterations = res[0]
-	# self.quantum_cycles = res[0]
-	# self.final_state = res[1]

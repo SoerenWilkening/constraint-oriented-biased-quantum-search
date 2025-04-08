@@ -166,9 +166,10 @@ cpdef run_ctg(
 		depth_look_ahead: int,
 		solver: int,
 		int64_t stop_val,
-		object callback):
+		object callback,
+		max_delta):
 
-
+	# print(max_delta)
 	# with nogil:
 	global python_callback
 	python_callback = callback
@@ -194,9 +195,11 @@ cpdef run_ctg(
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
 		stpvl = con.num_constraints
-		for delta in range(1, 7):
-			M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
-			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
+		for delta in range(1, max_delta):
+			# M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
+			M_c = np.sqrt(delta) * (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
+			# print(cur_sol.state[0].vector.bits / delta - 1)
+			set_bias_wrapper(cur_sol.state[0].vector.bits / 4 - 1)
 
 			with nogil:
 				ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)

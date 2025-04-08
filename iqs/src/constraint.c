@@ -151,12 +151,12 @@ int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int
     int count = 0;
     int false_cons = 0;
     for (int i = 0; i < con->num_constraints; i++){
-//        if (eval_constraint2(&con->constraints[i], assignment, assigned, close)) count++;
-//        else{
-//            false_cons++;
-//            if (false_cons > allowed_false) return count;
-//        }
-        count += eval_constraint2(&con->constraints[i], assignment, assigned, close);
+        if (eval_constraint2(&con->constraints[i], assignment, assigned, close)) count++;
+        else{
+            false_cons++;
+            if (false_cons > allowed_false) return count;
+        }
+//        count += eval_constraint2(&con->constraints[i], assignment, assigned, close);
     }
     return count;
 }
