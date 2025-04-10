@@ -167,7 +167,8 @@ cpdef run_ctg(
 		solver: int,
 		int64_t stop_val,
 		object callback,
-		max_delta):
+		int max_delta,
+		int reset_delta):
 
 	# print(max_delta)
 	# with nogil:
@@ -186,6 +187,9 @@ cpdef run_ctg(
 	cdef state_t *stt = cur_sol.state
 	cdef constraint_list_t *cnstrs = con.pointer
 	cdef constraint_list_t *obctv = obj.pointer
+	cdef int found_new;
+
+	# ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
@@ -195,14 +199,22 @@ cpdef run_ctg(
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
 		stpvl = con.num_constraints
-		for delta in range(1, max_delta):
-			# M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
-			M_c = np.sqrt(delta) * (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
+		delta = 0
+		# for delta in range(1, max_delta):
+		while delta < max_delta:
+			delta += 1
+			# print(delta)
+			M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
+			# M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
 			# print(cur_sol.state[0].vector.bits / delta - 1)
-			set_bias_wrapper(cur_sol.state[0].vector.bits / 4 - 1)
+			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			with nogil:
-				ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+				found_new = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+
+			if found_new and reset_delta:
+				delta = 0
+				# print("redefine delta")
 
 			if cur_sol.state[0].tot_profit == stpvl: break
 

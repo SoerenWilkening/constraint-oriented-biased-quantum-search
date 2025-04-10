@@ -19,7 +19,7 @@ int compare(int64_t obj, int64_t thr, int sense);
 
 state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M);
 
-state_t *ctg(   state_t *cur_sol, constraint_list_t *con, constraint_list_t *obj, int M, size_t *qtg_applications,
+int ctg(   state_t *cur_sol, constraint_list_t *con, constraint_list_t *obj, int M, size_t *qtg_applications,
                 int depth_look_ahead, solver_t solver,  int64_t stop_val, callback_t callback);
 
 #endif

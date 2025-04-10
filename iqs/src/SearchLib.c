@@ -81,10 +81,10 @@ int update_potentials(int64_t *potentials, int *S, int64_t *S_value, int num){
     int all_positive = 1;
     for (int k = 0; k < num; k++){
         potentials[S[k]] -= labs(S_value[k]);
-        if (potentials[S[k]] < 0.) {
-            all_positive = 0;
-            break;
-        }
+//        if (potentials[S[k]] < 0.) {
+//            all_positive = 0;
+//            break;
+//        }
     }
     return all_positive;
 }
@@ -123,6 +123,21 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
 }
 
 
+state_t *state_generator(   state_t *cur_sol, int n, int NTerms,
+                            constraint_list_t *con, constraint_list_t *obj,
+                            int **S_plus, int64_t **S_plus_value, int *num_plus,
+                            int **S_minus, int64_t **S_minus_value, int *num_minus,
+                            int depth_look_ahead, solver_t solver){
+
+    state_t *generated = malloc(50000 * sizeof(state_t)); // allocate space, enlarge if needed
+    size_t a = 0; // number of states generated
+
+    int64_t potentials[con->num_constraints];
+
+    return generated;
+}
+
+
 int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             constraint_list_t *con, constraint_list_t *obj,
             int **S_plus, int64_t **S_plus_value, int *num_plus,
@@ -132,8 +147,6 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             ){
     // potentials for every constraint
     int64_t potentials[con->num_constraints];
-
-//    printf("bias = %f\n", BranchingStats.bias);
 
     for(int l = 0; l < 4 * j * j; l++){
         // Store which bit from the previous solution is flipped
@@ -161,9 +174,9 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             int bool_minus = evaluation(potentials, S_minus[i], S_minus_value[i], num_minus[i]);
             int count[2] = {0, 0};
             // look ahead to the left side
-            if (bool_minus && depth_look_ahead > 0 && i >= 15) look_ahead(i, 0, min(i + depth_look_ahead, n - 1), &count[0], potentials, S_plus, S_plus_value, num_plus, S_minus, S_minus_value, num_minus);
+            if (bool_minus && depth_look_ahead > 0) look_ahead(i, 0, min(i + depth_look_ahead, n - 1), &count[0], potentials, S_plus, S_plus_value, num_plus, S_minus, S_minus_value, num_minus);
             // look ahead to the right side
-            if (bool_plus && depth_look_ahead > 0 && i >= 15) look_ahead(i, 1, min(i + depth_look_ahead, n - 1), &count[1], potentials, S_plus, S_plus_value, num_plus, S_minus, S_minus_value, num_minus);
+            if (bool_plus && depth_look_ahead > 0) look_ahead(i, 1, min(i + depth_look_ahead, n - 1), &count[1], potentials, S_plus, S_plus_value, num_plus, S_minus, S_minus_value, num_minus);
             if (depth_look_ahead == 0 || i < 15){
                 count[0] = bool_minus;
                 count[1] = bool_plus;
@@ -241,7 +254,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 }
 
 
-state_t *ctg(
+int ctg(
                 state_t *cur_sol,
                 constraint_list_t *con,
                 constraint_list_t *obj,
@@ -252,6 +265,7 @@ state_t *ctg(
                 int64_t stop_val,
                 callback_t callback){
     state_t *new_sol = copy_state(cur_sol);
+    int64_t initial_value = cur_sol->tot_profit;
     int m_tot = 0;
     int n = cur_sol->vector.bits;
     int rounds = 0;
@@ -392,5 +406,5 @@ state_t *ctg(
     free(Fulfilled);
     free_state(new_sol, 0);
     fflush(stdout);
-    return cur_sol;
+    return ! (cur_sol->tot_profit == initial_value);
 }

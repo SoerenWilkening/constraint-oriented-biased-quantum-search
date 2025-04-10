@@ -107,7 +107,7 @@ or {self.runtime}s sampling
 		                             self.solver)
 
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
-	          num_threads = 12, max_delta = 7) -> float | None:
+	          num_threads = 12, max_delta = 7, reset_delta = True, depth_look_ahead = 0) -> float | None:
 		"""
 
 		:param M:
@@ -148,10 +148,10 @@ or {self.runtime}s sampling
 
 		t1 = time()
 		if num_threads == 1:
-			res = [run_ctg(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback)]
+			res = [run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver, stop_val, callback, max_delta, reset_delta)]
 		else:
 			res = Parallel(n_jobs = num_threads, backend = "threading", batch_size = 1)(
-				delayed(run_ctg)(self.initial_state, self.constraint, self.objective, M, 0, self.solver, stop_val, callback, max_delta)
+				delayed(run_ctg)(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver, stop_val, callback, max_delta, reset_delta)
 				for _ in range(num_threads)
 			)
 
