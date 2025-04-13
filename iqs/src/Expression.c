@@ -3,7 +3,7 @@
 int min_size = 30000;
 
 int expr_index(int lit, int ind){
-	return 3 * lit + ind;
+	return MAXCLAUSESIZE * lit + ind;
 }
 
 void merge_expression(expression_t *expr){
@@ -24,7 +24,7 @@ void merge_expression(expression_t *expr){
 
 expression_t *init_expression(){
     expression_t *expr = malloc(sizeof(expression_t));
-    expr->literals = malloc(3 * min_size * sizeof(int64_t ));
+    expr->literals = malloc(MAXCLAUSESIZE * min_size * sizeof(int64_t ));
     expr->len_literal = malloc(min_size * sizeof(int));
     expr->expr_size = 0;
     return expr;
@@ -38,7 +38,7 @@ void free_expression(expression_t *expr){
 
 void increase(expression_t *expr){
     if (expr->expr_size % (min_size - 1) == 0 && expr->expr_size > 0){
-        expr->literals = realloc(expr->literals, 3 * (expr->expr_size + min_size) * sizeof(int64_t ));
+        expr->literals = realloc(expr->literals, MAXCLAUSESIZE * (expr->expr_size + min_size) * sizeof(int64_t ));
         expr->len_literal = realloc(expr->len_literal, (expr->expr_size + min_size) * sizeof(int));
     }
 }

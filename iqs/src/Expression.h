@@ -6,9 +6,8 @@
 #include <string.h>
 #include "definitions.h"
 
-//#define size 500000
-
-// try dynamic allocation
+// limit to maximum number of variables in clause
+#define MAXCLAUSESIZE 5 // maximum 4 variables in clause -> maybe overkill
 
 typedef struct{
     int64_t *literals;
@@ -17,6 +16,7 @@ typedef struct{
 } expression_t;
 
 expression_t *init_expression();
+int expr_index(int lit, int ind);
 void free_expression(expression_t *expr);
 void merge_expression(expression_t *expr);
 

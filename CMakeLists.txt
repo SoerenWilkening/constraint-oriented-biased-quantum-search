@@ -8,4 +8,9 @@ include_directories(iqs/src)
 add_executable(improved_quantum_search
         iqs/src/Expression.c
         iqs/src/Expression.h
-        iqs/src/test.c)
+        iqs/src/test.c
+        iqs/src/constraint.h
+        iqs/src/constraint.c
+        iqs/src/intarray.c
+        iqs/src/intarray.h
+)

@@ -84,7 +84,7 @@ or {self.runtime}s sampling
 		self.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
-		self.linear_obj_form += expr.linear_matrix_form(self.n)
+		# self.linear_obj_form += expr.linear_matrix_form(self.n)
 		# self.linear_obj_form += expr.linear_vector_form(self.n)
 
 		self.objective += list(expr) + [sense, 0]
@@ -92,7 +92,7 @@ or {self.runtime}s sampling
 	def add_constraint(self, constraint: Expression2 | int | None = None) -> None:
 		expr = constraint
 		expr.merge()
-		self.linear_con_form += expr.linear_vector_form(self.n)
+		# self.linear_con_form += expr.linear_vector_form(self.n)
 		# print(self.linear_con_form)
 		self.constraint += list(expr)
 

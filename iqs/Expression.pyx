@@ -90,7 +90,9 @@ cdef class Expression2:
 
 	def __str__(self):
 		for i in range(self.expr[0].expr_size):
-			print(self.expr[0].literals[3 * i + 0], self.expr[0].literals[3 * i + 1], self.expr[0].literals[3 * i + 2])
+			for j in range(self.expr[0].len_literal[i]):
+				print(self.expr[0].literals[5 * i + j], end = " ")
+			print()
 		return ""
 
 	cdef add_expr(self, other: Expression2):
@@ -102,7 +104,7 @@ cdef class Expression2:
 
 	cdef c_liste(self):
 		l = [
-			[self.expr[0].literals[3 * j + i] for i in range(self.expr[0].len_literal[j])]
+			[self.expr[0].literals[5 * j + i] for i in range(self.expr[0].len_literal[j])]
 			for j in range(self.expr[0].expr_size) if self.expr[0].len_literal[j] != 0
 		]
 		# print("l = ", l)

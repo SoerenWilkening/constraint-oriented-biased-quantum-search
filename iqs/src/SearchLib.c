@@ -340,7 +340,6 @@ int ctg(
     //                              -> given (item, cnstr)
     //                              -> length fixed
 
-
     int C = con->num_constraints;
     unsigned int *positive_indices = calloc(2 * n * C * n, sizeof(unsigned int));
     unsigned int *negative_indices = calloc(2 * n * C * n, sizeof(unsigned int));

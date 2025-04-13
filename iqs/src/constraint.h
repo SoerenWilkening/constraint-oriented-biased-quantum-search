@@ -7,7 +7,65 @@
 #include <string.h>
 #include "definitions.h"
 #include "state.h"
+#include "Expression.h"
 
+// create constraint_list in the follwoing way:
+//  -> linear implementation of tensor
+//  -> given C constraints and m clauses per constraint with k variables per clause
+//  -> 1d arrays representing:
+//      -> num_clauses: length = C: how many clauses in constraint
+//      -> clauses_offset: given C, what is the index of clause cl
+//      -> factors: length <= C * m, stores all factors of all clauses in constraints
+//          -> given C, value for clause cl is stored at clauses_offset[C] + cl
+//      -> length_clause: length <= C * m, stores the number of variables of every clause.
+//          -> given C, value for clause cl is stored at clauses_offset[C] + cl
+//      -> variables_offset: length <= C * m, given C and cl, what is the first index of the variables fot that clause
+//      -> variables: length <= C * m * k
+//      -> senses: length = C,
+//      -> rhs: length = C
+
+#define MINARRAYSIZE 10000
+
+typedef struct{
+	size_t num_constraints; // number of constraints
+    size_t *num_clauses;    // how many clauses per constraint
+    size_t *clause_offset; // offset, to correctly locate factor and length_clause given C and c
+    int64_t *factors;       // store the factor of a clause
+	size_t *clause_length;  // how many variables per clause
+	size_t *variable_offset;// where is the first index of the variables of a clause given constraint C
+	size_t *variables;      //
+	int *sense;
+	int64_t *rhs;
+} new_constraints_t;
+
+
+// instead of creating a constraint and add it to the list of constraints,
+// an expression will be passed to the constraint data
+// an expression always refers to one constraint
+new_constraints_t init_new_constraint();
+
+void free_constraints(new_constraints_t *con);
+
+void print_new_constraint(new_constraints_t *con);
+
+void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// OLD IMPLEMENTAIOTN
 typedef struct{
 //    long double *literal; // in the form of [value, index] (linear) or [value, index1, index2] (quadratic)
     int64_t factor;
