@@ -18,19 +18,20 @@ cdef class constraints:
 
 	def __iadd__(self, other):
 		self.num_constraints += 1
-		cdef constraint_t con = init_con()
+		cdef constraint_t *con = add_constraint(&self.con)
 		liste, sense, rhs = other[:-2], other[-2], other[-1]
-		# print(liste, sense, rhs)
 		for i in liste:
 			l_p = <int64_t *> calloc(len(i), sizeof(int64_t))
+			# print(len(i))
 			for j in range(len(i)):
 				l_p[j] = <int64_t> i[j]
 
-			add_literal(&con, l_p, len(i))
-		add_sense(&con, sense)
-		add_rhs(&con, rhs)
-		con.evaluated = -2
-		add_constraint(&self.con, &con)
+			add_literal(con, l_p, len(i))
+
+		add_sense(con, sense)
+		add_rhs(con, rhs)
+		con[0].evaluated = -2
+		# add_constraint(&self.con, &con)
 		return self
 
 	def __str__(self):

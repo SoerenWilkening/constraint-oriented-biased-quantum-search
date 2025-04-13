@@ -59,7 +59,7 @@ cdef extern from "src/constraint.h":
 	constraint_t init_con();
 	lit_t init_literal(int64_t *literal, int len_literal);
 
-	void add_constraint(constraint_list_t *con_list, constraint_t *con);
+	constraint_t *add_constraint(constraint_list_t *con_list);
 	void add_literal(constraint_t *con, int64_t *literal, int len_literal);
 	void add_sense(constraint_t *con, int sense);
 	void add_rhs(constraint_t *con, int64_t rhs);

@@ -23,21 +23,19 @@ lit_t init_literal(int64_t *literal, int len_literal){
     lit_t lit;
     lit.variables = calloc(len_literal - 1, sizeof(int64_t));
     lit.factor = literal[0];
-//    printf("variables = ");
     for (int i = 0; i < len_literal - 1; i++) {
         lit.variables[i] = literal[i + 1];
-//        printf("%d ", literal[i + 1]);
     }
-//    printf("\n");
     lit.len_literal = len_literal;
 
     return lit;
 }
 
-void add_constraint(constraint_list_t *con_list, constraint_t *con){
+constraint_t *add_constraint(constraint_list_t *con_list){
     con_list->num_constraints += 1;
     con_list->constraints = realloc(con_list->constraints, con_list->num_constraints * sizeof(constraint_t));
-    con_list->constraints[con_list->num_constraints - 1] = *con;
+    con_list->constraints[con_list->num_constraints - 1] = init_con();
+    return &con_list->constraints[con_list->num_constraints - 1];
 }
 
 void add_literal(constraint_t *con, int64_t *literal, int len_literal){
@@ -54,6 +52,12 @@ void add_rhs(constraint_t *con, int64_t rhs){
     con->rhs += rhs;
     con->rhs_adapted += rhs;
     con->first_non_closed = 0;
+}
+
+void reset_rhs_adapted(constraint_list_t *con){
+    for (int i = 0; i < con->num_constraints; i++){
+        con->constraints[i].rhs_adapted = con->constraints[i].rhs;
+    }
 }
 
 void print_constraints(constraint_list_t *cons){

@@ -84,7 +84,6 @@ or {self.runtime}s sampling
 		self.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
-
 		self.linear_obj_form += expr.linear_matrix_form(self.n)
 		# self.linear_obj_form += expr.linear_vector_form(self.n)
 
@@ -126,7 +125,7 @@ or {self.runtime}s sampling
 
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		if M == -1: M = self.n ** 2 // 16
-		if bias != -1: bias = self.n / 4
+		if bias == -1: bias = self.n / 4
 		set_bias_wrapper(bias)
 
 
