@@ -18,7 +18,7 @@ new_constraints_t init_new_constraint() {
 }
 
 
-void free_constraints(new_constraints_t *con){
+void free_constraints(new_constraints_t *con) {
 	free(con->num_clauses);
 	free(con->clause_offset);
 	free(con->factors);
@@ -29,21 +29,21 @@ void free_constraints(new_constraints_t *con){
 	free(con->rhs);
 }
 
-size_t first_clause_index(new_constraints_t *con, size_t C){
+size_t first_clause_index(new_constraints_t *con, size_t C) {
 	if (C == 0) return 0;
 	return con->clause_offset[C - 1];
 }
 
-size_t first_variable_index(new_constraints_t *con, size_t C, size_t cls){
+size_t first_variable_index(new_constraints_t *con, size_t C, size_t cls) {
 	if (cls == 0) return first_clause_index(con, C) * (MAXCLAUSESIZE - 1);
 	return first_clause_index(con, C) * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
 }
 
-size_t variable_index(new_constraints_t *con, size_t C, size_t cls, size_t k){
+size_t variable_index(new_constraints_t *con, size_t C, size_t cls, size_t k) {
 	return first_variable_index(con, C, cls) + k;
 }
 
-void print_new_constraint(new_constraints_t *con){
+void print_new_constraint(new_constraints_t *con) {
 	printf("constraints -> %zu\n", con->num_constraints);
 	for (int i = 0; i < con->num_constraints; ++i) {
 		for (int j = 0; j < con->num_clauses[i]; ++j) {
@@ -54,11 +54,12 @@ void print_new_constraint(new_constraints_t *con){
 			}
 			printf("] ");
 		}
-		printf("\n");
+		if (con->sense[i] == LOWER) printf("< ");
+		printf("%lld\n", con->rhs[i]);
 	}
 }
 
-void add_expression_to_constraints(new_constraints_t *con, expression_t *expr){
+void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	// always occupy MAXClAUSELENGTH - 1 for variables
 
@@ -86,13 +87,120 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr){
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;
+
+	con->rhs[C] = expr->rhs;
+	con->sense[C] = expr->sense;
+}
+
+int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t cnstr) {
+	int64_t total = 0;
+	for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
+		size_t clause_index = first_clause_index(con, cnstr) + cl;
+
+		// check, if every item of a clause is assigned
+		int assigned = 1;
+		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
+			size_t var = con->variables[variable_index(con, cnstr, cl, k)];
+			if (var > max_item) {
+				assigned = 2;
+				break;
+			}
+			int bit = sw_tstbit(sol->vector, var);
+			assigned *= bit;
+		}
+//		printf("assign = %d %lld\n", assigned, con->factors[clause_index]);
+		if (con->factors[clause_index] < 0) {
+			total -= con->factors[clause_index] * (1 - assigned) * (assigned != 2);
+		} else {
+			total += con->factors[clause_index] * assigned * (assigned != 2);
+		}
+	}
+	if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
+	if (con->sense[cnstr] == EQUAL) {
+		if (max_item == sol->vector.bits && total != con->rhs[cnstr]) return 0;
+		if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
+	}
+	return 1;
+}
+
+int eval_constraints(new_constraints_t *con, state_t *sol, int max_item) {
+	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+		if (!eval_constraint(con, sol, max_item, cnstr)) return 0;
+	}
+	return 1;
+}
+
+int num_satisfied_constrains(new_constraints_t *con, state_t *sol) {
+	int count = 0;
+	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+		if (eval_constraint(con, sol, sol->vector.bits, cnstr)) count++;
+	}
+	return count;
+}
+
+int64_t objective_value(new_constraints_t *obj, state_t *sol) {
+	// compute objective value of given solution
+	int64_t total = 0;
+	int cnstr = 0;
+	for (int cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
+		size_t clause_index = first_clause_index(obj, cnstr) + cl;
+
+		// check, if every item of a clause is assigned
+		int assigned = 1;
+		for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
+			size_t var = obj->variables[variable_index(obj, cnstr, cl, k)];
+			int bit = sw_tstbit(sol->vector, var);
+			assigned *= bit;
+		}
+		total += obj->factors[clause_index] * assigned;
+	}
+	return total;
 }
 
 
-
-
-
-
+//int64_t objective_value_improved(new_constraints_t *obj, // objective function
+//                                 state_t *new, // new state
+//                                 int NumChanges, // how many bits were flipped
+//                                 int *ChangedBits, // which bits were flipped
+//                                 int **Indices, // objective term indices involving every item
+//                                 int *NumIndices, // in how many terms every item occours
+//                                 int *Fulfilled, // are terms of objective fulfilled
+//                                 int *ChangedTerms,
+//                                 int *NumChangedTerms
+//) {
+//	int Count = 0;
+//	int NTerms = obj->num_clauses[0]; // number terms
+//	int *investigated = calloc(NTerms,
+//	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
+//	// For every changed bit, change, if the respective term changes and adjust the total profit
+//	for (int ChangeIndex = 0; ChangeIndex < NumChanges; ChangeIndex++) {
+//		int item = ChangedBits[ChangeIndex];
+//		for (int term = 0; term < NumIndices[item]; term++) {
+//			int literal = Indices[item][term];
+//			lit_t *lit = &obj->constraints[0].literals[literal];
+//			if (!investigated[literal]) {
+//				int assign = 1;
+//				// check every item of respective term
+//				for (int lits = 0; lits < lit->len_literal - 1; lits++) {
+//					if (!sw_tstbit(new->vector, lit->variables[lits]))
+//						assign = 0;
+//				}
+//				if (Fulfilled[literal] && !assign) {
+//					new->tot_profit -= lit->factor;
+//				}
+//				if (!Fulfilled[literal] && assign) {
+//					new->tot_profit += lit->factor;
+//				}
+//				if (assign != Fulfilled[literal]) ChangedTerms[Count++] = literal;
+//			}
+//			// to avoid considering the same term multiple times
+//			investigated[literal] = 1;
+//		}
+//	}
+//	*NumChangedTerms = Count;
+//	free(investigated);
+//	return new->tot_profit;
+//}
 
 
 

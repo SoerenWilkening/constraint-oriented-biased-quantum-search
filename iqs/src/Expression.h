@@ -13,6 +13,8 @@ typedef struct{
     int64_t *literals;
     int *len_literal;
     int expr_size;
+	int sense;
+	int64_t rhs;
 } expression_t;
 
 expression_t *init_expression();
@@ -30,5 +32,8 @@ void sub_expression(expression_t *expr1, expression_t *expr2);
 
 void multiply_constant(expression_t *expr, int64_t constant);
 void multiply_variable(expression_t *expr, int64_t index);
+
+void add_sense_to_expression(expression_t *expr, int sense);
+void add_rhs_to_expression(expression_t *expr, int64_t rhs);
 
 #endif

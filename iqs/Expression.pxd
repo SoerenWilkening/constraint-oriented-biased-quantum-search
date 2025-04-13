@@ -20,3 +20,13 @@ cdef extern from "src/Expression.h":
 
 	void multiply_constant(expression_t *expr, int64_t constant);
 	void multiply_variable(expression_t *expr, int64_t index);
+
+	void add_sense_to_expression(expression_t *expr, int sense);
+	void add_rhs_to_expression(expression_t *expr, int64_t rhs);
+
+cdef class Expression2:
+	cdef expression_t *expr
+	cdef int sense
+	cdef int rhs
+	cdef c_liste(self)
+	cdef add_expr(self, Expression2 other)

@@ -50,6 +50,10 @@ void print_new_constraint(new_constraints_t *con);
 
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
 
+int eval_constraints(new_constraints_t *con, state_t *sol, int max_item);
+int num_satisfied_constrains(new_constraints_t *con, state_t *sol);
+int64_t objective_value(new_constraints_t *obj, state_t *sol);
+
 
 
 

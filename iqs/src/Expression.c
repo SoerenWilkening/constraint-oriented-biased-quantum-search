@@ -117,4 +117,12 @@ void multiply_variable(expression_t *expr, int64_t index){
     }
 }
 
+void add_sense_to_expression(expression_t *expr, int sense){
+	expr->sense = sense;
+}
+
+void add_rhs_to_expression(expression_t *expr, int64_t rhs){
+	expr->rhs = rhs;
+}
+
 // maybe no need to implement "multiply_expression"

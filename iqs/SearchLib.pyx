@@ -6,6 +6,30 @@ from .Constants import *
 def set_seed(seed):
 	srand(seed)
 
+cdef class new_constraint:
+	cdef new_constraints_t con;
+	cdef int num_constraints;
+
+	def __cinit__(self):
+		self.con = init_new_constraint()
+		self.num_constraints = 0
+
+	def __str__(self):
+		print_new_constraint(&self.con)
+		return ""
+
+	def __len__(self):
+		return self.num_constraints
+
+	cdef add(self, expr: Expression2):
+		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)
+
+	def add_expression(self, expr: Expression2):
+		self.add(expr)
+
+
+
+
 cdef class constraints:
 	cdef constraint_list_t con;
 	cdef constraint_list_t *pointer;

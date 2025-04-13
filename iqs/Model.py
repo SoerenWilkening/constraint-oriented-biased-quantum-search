@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression2
-from .SearchLib import state_py, constraints, run_ctg, set_seed, set_bias_wrapper
+from .SearchLib import state_py, constraints, new_constraint, run_ctg, set_seed, set_bias_wrapper
 
 from warnings import warn
 #
@@ -24,8 +24,10 @@ class Model:
 
 		self.calls = 0
 		self.met = None
-		self.objective: constraints = constraints()
-		self.constraint: constraints = constraints()
+		# self.objective: constraints = constraints()
+		# self.constraint: constraints = constraints()
+		self.objective: new_constraint = new_constraint()
+		self.constraint: new_constraint = new_constraint()
 
 		self.linear_obj_form = []
 		self.linear_con_form = []
@@ -84,17 +86,23 @@ or {self.runtime}s sampling
 		self.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
+		if sense == MINIMIZE:
+			expr = expr <= 0
+		else:
+			expr = expr >= 0
 		# self.linear_obj_form += expr.linear_matrix_form(self.n)
 		# self.linear_obj_form += expr.linear_vector_form(self.n)
 
-		self.objective += list(expr) + [sense, 0]
+		self.objective.add_expression(expr)
+		# self.objective += list(expr) + [sense, 0]
 
 	def add_constraint(self, constraint: Expression2 | int | None = None) -> None:
 		expr = constraint
 		expr.merge()
 		# self.linear_con_form += expr.linear_vector_form(self.n)
 		# print(self.linear_con_form)
-		self.constraint += list(expr)
+		# self.constraint += list(expr)
+		self.constraint.add_expression(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
