@@ -126,10 +126,10 @@ int eval_constraint2(constraint_t *con, state_t *assignment, int assigned, int c
         }
     }
     // keep old value for evaluation
-    double rhs = con->rhs_adapted;
+    double rhs = con->rhs;
 
     // update rhs based on already assigned variables
-    if(close) con->rhs_adapted = con->rhs_adapted - total;
+//    if(close) con->rhs_adapted = con->rhs_adapted - total;
 
     if (con->sense == EQUAL){
         if(open_lit > 0) return total <= rhs;
