@@ -32,6 +32,7 @@ cdef class new_constraint:
 		return self.num_constraints
 
 	cdef add(self, expr: Expression2):
+		self.num_constraints += 1
 		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)
 
 	def add_expression(self, expr: Expression2):
@@ -212,14 +213,14 @@ cpdef run_ctg(
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	# cur_sol : state_py = copy(initial)
+	cur_sol : state_py = copy(initial)
 
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
 	cdef int slvr = solver
 	cdef int stpvl = stop_val
 	cdef int M_c = M
-	cdef state_t *stt = initial.state
+	cdef state_t *stt = cur_sol.state
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int found_new;
@@ -231,31 +232,31 @@ cpdef run_ctg(
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
-		stpvl = con.num_constraints
+		stpvl = -len(con)
 		delta = 0
 		# for delta in range(1, max_delta):
 		while delta < max_delta:
 			delta += 1
 			# print(delta)
-			M_c = int((initial.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
+			M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
 			# M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
 			# print(cur_sol.state[0].vector.bits / delta - 1)
-			set_bias_wrapper(initial.state[0].vector.bits / delta - 1)
+			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
-			with nogil:
-				found_new = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			# with nogil:
+			found_new = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
 			if found_new and reset_delta:
 				delta = 0
 				# print("redefine delta")
 
-			if initial.state[0].tot_profit == stpvl: break
+			if stt.tot_profit == stpvl: break
 
-	initial.get_x()
+	cur_sol.get_x()
 	arr = []
-	for i in range(initial.state[0].vector.bits):
-		arr.append(sw_tstbit(initial.state[0].vector, i))
+	for i in range(cur_sol.state[0].vector.bits):
+		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
-	initial.arr = np.array(arr, dtype = np.int32)
-	return initial, qtg_applications
+	cur_sol.arr = np.array(arr, dtype = np.int32)
+	return cur_sol, qtg_applications
 	# return qtg_applications

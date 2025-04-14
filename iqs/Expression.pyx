@@ -109,28 +109,6 @@ cdef class Expression2:
 			l += [self.sense, self.rhs]
 		return l
 
-	def linear_vector_form(self, n):
-		array = [0] * n
-		for i in range(self.expr[0].expr_size):
-			if self.expr[0].len_literal[i] == 2:
-				index = self.expr[0].literals[3 * i + 1]
-				array[index] = self.expr[0].literals[3 * i]
-		return array
-
-	def linear_matrix_form(self, n):
-		array = [0] * n * n
-		for i in range(self.expr[0].expr_size):
-			if self.expr[0].len_literal[i] == 2:
-				index = self.expr[0].literals[3 * i + 1] # linear terms occupy the diagonal matrix entries
-				array[n * index + index] = self.expr[0].literals[3 * i]
-
-			if self.expr[0].len_literal[i] == 3:
-				index1 = self.expr[0].literals[3 * i + 1]
-				index2 = self.expr[0].literals[3 * i + 2]
-				array[n * index2 + index1] = self.expr[0].literals[3 * i]
-
-		return array
-
 	def __iter__(self):
 		return self.c_liste().__iter__()
 

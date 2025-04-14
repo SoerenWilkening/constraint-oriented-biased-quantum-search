@@ -1,20 +1,18 @@
 # import os
 # import sys
+import os
 from time import time
 
 import numpy as np
-from joblib import Parallel, delayed
 
 from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression2
-from .SearchLib import state_py, constraints, new_constraint, run_ctg, set_seed, set_bias_wrapper
+from .SearchLib import state_py, new_constraint, run_ctg, set_seed, set_bias_wrapper
 from copy import copy
-
 from warnings import warn
-#
-# sys.stderr = open(os.devnull, 'w')  # Suppress stderr
 
+from multiprocessing import shared_memory
 
 class Model:
 
@@ -25,15 +23,10 @@ class Model:
 
 		self.calls = 0
 		self.met = None
-		# self.objective: constraints = constraints()
-		# self.constraint: constraints = constraints()
 		self.objective: new_constraint = new_constraint()
 		self.constraint: new_constraint = new_constraint()
 
 		self.sense = MAXIMIZE
-
-		self.linear_obj_form = []
-		self.linear_con_form = []
 
 		self.n: int = 0
 		self.variables = {}
@@ -51,6 +44,15 @@ class Model:
 
 		self.gpu_compiled: bool = False
 		set_seed(time())
+
+	def __copy__(self):
+		new_m = Model()
+		new_m.objective = copy(self.objective)
+		new_m.constraint = copy(self.constraint)
+		new_m.initial_state = copy(self.initial_state)
+		new_m.solver = self.solver
+		new_m.sense = self.sense
+		return new_m
 
 	def __str__(self):
 		if not self.improved:
@@ -112,8 +114,23 @@ or {self.runtime}s sampling
 		                             len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
 		                             self.solver)
 
+	def worker_process(self, shm_name, index, shape,
+	                   M, depth_look_ahead, stop_val, callback, max_delta, reset_delta):
+		existing_shm = shared_memory.SharedMemory(shm_name)
+		arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
+		set_seed(time() + os.getpid() * 1234)
+
+		res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+		               stop_val, callback, max_delta, reset_delta)
+		# print(res)
+		arr[index, 0] = res[0].objective_value()
+		arr[index, 1] = res[1]
+
+
+
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
-	          num_threads = 12, max_delta = 7, reset_delta = True, depth_look_ahead = 0) -> float | None:
+	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=0,
+	          results = "min") -> float | None:
 		"""
 
 		:param M:
@@ -121,9 +138,10 @@ or {self.runtime}s sampling
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
+		assert results in ["min", "average"]
+
 		self.calls += 1
 		set_seed(time() + 10 * self.calls)
-		if self.solver == SATISFY: self.objective += [[0], MAXIMIZE, 0]
 
 		if self.solver == SATISFY:
 			if M != -1: warn("Defined M will be ignored when solving SAT")
@@ -153,23 +171,27 @@ or {self.runtime}s sampling
 			return
 
 		t1 = time()
-		if num_threads == 1:
-			res = [run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver, stop_val, callback, max_delta, reset_delta)]
-		else:
-			obj_copies = [copy(self.objective) for _ in range(num_threads)]
-			con_copies = [copy(self.constraint) for _ in range(num_threads)]
-			states = [copy(self.initial_state) for _ in range(num_threads)]
-			solver = self.solver
+		shape = (num_workers, 2)
+		shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
+		arr = np.ndarray(shape, dtype = np.float64, buffer=shm.buf)
 
-			res = Parallel(n_jobs = num_threads, backend = "threading", batch_size = 1)(
-				delayed(run_ctg)(states[i], con_copies[i], obj_copies[i], M, depth_look_ahead, solver, stop_val, callback, max_delta, reset_delta)
-				for i in range(num_threads)
-			)
+		for i in range(num_workers):
+			pid = os.fork()
+			if pid == 0:
+				# print(i)
+				shm.close()
+				self.worker_process(shm.name, i, shape, M, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
+				exit(0)  # Terminate child process after work is done
+			else:
+				pass
+
+		for _ in range(num_workers):
+			os.wait()
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
-		self.objective_value =  max(i[0].objective_value() for i in res)
-		self.grover_iterations = min(list(i[1] for i in res if i[0].objective_value() == self.objective_value))
-		for i in res:
-			if i[0].objective_value() == self.objective_value:
-				self.final_state = i[0]
-				break
+		if results == "min":
+			self.objective_value =  min(i[0] for i in arr)
+			self.grover_iterations = min(list(i[1] for i in arr if i[0] == self.objective_value))
+		else:
+			self.objective_value = np.mean([i[0] for i in arr])
+			self.grover_iterations = np.mean([i[1] for i in arr])

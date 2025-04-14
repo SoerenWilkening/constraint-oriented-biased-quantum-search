@@ -296,16 +296,15 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         if (solver == OPTIMIZE) val = objective_value(obj, new_sol);
         if (solver == SATISFY) {
 //            val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - cur_sol->tot_profit);
-            val = num_satisfied_constrains(con, new_sol);
+            val = -num_satisfied_constrains(con, new_sol);
         }
-//        printf(" feasible = %d value = %lld %lld\n", as1, cur_sol->tot_profit, val);
-
         if (as1 && cur_sol->tot_profit > val){
             // If solution is updated, change the array of fulfilled terms
             for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
             cur_sol->tot_profit = val;
             sw_clear(cur_sol->vector);
             cur_sol->vector = sw_set(new_sol->vector);
+//            printf(" feasible = %d value = %lld %lld\n", as1, cur_sol->tot_profit, val);
 
             free(ChangedTerms);
             free(ChangedBits);
@@ -482,8 +481,10 @@ int ctg(
                 callback(cur_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
             }
             m_tot = 0;
+
             rounds = 0;
-            if((solver == SATISFY && cur_sol->tot_profit == con->num_constraints) || (new_sol->tot_profit >= stop_val && stop_val != -1)) {
+//            printf("%lld %lld\n", cur_sol->tot_profit, -con->num_constraints);
+            if((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) || (new_sol->tot_profit <= stop_val && stop_val != -1)) {
                 break;
             }
         }
