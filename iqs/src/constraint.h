@@ -44,6 +44,10 @@ typedef struct{
 // an expression always refers to one constraint
 new_constraints_t init_new_constraint();
 
+inline size_t first_variable_index(size_t cls, size_t clause_index);
+
+inline size_t variable_index(size_t cls, size_t k, size_t clause_index);
+
 void free_constraints(new_constraints_t *con);
 
 void print_new_constraint(new_constraints_t *con);
