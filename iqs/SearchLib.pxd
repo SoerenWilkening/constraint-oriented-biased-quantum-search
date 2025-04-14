@@ -49,6 +49,8 @@ cdef extern from "src/constraint.h":
 
 	new_constraints_t init_new_constraint();
 
+	new_constraints_t copy_new_constraint(new_constraints_t *con);
+
 	void free_constraints(new_constraints_t *con);
 
 	void print_new_constraint(new_constraints_t *con);

@@ -17,10 +17,13 @@ int main(){
 
 	new_constraints_t con = init_new_constraint();
 	add_expression_to_constraints(&con, expr);
+	add_expression_to_constraints(&con, expr);
+	new_constraints_t con2 = copy_new_constraint(&con);
 	print_new_constraint(&con);
+	print_new_constraint(&con2);
 
-	printf("%d\n", num_satisfied_constrains(&con, sol));
-	printf("%lld\n", objective_value(&con, sol));
+	printf("%d\n", num_satisfied_constrains(&con2, sol));
+	printf("%lld\n", objective_value(&con2, sol));
 
 	free_constraints(&con);
 

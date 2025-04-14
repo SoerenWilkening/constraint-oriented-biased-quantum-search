@@ -18,6 +18,16 @@ cdef class new_constraint:
 		print_new_constraint(&self.con)
 		return ""
 
+	def __del__(self):
+		free_constraints(&self.con)
+		del self
+
+	def __copy__(self):
+		new_con = new_constraint()
+		new_con.con = copy_new_constraint(&self.con)
+		new_con.num_constraints = self.num_constraints
+		return new_con
+
 	def __len__(self):
 		return self.num_constraints
 
@@ -202,14 +212,14 @@ cpdef run_ctg(
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	cur_sol : state_py = copy(initial)
+	# cur_sol : state_py = copy(initial)
 
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
 	cdef int slvr = solver
 	cdef int stpvl = stop_val
 	cdef int M_c = M
-	cdef state_t *stt = cur_sol.state
+	cdef state_t *stt = initial.state
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int found_new;
@@ -227,10 +237,10 @@ cpdef run_ctg(
 		while delta < max_delta:
 			delta += 1
 			# print(delta)
-			M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
+			M_c = int((initial.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
 			# M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
 			# print(cur_sol.state[0].vector.bits / delta - 1)
-			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
+			set_bias_wrapper(initial.state[0].vector.bits / delta - 1)
 
 			with nogil:
 				found_new = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
@@ -239,13 +249,13 @@ cpdef run_ctg(
 				delta = 0
 				# print("redefine delta")
 
-			if cur_sol.state[0].tot_profit == stpvl: break
+			if initial.state[0].tot_profit == stpvl: break
 
-	cur_sol.get_x()
+	initial.get_x()
 	arr = []
-	for i in range(cur_sol.state[0].vector.bits):
-		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
+	for i in range(initial.state[0].vector.bits):
+		arr.append(sw_tstbit(initial.state[0].vector, i))
 
-	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications
+	initial.arr = np.array(arr, dtype = np.int32)
+	return initial, qtg_applications
 	# return qtg_applications

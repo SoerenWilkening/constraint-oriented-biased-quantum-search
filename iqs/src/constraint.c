@@ -17,6 +17,28 @@ new_constraints_t init_new_constraint() {
 	return con;
 }
 
+new_constraints_t copy_new_constraint(new_constraints_t *con){
+    new_constraints_t new_con = init_new_constraint();
+    new_con.num_constraints = con->num_constraints;
+
+	new_con.rhs = realloc(new_con.rhs, con->num_constraints * sizeof(int64_t));
+	memcpy(new_con.rhs, con->rhs, con->num_constraints * sizeof(int64_t));
+
+	new_con.sense = realloc(new_con.sense, con->num_constraints * sizeof(int64_t));
+	memcpy(new_con.sense, con->sense, con->num_constraints * sizeof(int));
+
+	new_con.num_clauses = realloc(new_con.num_clauses, con->num_constraints * sizeof(int64_t));
+	memcpy(new_con.num_clauses, con->num_clauses, con->num_constraints * sizeof(size_t));
+
+	memcpy(new_con.clause_offset, con->clause_offset, MINARRAYSIZE * sizeof(size_t));
+	memcpy(new_con.factors, con->factors, MINARRAYSIZE * sizeof(int64_t));
+	memcpy(new_con.clause_length, con->clause_length, MINARRAYSIZE * sizeof(size_t));
+	memcpy(new_con.variable_offset, con->variable_offset, MINARRAYSIZE * sizeof(size_t));
+	memcpy(new_con.variables, con->variables, MINARRAYSIZE * sizeof(size_t));
+
+
+	return new_con;
+}
 
 void free_constraints(new_constraints_t *con) {
 	free(con->num_clauses);

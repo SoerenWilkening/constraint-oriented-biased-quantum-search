@@ -9,6 +9,7 @@ from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression2
 from .SearchLib import state_py, constraints, new_constraint, run_ctg, set_seed, set_bias_wrapper
+from copy import copy
 
 from warnings import warn
 #
@@ -155,9 +156,14 @@ or {self.runtime}s sampling
 		if num_threads == 1:
 			res = [run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver, stop_val, callback, max_delta, reset_delta)]
 		else:
+			obj_copies = [copy(self.objective) for _ in range(num_threads)]
+			con_copies = [copy(self.constraint) for _ in range(num_threads)]
+			states = [copy(self.initial_state) for _ in range(num_threads)]
+			solver = self.solver
+
 			res = Parallel(n_jobs = num_threads, backend = "threading", batch_size = 1)(
-				delayed(run_ctg)(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver, stop_val, callback, max_delta, reset_delta)
-				for _ in range(num_threads)
+				delayed(run_ctg)(states[i], con_copies[i], obj_copies[i], M, depth_look_ahead, solver, stop_val, callback, max_delta, reset_delta)
+				for i in range(num_threads)
 			)
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
