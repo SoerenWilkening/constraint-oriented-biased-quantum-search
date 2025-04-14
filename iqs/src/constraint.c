@@ -34,23 +34,24 @@ size_t first_clause_index(new_constraints_t *con, size_t C) {
 	return con->clause_offset[C - 1];
 }
 
-size_t first_variable_index(size_t cls, size_t clause_index) {
-	if (cls == 0) return clause_index * (MAXCLAUSESIZE - 1);
-	return clause_index * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
+size_t first_variable_index(size_t cls, size_t clause_offset) {
+	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
+	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
 }
 
-size_t variable_index(size_t cls, size_t k, size_t clause_index) {
-	return first_variable_index(cls, clause_index) + k;
+size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
+	return first_variable_index(cls, clause_offset) + k;
 }
 
 void print_new_constraint(new_constraints_t *con) {
 	printf("constraints -> %zu\n", con->num_constraints);
 	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+		size_t clause_offset = first_clause_index(con, cnstr);
 		for (int cls = 0; cls < con->num_clauses[cnstr]; ++cls) {
-			size_t clause_index = first_clause_index(con, cnstr) + cls;
+			size_t clause_index = clause_offset + cls;
 			printf("[%lld ", con->factors[clause_index]);
 			for (int k = 0; k < con->clause_length[clause_index]; ++k) {
-				printf("%zu ", con->variables[variable_index(cls, k, clause_index)]);
+				printf("%zu ", con->variables[variable_index(cls, k, clause_offset)]);
 			}
 			printf("] ");
 		}
@@ -94,13 +95,14 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t cnstr) {
 	int64_t total = 0;
+	size_t clause_offset = first_clause_index(con, cnstr);
 	for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
-		size_t clause_index = first_clause_index(con, cnstr) + cl;
+		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
 		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
-			size_t var = con->variables[variable_index(cl, k, clause_index)];
+			size_t var = con->variables[variable_index(cl, k, clause_offset)];
 			if (var > max_item) {
 				assigned = 2;
 				break;
@@ -115,6 +117,7 @@ int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t c
 			total += con->factors[clause_index] * assigned * (assigned != 2);
 		}
 	}
+//	printf(" con = %zu total = %lld, %lld\n", cnstr, total, con->rhs[cnstr]);
 	if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
 	if (con->sense[cnstr] == EQUAL) {
 		if (max_item == sol->vector.bits && total != con->rhs[cnstr]) return 0;
@@ -142,13 +145,14 @@ int64_t objective_value(new_constraints_t *obj, state_t *sol) {
 	// compute objective value of given solution
 	int64_t total = 0;
 	int cnstr = 0;
+	size_t clause_offset = first_clause_index(obj, cnstr);
 	for (int cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
-		size_t clause_index = first_clause_index(obj, cnstr) + cl;
+		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
 		for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
-			size_t var = obj->variables[variable_index(cl, k, clause_index)];
+			size_t var = obj->variables[variable_index(cl, k, clause_offset)];
 			int bit = sw_tstbit(sol->vector, var);
 			assigned *= bit;
 		}

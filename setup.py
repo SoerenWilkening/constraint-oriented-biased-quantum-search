@@ -19,6 +19,7 @@ extensions = [
 	           os.path.join("iqs", "src", "intarray.c"),
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "constraint.c")],
+	          extra_compile_args=["-O3", "-flto"],
 	          include_dirs = [os.path.join("iqs", "src")]),
 ]
 

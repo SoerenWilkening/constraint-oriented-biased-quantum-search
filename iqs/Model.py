@@ -29,6 +29,8 @@ class Model:
 		self.objective: new_constraint = new_constraint()
 		self.constraint: new_constraint = new_constraint()
 
+		self.sense = MAXIMIZE
+
 		self.linear_obj_form = []
 		self.linear_con_form = []
 
@@ -83,6 +85,8 @@ or {self.runtime}s sampling
 	def set_objective(self, objective: Expression2 | int | None = None, sense: int = MAXIMIZE) -> None:
 		if sense not in [MINIMIZE, MAXIMIZE]:
 			raise TypeError
+
+		self.sense = sense
 		self.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
@@ -90,18 +94,12 @@ or {self.runtime}s sampling
 			expr = expr <= 0
 		else:
 			expr = expr >= 0
-		# self.linear_obj_form += expr.linear_matrix_form(self.n)
-		# self.linear_obj_form += expr.linear_vector_form(self.n)
 
 		self.objective.add_expression(expr)
-		# self.objective += list(expr) + [sense, 0]
 
 	def add_constraint(self, constraint: Expression2 | int | None = None) -> None:
 		expr = constraint
 		expr.merge()
-		# self.linear_con_form += expr.linear_vector_form(self.n)
-		# print(self.linear_con_form)
-		# self.constraint += list(expr)
 		self.constraint.add_expression(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
@@ -163,7 +161,7 @@ or {self.runtime}s sampling
 			)
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
-		self.objective_value = max(i[0].objective_value() for i in res)
+		self.objective_value =  max(i[0].objective_value() for i in res)
 		self.grover_iterations = min(list(i[1] for i in res if i[0].objective_value() == self.objective_value))
 		for i in res:
 			if i[0].objective_value() == self.objective_value:

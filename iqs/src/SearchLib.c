@@ -66,58 +66,101 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
 
 
 // implementations of classical sampling search and benchmarking =======================================================
-int evaluation(constraint_list_t *con, int item, unsigned int *indices, unsigned int *num_indices, unsigned int *offsets, state_t *cur_sol){
-    int eval = 1;
-    int C = con->num_constraints;
+static inline int evaluation(new_constraints_t *con, int64_t *potentials, int item,
+							 const unsigned int *indices,
+							 const unsigned int *num_indices,
+							 const unsigned int *offsets, state_t *cur_sol){
+//    int eval = 1;
+    size_t C = con->num_constraints;
     // check, if assignment does not exceed potentials
     for (int cnstr = 0; cnstr < C; cnstr++){
+		int64_t total = 0;
+	    size_t clause_offset = first_clause_index(con, cnstr);
         for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++){
             int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
-            int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+	        size_t clause_index = clause_offset + index;
 
-            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
-                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
-            }
-            if (con->constraints[cnstr].rhs_adapted < labs(con->constraints[cnstr].literals[cls].factor) * assigned){
-                eval = 0;
-                break;
-            }
+			int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+//            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
+	        for (int i = 0; i < con->clause_length[clause_index] - 1; i++){
+		        size_t var = con->variables[variable_index(index, i, clause_offset)];
+				assigned *= sw_tstbit(cur_sol->vector, var);
+//		        assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
+	        }
+			total += labs(con->factors[clause_index]) * assigned;
+//	        if (con->constraints[cnstr].rhs_adapted < labs(con->constraints[cnstr].literals[cls].factor) * assigned){
+//	            return 0;
+//            }
         }
-    }
-    return eval;
-}
-
-int update_potentials(constraint_list_t *con, int item, unsigned int *indices, unsigned int *num_indices, unsigned int *offsets, state_t *cur_sol){
-    int C = con->num_constraints;
-    // update the constraints rhs accordingly
-    for (int cnstr = 0; cnstr < C; cnstr++){
-        for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++){
-            int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
-
-            // only if all items are assigned to 1, adjust rhs
-            int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
-                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
-            }
-            con->constraints[cnstr].rhs_adapted -= labs(con->constraints[cnstr].literals[cls].factor) * assigned;
-        }
+	    if (potentials[cnstr] < total) return 0;
     }
     return 1;
 }
 
-int invert_update_potentials(constraint_list_t *con, int item, unsigned int *indices, unsigned int *num_indices, unsigned int *offsets, state_t *cur_sol){
-    int C = con->num_constraints;
+static inline int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
+									const unsigned int *indices,
+									const unsigned int *num_indices,
+									const unsigned int *offsets, state_t *cur_sol){
+//    size_t C = con->num_constraints;
+//    // update the constraints rhs accordingly
+//    for (int cnstr = 0; cnstr < C; cnstr++){
+//        for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++){
+//            int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
+//
+//            // only if all previous items are assigned to 1, adjust rhs
+//            int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+//            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
+//                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
+//            }
+//            con->constraints[cnstr].rhs_adapted -= labs(con->constraints[cnstr].literals[cls].factor) * assigned;
+//        }
+//    }
+
+	size_t C = con->num_constraints;
+	// revert the constraints rhs accordingly
+	for (int cnstr = 0; cnstr < C; cnstr++){
+		size_t clause_offset = first_clause_index(con, cnstr);
+		for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++){
+			unsigned int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
+			size_t clause_index = clause_offset + index;
+
+			// only if all previous items are assigned to 1, adjust rhs
+			int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+//            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
+			for (int i = 0; i < con->clause_length[clause_index] - 1; i++){
+				size_t var = con->variables[variable_index(index, i, clause_offset)];
+				assigned *= sw_tstbit(cur_sol->vector, var);
+//                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
+			}
+			potentials[cnstr] -= labs(con->factors[clause_index]) * assigned;
+//            con->constraints[cnstr].rhs_adapted += labs(con->constraints[cnstr].literals[cls].factor) * assigned;
+		}
+	}
+    return 1;
+}
+
+static inline int invert_update_potentials(new_constraints_t *con, int64_t *potentials, int item,
+										   const unsigned int *indices,
+										   const unsigned int *num_indices,
+										   const unsigned int *offsets, state_t *cur_sol){
+    size_t C = con->num_constraints;
     // revert the constraints rhs accordingly
     for (int cnstr = 0; cnstr < C; cnstr++){
+		size_t clause_offset = first_clause_index(con, cnstr);
         for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++){
-            int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
+            unsigned int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
+	        size_t clause_index = clause_offset + index;
 
-            // only if all items are assigned to 1, adjust rhs
+            // only if all previous items are assigned to 1, adjust rhs
             int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
-                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
+//            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
+            for (int i = 0; i < con->clause_length[clause_index] - 1; i++){
+				size_t var = con->variables[variable_index(index, i, clause_offset)];
+				assigned *= sw_tstbit(cur_sol->vector, var);
+//                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
             }
-            con->constraints[cnstr].rhs_adapted += labs(con->constraints[cnstr].literals[cls].factor) * assigned;
+			potentials[cnstr] += labs(con->factors[clause_index]) * assigned;
+//            con->constraints[cnstr].rhs_adapted += labs(con->constraints[cnstr].literals[cls].factor) * assigned;
         }
     }
     return 1;
@@ -128,34 +171,34 @@ int invert_update_potentials(constraint_list_t *con, int item, unsigned int *ind
 //int look_ahead( int index, int next_assignment, int depth, int *count_solutions, int64_t *potentials,
 //                int **S_plus, int64_t **S_plus_value, int *num_plus,
 //                int **S_minus, int64_t **S_minus_value, int *num_minus){
-int look_ahead( int index, int next_assignment, int depth, int *count_solutions, constraint_list_t *con,
-                unsigned int *positive_indices, unsigned int *num_positive_indices, unsigned int *positive_offsets,
-                unsigned int *negative_indices, unsigned int *num_negative_indices, unsigned int *negative_offsets,
+int look_ahead( int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con, int64_t *potentials,
+                const unsigned int *positive_indices, const unsigned int *num_positive_indices, const unsigned int *positive_offsets,
+                const unsigned int *negative_indices, const unsigned int *num_negative_indices, const unsigned int *negative_offsets,
                 state_t *cur_sol){
     // check, if assignment does not exceed potentials
     int bool_;
-    if (next_assignment) bool_ = evaluation(con, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
-    else bool_ = evaluation(con, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+    if (next_assignment) bool_ = evaluation(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
+    else bool_ = evaluation(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
 
     if (bool_){
         if (index == depth) (*count_solutions)++;
         else{
             // adjust potentials to new solution
             if (next_assignment) {
-                update_potentials(con, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
+                update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
                 sw_setbit(cur_sol->vector, index); // set assignment to 1
             }
             else {
-                update_potentials(con, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+                update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
                 sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
             }
 
-            look_ahead(index + 1, 0, depth, count_solutions, con, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
-            look_ahead(index + 1, 1, depth, count_solutions, con, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+            look_ahead(index + 1, 0, depth, count_solutions, con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+            look_ahead(index + 1, 1, depth, count_solutions, con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
 
             // reset potentials for proper use in sampling algorithm
-            if (next_assignment) invert_update_potentials(con, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
-            else invert_update_potentials(con, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+            if (next_assignment) invert_update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
+            else invert_update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
             sw_clrbit(cur_sol->vector, index); // reset assignment to 0
         }
     }
@@ -164,13 +207,14 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
 }
 
 int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
-            constraint_list_t *con, constraint_list_t *obj,
-            unsigned int *positive_indices, unsigned int *num_positive_indices, unsigned int *positive_offsets,
-            unsigned int *negative_indices, unsigned int *num_negative_indices, unsigned int *negative_offsets,
+            new_constraints_t *con, new_constraints_t *obj,
+            const unsigned int *positive_indices, const unsigned int *num_positive_indices, const unsigned int *positive_offsets,
+            const unsigned int *negative_indices, const unsigned int *num_negative_indices, const unsigned int *negative_offsets,
             int **Indices, int *NumIndices, int *Fulfilled,
             int depth_look_ahead, solver_t solver
             ){
 
+    int64_t potentials[con->num_constraints];
     for(int l = 0; l < 4 * j * j; l++){
 //    for(int l = 0; l < 1; l++){
         // Store whicso h bit from the previous solution is flipped
@@ -178,7 +222,7 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         int *ChangedBits = calloc(n, sizeof(int));
 
         // reset constraint rhs to initial values
-        reset_rhs_adapted(con);
+        memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
         // initialize new solution
         new_sol->tot_profit = cur_sol->tot_profit;
@@ -198,11 +242,11 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             int count[2] = {0, 0};
             // look ahead to the left side
             fflush(stdout);
-            look_ahead(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
+            look_ahead(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
             // look ahead to the right side
-            look_ahead(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
+            look_ahead(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
 
-//            printf("%d -> (%d %d) ", l, count[0], count[1]);
+//            printf("%d -> (%d %d) ", i, count[0], count[1]);
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
@@ -232,9 +276,9 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 //            printf("%d| ", new_bit);
             int all_positive;
-            if (new_bit) all_positive = update_potentials(con, i, positive_indices, num_positive_indices, positive_offsets, new_sol);
-            else all_positive = update_potentials(con, i, negative_indices, num_negative_indices, negative_offsets, new_sol);
-//            for (int cnstr = 0; cnstr < con->num_constraints; cnstr++) printf("%lld ", con->constraints[cnstr].rhs_adapted);
+            if (new_bit) update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol);
+            else update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol);
+//            for (int cnstr = 0; cnstr < con->num_constraints; cnstr++) printf("%lld ", potentials[cnstr]);
 //            printf("\n");
         }
         // if the previous loop broke earlier, determine all bit changes
@@ -243,17 +287,20 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         int64_t val = 0;
         int as1 = true;
 //        print_state(new_sol);
-        if (solver == OPTIMIZE) as1 = quantum_feasibility2(con, new_sol, n + 1, false);
+//        if (solver == OPTIMIZE) as1 = quantum_feasibility2(con, new_sol, n + 1, false);
+        if (solver == OPTIMIZE) as1 = eval_constraints(con, new_sol, n);
 
         int NumChangedTerms = 0;
         int *ChangedTerms = calloc(NTerms, sizeof(int));
-        if (as1 && solver == OPTIMIZE) val = ChangedObjVal(obj, new_sol, NumChanges, ChangedBits, Indices, NumIndices, Fulfilled, ChangedTerms, &NumChangedTerms);
+//        if (as1 && solver == OPTIMIZE) val = ChangedObjVal(obj, new_sol, NumChanges, ChangedBits, Indices, NumIndices, Fulfilled, ChangedTerms, &NumChangedTerms);
+        if (solver == OPTIMIZE) val = objective_value(obj, new_sol);
         if (solver == SATISFY) {
-            val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - cur_sol->tot_profit);
+//            val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - cur_sol->tot_profit);
+            val = num_satisfied_constrains(con, new_sol);
         }
-//        printf(" feasible = %d value = %lld\n", as1, val);
+//        printf(" feasible = %d value = %lld %lld\n", as1, cur_sol->tot_profit, val);
 
-        if (as1 && compare(cur_sol->tot_profit, val, obj->constraints->sense)){
+        if (as1 && cur_sol->tot_profit > val){
             // If solution is updated, change the array of fulfilled terms
             for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
             cur_sol->tot_profit = val;
@@ -273,8 +320,8 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 int ctg(
                 state_t *cur_sol,
-                constraint_list_t *con,
-                constraint_list_t *obj,
+                new_constraints_t *con,
+                new_constraints_t *obj,
                 int M,
                 size_t *qtg_applications,
                 int depth_look_ahead,
@@ -290,17 +337,19 @@ int ctg(
 
     clock_t start = clock();
 
-    int NTerms = obj->constraints[0].num_literals; // number terms
+    size_t NTerms = obj->num_clauses[0]; // number terms
     // For the initial solution, determine the which objective terms are fulfilled
     int *Fulfilled = calloc(NTerms, sizeof(int)); // store if term is fulfilled
-    for (int terms = 0; terms < NTerms; terms++){
+	size_t clause_offset = first_clause_index(obj, 0);
+	for (int cls = 0; cls < NTerms; cls++){
+		size_t clause_index = clause_offset + cls;
         int assign = 1;
         // if any item of the term is unassigned, the term is not fulfilled
-        for (int item = 0; item < obj->constraints[0].literals[terms].len_literal - 1; item++){
-            if (!sw_tstbit(cur_sol->vector, obj->constraints[0].literals[terms].variables[item]))
-                assign = 0;
-        }
-        Fulfilled[terms] = assign;
+        for (int item = 0; item < obj->clause_length[clause_index]; item++){
+			size_t var = obj->variables[variable_index(cls, item, clause_offset)];
+	        if (!sw_tstbit(cur_sol->vector, var)) assign = 0;
+		}
+        Fulfilled[cls] = assign;
     }
 
     // collect the objective term indices for every item
@@ -310,14 +359,16 @@ int ctg(
     for (int item = 0; item < n; item++){
         Indices[item] = calloc(NTerms, sizeof(int));
         // test every term, if it contains the item
-        for (int terms = 0; terms < NTerms; terms++){
+        for (int cls = 0; cls < NTerms; cls++){
+	        size_t clause_index = clause_offset + cls;
             // check every literal of the term if it is the respective item
-            for (int lits = 0; lits < obj->constraints[0].literals[terms].len_literal - 1; lits++){
-                if (obj->constraints[0].literals[terms].variables[lits] == item){
-                    Indices[item][NumIndices[item]++] = terms;
-                    break;
-                }
-            }
+	        for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
+		        size_t var = obj->variables[variable_index(cls, item, clause_offset)];
+				if (var == item){
+					Indices[item][NumIndices[item]++] = cls;
+					break;
+				}
+	        }
         }
     }
 
@@ -355,15 +406,20 @@ int ctg(
     for (int item = 0; item < n; item++){
 
         for (int cnstr = 0; cnstr < C; cnstr++){
-            constraint_t *constr = &con->constraints[cnstr];
+			size_t clause_offset = first_clause_index(con, cnstr);
+//            constraint_t *constr = &con->constraints[cnstr];
 
             unsigned int npi = 0;
             unsigned int nni = 0;
-            for(int cls = 0; cls < constr->num_literals; cls++){
-                int cls_length = constr->literals[cls].len_literal - 2; // index of the last item in the clause
-                int64_t factor = constr->literals[cls].factor;
+            for(int cls = 0; cls < con->num_clauses[cnstr]; cls++){
+				size_t clause_index = clause_offset + cls;
+//                int cls_length = constr->literals[cls].len_literal - 2; // index of the last item in the clause
+                size_t cls_length = con->clause_length[clause_index] - 1; // index of the last item in the clause
+                int64_t factor = con->factors[clause_index];
+				size_t var = con->variables[variable_index(cls, cls_length, clause_offset)];
 
-                if (item == constr->literals[cls].variables[cls_length]){
+//                if (item == constr->literals[cls].variables[cls_length]){
+                if (item == var){
                     if (factor < 0){
                         // add index to "negative_indices"
                         negative_indices[counter_negative++] = cls;

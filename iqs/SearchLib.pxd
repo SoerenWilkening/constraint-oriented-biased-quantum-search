@@ -2,6 +2,7 @@ from libc.stdint cimport uint64_t, uint32_t, int64_t
 from libc.stdlib cimport calloc, free, srand
 from .Expression cimport expression_t
 from .Expression cimport Expression2
+from .Constants import *
 
 # typedef of the array_t structure to be usable in cython scripts
 #
@@ -31,7 +32,7 @@ cdef extern from "src/SearchLib.h":
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M)
-	int ctg(state_t *cur_sol, constraint_list_t *con, constraint_list_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
+	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:

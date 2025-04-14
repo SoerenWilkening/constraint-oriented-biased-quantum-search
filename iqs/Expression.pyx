@@ -183,8 +183,8 @@ cdef class Expression2:
 		if isinstance(other, int):
 			potential = 0
 			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[3 * i] < 0:
-					potential -= self.expr[0].literals[3 * i]
+				if self.expr[0].literals[5 * i] < 0:
+					potential -= self.expr[0].literals[5 * i]
 
 			add_sense_to_expression(self.expr, LOWER)
 			add_rhs_to_expression(self.expr, other + potential)
@@ -200,8 +200,8 @@ cdef class Expression2:
 			multiply_constant(self.expr, -1)
 			# negate_expression(self.expr)
 			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[3 * i] < 0:
-					potential -= self.expr[0].literals[3 * i]
+				if self.expr[0].literals[5 * i] < 0:
+					potential -= self.expr[0].literals[5 * i]
 
 			add_sense_to_expression(self.expr, LOWER)
 			add_rhs_to_expression(self.expr, -other + potential)
@@ -214,8 +214,8 @@ cdef class Expression2:
 		if isinstance(other, int):
 			potential = 0
 			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[3 * i] < 0:
-					potential -= self.expr[0].literals[3 * i]
+				if self.expr[0].literals[5 * i] < 0:
+					potential -= self.expr[0].literals[5 * i]
 
 			add_sense_to_expression(self.expr, EQUAL)
 			add_rhs_to_expression(self.expr, other + potential)

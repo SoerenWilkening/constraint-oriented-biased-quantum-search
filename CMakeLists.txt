@@ -14,4 +14,8 @@ add_executable(improved_quantum_search
         iqs/src/intarray.c
         iqs/src/intarray.h
         iqs/src/state.c
+        iqs/src/SearchLib.c
+        iqs/src/SearchLib.h
+        iqs/src/Branching.c
+        iqs/src/Branching.h
 )

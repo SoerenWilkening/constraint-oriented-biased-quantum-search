@@ -185,8 +185,8 @@ cdef object python_callback = None
 
 cpdef run_ctg(
 		initial: state_py,
-		con: constraints,
-		obj: constraints,
+		con: new_constraint,
+		obj: new_constraint,
 		M: int,
 		depth_look_ahead: int,
 		solver: int,
@@ -210,11 +210,9 @@ cpdef run_ctg(
 	cdef int stpvl = stop_val
 	cdef int M_c = M
 	cdef state_t *stt = cur_sol.state
-	cdef constraint_list_t *cnstrs = con.pointer
-	cdef constraint_list_t *obctv = obj.pointer
+	cdef new_constraints_t *cnstrs = &con.con
+	cdef new_constraints_t *obctv = &obj.con
 	cdef int found_new;
-
-	# ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
