@@ -24,7 +24,7 @@
 //      -> senses: length = C,
 //      -> rhs: length = C
 
-#define MINARRAYSIZE 10000
+#define MINARRAYSIZE 50000
 
 typedef struct{
 	size_t num_constraints; // number of constraints

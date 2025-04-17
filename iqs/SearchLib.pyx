@@ -38,6 +38,12 @@ cdef class new_constraint:
 	def add_expression(self, expr: Expression2):
 		self.add(expr)
 
+	def eval_con(self, state: state_py):
+		return eval_constraints(&self.con, state.state, state.state[0].vector.bits)
+
+	def eval_obj(self, state: state_py):
+		return objective_value(&self.con, state.state)
+
 
 
 

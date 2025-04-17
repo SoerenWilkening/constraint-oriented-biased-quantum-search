@@ -13,6 +13,10 @@ from copy import copy
 from warnings import warn
 
 from multiprocessing import shared_memory
+import signal
+import sys
+import atexit
+
 
 class Model:
 
@@ -43,7 +47,7 @@ class Model:
 		self.improved: bool = False
 
 		self.gpu_compiled: bool = False
-		set_seed(time())
+		# set_seed(time())
 
 	def __copy__(self):
 		new_m = Model()
@@ -116,17 +120,35 @@ or {self.runtime}s sampling
 
 	def worker_process(self, shm_name, index, shape,
 	                   M, depth_look_ahead, stop_val, callback, max_delta, reset_delta):
-		existing_shm = shared_memory.SharedMemory(shm_name)
-		arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
-		set_seed(time() + os.getpid() * 1234)
+		try:
+			existing_shm = shared_memory.SharedMemory(shm_name)
+			arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
+			set_seed(time() + os.getpid() * 1234)
 
-		res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-		               stop_val, callback, max_delta, reset_delta)
-		# print(res)
-		arr[index, 0] = res[0].objective_value()
-		arr[index, 1] = res[1]
+			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+			               stop_val, callback, max_delta, reset_delta)
+			# print(res)
+			arr[index, 0] = res[0].objective_value()
+			arr[index, 1] = res[1]
+		except KeyboardInterrupt:
+			pass
 
+	def kill_children(self):
+		for pid in self.child_pid:
+			try:
+				os.kill(pid, signal.SIGTERM)
+			except ProcessLookupError:
+				pass
+		for _ in range(len(self.child_pid)):
+			try:
+				os.wait()
+			except ChildProcessError:
+				pass
 
+	def cleanup(self):
+		if os.getpid() == self.parent_pid:
+			self.shm.close()
+			self.shm.unlink()
 
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=0,
@@ -141,7 +163,7 @@ or {self.runtime}s sampling
 		assert results in ["min", "average"]
 
 		self.calls += 1
-		set_seed(time() + 10 * self.calls)
+		# set_seed(time() + 10 * self.calls)
 
 		if self.solver == SATISFY:
 			if M != -1: warn("Defined M will be ignored when solving SAT")
@@ -172,21 +194,29 @@ or {self.runtime}s sampling
 
 		t1 = time()
 		shape = (num_workers, 2)
-		shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
-		arr = np.ndarray(shape, dtype = np.float64, buffer=shm.buf)
+		self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
+		arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
 
-		for i in range(num_workers):
-			pid = os.fork()
-			if pid == 0:
-				# print(i)
-				shm.close()
-				self.worker_process(shm.name, i, shape, M, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
-				exit(0)  # Terminate child process after work is done
-			else:
-				pass
+		atexit.register(self.cleanup)
 
-		for _ in range(num_workers):
-			os.wait()
+		self.child_pid = []
+		self.parent_pid = os.getpid()
+
+		try:
+			for i in range(num_workers):
+				pid = os.fork()
+				if pid == 0:
+					self.worker_process(self.shm.name, i, shape, M, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
+					exit(0)  # Terminate child process after work is done
+				else:
+					self.child_pid.append(pid)
+
+			for _ in range(num_workers):
+				os.wait()
+		except KeyboardInterrupt:
+			self.kill_children()
+			self.cleanup()
+			sys.exit(1)
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
 		if results == "min":
@@ -195,3 +225,5 @@ or {self.runtime}s sampling
 		else:
 			self.objective_value = np.mean([i[0] for i in arr])
 			self.grover_iterations = np.mean([i[1] for i in arr])
+
+		self.cleanup()
