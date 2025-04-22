@@ -21,5 +21,6 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
 
 int ctg(   state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
                 int depth_look_ahead, solver_t solver,  int64_t stop_val, callback_t callback);
-
+int bfs(   state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
+                int depth_look_ahead, solver_t solver,  int64_t stop_val, callback_t callback);
 #endif

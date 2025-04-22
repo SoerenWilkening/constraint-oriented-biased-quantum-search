@@ -8,7 +8,7 @@ import numpy as np
 from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression2
-from .SearchLib import state_py, new_constraint, run_ctg, set_seed, set_bias_wrapper
+from .SearchLib import state_py, new_constraint, run_ctg, set_seed, set_bias_wrapper, run_bfs
 from copy import copy
 from warnings import warn
 
@@ -124,7 +124,8 @@ or {self.runtime}s sampling
 			existing_shm = shared_memory.SharedMemory(shm_name)
 			arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
 			set_seed(time() + os.getpid() * 1234)
-
+			# run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+		    #            stop_val, callback, max_delta, reset_delta)
 			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			               stop_val, callback, max_delta, reset_delta)
 			# print(res)
@@ -145,10 +146,10 @@ or {self.runtime}s sampling
 			except ChildProcessError:
 				pass
 
-	def cleanup(self):
-		if os.getpid() == self.parent_pid:
-			self.shm.close()
-			self.shm.unlink()
+	# def cleanup(self):
+	# 	if os.getpid() == self.parent_pid:
+	# 		self.shm.close()
+	# 		self.shm.unlink()
 
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=0,
@@ -197,7 +198,7 @@ or {self.runtime}s sampling
 		self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
 		arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
 
-		atexit.register(self.cleanup)
+		# atexit.register(self.cleanup)
 
 		self.child_pid = []
 		self.parent_pid = os.getpid()
@@ -215,7 +216,9 @@ or {self.runtime}s sampling
 				os.wait()
 		except KeyboardInterrupt:
 			self.kill_children()
-			self.cleanup()
+			# self.cleanup()
+			self.shm.close()
+			self.shm.unlink()
 			sys.exit(1)
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
@@ -226,4 +229,6 @@ or {self.runtime}s sampling
 			self.objective_value = np.mean([i[0] for i in arr])
 			self.grover_iterations = np.mean([i[1] for i in arr])
 
-		self.cleanup()
+		self.shm.close()
+		self.shm.unlink()
+		# self.cleanup()

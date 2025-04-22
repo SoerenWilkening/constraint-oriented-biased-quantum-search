@@ -266,3 +266,47 @@ cpdef run_ctg(
 	cur_sol.arr = np.array(arr, dtype = np.int32)
 	return cur_sol, qtg_applications
 	# return qtg_applications
+
+cpdef run_bfs(
+		initial: state_py,
+		con: new_constraint,
+		obj: new_constraint,
+		M: int,
+		depth_look_ahead: int,
+		solver: int,
+		int64_t stop_val,
+		object callback,
+		int max_delta,
+		int reset_delta):
+
+	# print(max_delta)
+	# with nogil:
+	global python_callback
+	python_callback = callback
+
+	# python callback to c callback
+	cdef callback_t cb_ptr = <callback_t> my_callback_c
+	cur_sol : state_py = copy(initial)
+
+	cdef size_t qtg_applications = 0;
+	cdef int dpth = depth_look_ahead
+	cdef int slvr = solver
+	cdef int stpvl = stop_val
+	cdef int M_c = M
+	cdef state_t *stt = cur_sol.state
+	cdef new_constraints_t *cnstrs = &con.con
+	cdef new_constraints_t *obctv = &obj.con
+	cdef int found_new;
+
+	if solver == OPTIMIZE:
+		# Run sampling for optimization based on user input
+		bfs(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+
+	cur_sol.get_x()
+	arr = []
+	for i in range(cur_sol.state[0].vector.bits):
+		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
+
+	cur_sol.arr = np.array(arr, dtype = np.int32)
+	return cur_sol, qtg_applications
+	# return qtg_applications

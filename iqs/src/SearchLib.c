@@ -131,15 +131,19 @@ static inline int update_potentials(new_constraints_t *con, int64_t *potentials,
 
 			// only if all previous items are assigned to 1, adjust rhs
 			int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+			int is_closed = 1; // check, if there are unassigned variables within the clause
 //			if (negative == NEGATIVE) assigned = bit; //
 //            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
 			for (int i = 0; i < con->clause_length[clause_index]; i++){
 				size_t var = con->variables[variable_index(index, i, clause_offset)];
 				if (var < item) assigned *= sw_tstbit(cur_sol->vector, var);
+				if (var > item) is_closed = 0;
 //                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
 			}
 //			if (negative == NEGATIVE) potentials[cnstr] -= labs(con->factors[clause_index]) * (1 - assigned);
-			potentials[cnstr] -= labs(con->factors[clause_index]) * assigned;
+            if (negative == POSITIVE && is_closed || negative == NEGATIVE)
+                potentials[cnstr] -= labs(con->factors[clause_index]) * assigned;
+//			potentials[cnstr] -= labs(con->factors[clause_index]) * assigned;
 //            con->constraints[cnstr].rhs_adapted += labs(con->constraints[cnstr].literals[cls].factor) * assigned;
 		}
 	}
@@ -161,15 +165,19 @@ static inline int invert_update_potentials(new_constraints_t *con, int64_t *pote
 
             // only if all previous items are assigned to 1, adjust rhs
             int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+            int is_closed = 1; // check, if there are unassigned variables within the clause
 //            if (negative == NEGATIVE) assigned = bit; //
 //            for (int i = 0; i < con->constraints[cnstr].literals[cls].len_literal - 2; i++){
             for (int i = 0; i < con->clause_length[clause_index]; i++){
 				size_t var = con->variables[variable_index(index, i, clause_offset)];
 				if (var < item) assigned *= sw_tstbit(cur_sol->vector, var);
+				if (var > item) is_closed = 0;
 //                assigned *= sw_tstbit(cur_sol->vector, con->constraints[cnstr].literals[cls].variables[i]);
             }
 //			if (negative == NEGATIVE) potentials[cnstr] += labs(con->factors[clause_index]) * (1 - assigned);
-			potentials[cnstr] += labs(con->factors[clause_index]) * assigned;
+//			potentials[cnstr] += labs(con->factors[clause_index]) * assigned;
+            if (negative == POSITIVE && is_closed || negative == NEGATIVE)
+                potentials[cnstr] += labs(con->factors[clause_index]) * assigned;
 //            con->constraints[cnstr].rhs_adapted += labs(con->constraints[cnstr].literals[cls].factor) * assigned;
         }
     }
@@ -189,14 +197,19 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
     int bool_;
     if (next_assignment) bool_ = evaluation(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol);
     else bool_ = evaluation(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+//    print_state(cur_sol);
+//    printf("(%d,%d,%lld,%lld,%d) ", index, next_assignment, potentials[0], potentials[1], bool_);
 
     if (bool_){
-        if (index == depth) (*count_solutions)++;
+        if (index == depth) {
+            (*count_solutions)++;
+//            print_state(cur_sol);
+//            printf("->%d", eval_constraints(con, cur_sol, depth));
+        }
         else{
-            // adjust potentials to new solution
+        // adjust potentials to new solution
             if (next_assignment) {
                 update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol, next_assignment, POSITIVE);
-//                update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol, next_assignment, NEGATIVE);
                 sw_setbit(cur_sol->vector, index); // set assignment to 1
             }
             else {
@@ -210,13 +223,12 @@ int look_ahead( int index, int next_assignment, int depth, int *count_solutions,
             // reset potentials for proper use in sampling algorithm
             if (next_assignment) {
                 invert_update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol, next_assignment, POSITIVE);
-//                invert_update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol, next_assignment, NEGATIVE);
             }
             else invert_update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol, next_assignment, NEGATIVE);
             sw_clrbit(cur_sol->vector, index); // reset assignment to 0
         }
     }
-
+//    printf("\n", index, next_assignment);
     return 1;
 }
 
@@ -333,6 +345,151 @@ int CSearch(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         free(ChangedBits);
     }
     return 0;
+}
+
+
+int bfs(
+                state_t *cur_sol,
+                new_constraints_t *con,
+                new_constraints_t *obj,
+                int M,
+                size_t *qtg_applications,
+                int depth_look_ahead,
+                solver_t solver,
+                int64_t stop_val,
+                callback_t callback){
+    state_t *new_sol = copy_state(cur_sol);
+    int64_t initial_value = cur_sol->tot_profit;
+    int m_tot = 0;
+    int n = cur_sol->vector.bits;
+    int rounds = 0;
+    double c = 6. / 5;
+
+    clock_t start = clock();
+
+    size_t NTerms = obj->num_clauses[0]; // number terms
+    // For the initial solution, determine the which objective terms are fulfilled
+    int *Fulfilled = calloc(NTerms, sizeof(int)); // store if term is fulfilled
+	size_t clause_offset = first_clause_index(obj, 0);
+	for (int cls = 0; cls < NTerms; cls++){
+		size_t clause_index = clause_offset + cls;
+        int assign = 1;
+        // if any item of the term is unassigned, the term is not fulfilled
+        for (int item = 0; item < obj->clause_length[clause_index]; item++){
+			size_t var = obj->variables[variable_index(cls, item, clause_offset)];
+	        if (!sw_tstbit(cur_sol->vector, var)) assign = 0;
+		}
+        Fulfilled[cls] = assign;
+    }
+
+    // collect the objective term indices for every item
+    int **Indices = calloc(n, sizeof(int *));
+    int *NumIndices = calloc(n, sizeof(int)); // Number of terms containing respective item
+    // Go through every item
+    for (int item = 0; item < n; item++){
+        Indices[item] = calloc(NTerms, sizeof(int));
+        // test every term, if it contains the item
+        for (int cls = 0; cls < NTerms; cls++){
+	        size_t clause_index = clause_offset + cls;
+            // check every literal of the term if it is the respective item
+	        for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
+		        size_t var = obj->variables[variable_index(cls, item, clause_offset)];
+				if (var == item){
+					Indices[item][NumIndices[item]++] = cls;
+					break;
+				}
+	        }
+        }
+    }
+
+    // preprocess the constraints for usage in the sampling routine
+    // go through every item and collect all the constraint indices containing the items
+    // sort indices by positive and negative coefficients
+    // an item can appear more than once in a constraint (linear + quadratic terms ...)
+    // simplifications can be made:
+    //  - in a clause, items are always sorted in ascending order
+    //  - non-linear factors only come into play, if the last non-assigned item is investigated
+    //      -> only store index of clause for last item
+    // for every constraint, for every item an array is needed to store all the clauses
+    // categorize for positive and negative constraints
+    // improvement: use 1d-array implementations:
+    //      - positive_indices      -> 1d array storing indices
+    //                              -> length not fixed
+    //      - positive_offsets      -> 1d array storing location of values in "positive_indices" given (item, cnstr)
+    //                              -> length fixed
+    //      - num_positive_indices  -> 1d array storing number of values in "positive_indices" at location from
+    //                              -> given (item, cnstr)
+    //                              -> length fixed
+
+    int C = con->num_constraints;
+    unsigned int *positive_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+    unsigned int *negative_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+
+    unsigned int *positive_offsets = malloc(n * C * sizeof(unsigned int));
+    unsigned int *negative_offsets = malloc(n * C * sizeof(unsigned int));
+
+    unsigned int *num_positive_indices = malloc(n * C * sizeof(unsigned int));
+    unsigned int *num_negative_indices = malloc(n * C * sizeof(unsigned int));
+
+    size_t counter_positive = 0;
+    size_t counter_negative = 0;
+    for (int item = 0; item < n; item++){
+
+        for (int cnstr = 0; cnstr < C; cnstr++){
+			size_t clause_offset = first_clause_index(con, cnstr);
+//            constraint_t *constr = &con->constraints[cnstr];
+
+            unsigned int npi = 0;
+            unsigned int nni = 0;
+            for(int cls = 0; cls < con->num_clauses[cnstr]; cls++){
+				size_t clause_index = clause_offset + cls;
+//                int cls_length = constr->literals[cls].len_literal - 2; // index of the last item in the clause
+//                size_t cls_length = con->clause_length[clause_index] - 1; // index of the last item in the clause
+                int64_t factor = con->factors[clause_index];
+                size_t prev_var = -1;
+                for (int k = 0; k < con->clause_length[clause_index]; k++){
+				    size_t var = con->variables[variable_index(cls, k, clause_offset)];
+
+//                    if (item == constr->literals[cls].variables[cls_length]){
+                    if (item == var && var != prev_var){
+                        if (factor < 0){
+                            // add index to "negative_indices"
+                            negative_indices[counter_negative++] = cls;
+                            nni++;
+                        }else{
+                            // add index to "positive_indices"
+                            positive_indices[counter_positive++] = cls;
+                            npi++;
+                        }
+                    }
+                    prev_var = var;
+                }
+            }
+            num_negative_indices[item * C + cnstr] = nni;
+            negative_offsets[item * C + cnstr] = counter_negative - nni;
+            num_positive_indices[item * C + cnstr] = npi;
+            positive_offsets[item * C + cnstr] = counter_positive - npi;
+        }
+    }
+
+    int count[2] = {0, 0};
+    int64_t potentials[C];
+    memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+    look_ahead(0, 0, n, &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+    look_ahead(0, 1, n, &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+    printf("counts = %d %d\n", count[0], count[1]);
+
+    free(positive_indices);
+    free(positive_offsets);
+    free(negative_indices);
+    free(negative_offsets);
+    free(num_positive_indices);
+    free(num_negative_indices);
+    free(NumIndices);
+    free(Indices);
+    free(Fulfilled);
+    free_state(new_sol, 0);
+    return ! (cur_sol->tot_profit == initial_value);
 }
 
 
