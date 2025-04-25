@@ -250,9 +250,9 @@ def read_nodes_wrapper(name: bytes ,n: int) -> int | state_py:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int a, size_t b, double c) with gil:
+cdef void my_callback_c(int a, size_t b, double c, double d) with gil:
 	if python_callback is not None:
-		python_callback(a, b, c)
+		python_callback(a, b, c, d)
 
 # python function to store the callback
 cdef object python_callback = None

@@ -208,9 +208,11 @@ or {self.runtime}s sampling
 				os.wait()
 		except KeyboardInterrupt:
 			self.kill_children()
-			# self.cleanup()
-			self.shm.close()
-			self.shm.unlink()
+			try:
+				self.shm.close()
+				self.shm.unlink()
+			except:
+				pass
 			sys.exit(1)
 
 		self.runtime = time() - t1 # stores classical runtime of all the complete execution
@@ -221,6 +223,9 @@ or {self.runtime}s sampling
 			self.objective_value = np.mean([i[0] for i in arr])
 			self.grover_iterations = np.mean([i[1] for i in arr])
 
-		self.shm.close()
-		self.shm.unlink()
+		try:
+			self.shm.close()
+			self.shm.unlink()
+		except:
+			pass
 		# self.cleanup()

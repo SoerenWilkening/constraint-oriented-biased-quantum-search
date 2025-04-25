@@ -274,10 +274,11 @@ int preprocessing(state_t *new_sol, state_t *cur_sol, int n, int NTerms,
         // if depth look ahead is 0, it will check only the next assignment
         int count[2] = {0, 0};
         // look ahead to the left side
-        fflush(stdout);
-        look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
-        // look ahead to the right side
+//        fflush(stdout);
         look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
+        // look ahead to the right side
+        if (count[1] != 0)
+            look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
 
         // If all the constraints ar fulfilled by both assignments, "go to the right"
         if (count[0] > 0 && count[1] > 0){
@@ -707,16 +708,16 @@ int ctg(
         }
     }
 
-//    print_state(cur_sol);
+    clock_t t1 = clock();
     preprocessing(
             new_sol, cur_sol, n, NTerms,
             con, obj,
             positive_indices, num_positive_indices, positive_offsets,
             negative_indices, num_negative_indices, negative_offsets,
             Indices, NumIndices, Fulfilled,
-            depth_look_ahead, solver
+            4, solver
         );
-//    print_state(cur_sol);
+    double preprocess_time = (double)(clock() - t1) / CLOCKS_PER_SEC;
 
     // Start sampling after preprocessing
     while (m_tot < M){
@@ -741,7 +742,7 @@ int ctg(
         );
         if (res) {
             if (callback) {
-                callback(cur_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC);
+                callback(cur_sol->tot_profit, *qtg_applications, (double)(clock() - start) / CLOCKS_PER_SEC, preprocess_time);
             }
             m_tot = 0;
 
