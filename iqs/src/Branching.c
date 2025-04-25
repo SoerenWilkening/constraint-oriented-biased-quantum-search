@@ -115,7 +115,7 @@ state_t *updated(state_t *bnb, size_t number_states,
     size_t a = 0;
 
     for (size_t i = 0; i < number_states; ++i) {
-        if (compare(bnb[i].tot_profit, threshold->tot_profit, sense)) {
+        if (bnb[i].tot_profit < threshold->tot_profit) {
             up[a].tot_profit = bnb[i].tot_profit;
             up[a].vector = sw_set(bnb[i].vector);
             up[a].branch = sw_set(bnb[i].branch);

@@ -9,6 +9,7 @@ os.chdir(script_dir)
 
 extensions = [
 	Extension("iqs.Constants", ["iqs/Constants.py"]),
+	Extension("iqs.Constants", ["iqs/StateGenerator.py"]),
 	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"]),
 	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/main.m"], extra_compile_args=["-ObjC"]  ),
 	Extension("iqs.Model", ["iqs/Model.py"]),

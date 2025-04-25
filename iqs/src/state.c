@@ -44,8 +44,8 @@ void print_state(state_t *state){
 state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
     state_t *parent;
 
-    long double placeholder;
-    size_t estimate = 5000000;
+    int64_t placeholder;
+    size_t estimate = 500000;
     parent = calloc(estimate, sizeof(state_t));
 
     size_t count = 0;
@@ -55,10 +55,11 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
         if (!file) return NULL;
 
         for (size_t i = 0; i < estimate; ++i) {
-            if (fscanf(file, "%Lf ", &placeholder) != 1) {
+            if (fscanf(file, "%lld ", &placeholder) != 1) {
                 fclose(file);
                 break;
             }
+//            printf("%d \n", placeholder);
             parent[i].tot_profit = placeholder;
             parent[i].vector = sw_init(n);
             parent[i].branch = sw_init(n);
@@ -90,7 +91,7 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
 //    double total = 0;
 //
 //    for (size_t i = 0; i < number_states; ++i) {
-//        if (compare(bnb[i].tot_profit, threshold->tot_profit, sense)) {
+//        if (bnb[i].tot_profit < threshold->tot_profit) {
 //            up[a].tot_profit = bnb[i].tot_profit;
 //            up[a].vector = sw_set(bnb[i].vector);
 //            up[a].branch = sw_set(bnb[i].branch);

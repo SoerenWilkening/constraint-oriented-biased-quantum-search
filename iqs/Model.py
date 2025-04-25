@@ -15,7 +15,7 @@ from warnings import warn
 from multiprocessing import shared_memory
 import signal
 import sys
-import atexit
+from .StateGenerator import StateGenerator
 
 
 class Model:
@@ -29,6 +29,9 @@ class Model:
 		self.met = None
 		self.objective: new_constraint = new_constraint()
 		self.constraint: new_constraint = new_constraint()
+
+		self.obj_expr = []
+		self.con_expr = []
 
 		self.sense = MAXIMIZE
 
@@ -101,12 +104,13 @@ or {self.runtime}s sampling
 			expr = expr <= 0
 		else:
 			expr = expr >= 0
-
+		self.obj_expr.append(expr)
 		self.objective.add_expression(expr)
 
 	def add_constraint(self, constraint: Expression2 | int | None = None) -> None:
 		expr = constraint
 		expr.merge()
+		self.con_expr.append(expr)
 		self.constraint.add_expression(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
@@ -128,7 +132,7 @@ or {self.runtime}s sampling
 		    #            stop_val, callback, max_delta, reset_delta)
 			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			               stop_val, callback, max_delta, reset_delta)
-			# print(res)
+			print(res[0])
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
 		except KeyboardInterrupt:
@@ -146,14 +150,9 @@ or {self.runtime}s sampling
 			except ChildProcessError:
 				pass
 
-	# def cleanup(self):
-	# 	if os.getpid() == self.parent_pid:
-	# 		self.shm.close()
-	# 		self.shm.unlink()
-
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=0,
-	          results = "min") -> float | None:
+	          results = "min", bfs = False) -> float | None:
 		"""
 
 		:param M:
@@ -177,20 +176,11 @@ or {self.runtime}s sampling
 		set_bias_wrapper(bias)
 
 
-		if arch == "gpu":
-			raise TypeError("needs some fixing, currently doesnt seems to work properly!")
-
-			if not self.gpu_compiled:
-				self.compile()
-
-			initial = self.initial_state.integer_liste()
-			initial = initial[: min(len(initial), int(np.ceil(self.n / 32)))]
-
-			res, oracle, t = self.gpu_executor.gpu_qmax_search(self.n, M, 0, initial, callback)
-			self.objective_value = res
-			self.runtime = t
-			self.grover_iterations = oracle
-			self.quantum_cycles = oracle
+		if bfs:
+			s = StateGenerator(self)
+			s.generate_gurobi_model()
+			s.stategen()
+			print(s.bfs)
 			return
 
 		t1 = time()

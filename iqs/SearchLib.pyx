@@ -41,6 +41,12 @@ cdef class new_constraint:
 	def eval_con(self, state: state_py):
 		return eval_constraints(&self.con, state.state, state.state[0].vector.bits)
 
+	def eval_con_from_array(self, array: list):
+		st = state_py(0, array)
+		res = self.eval_con(st)
+		del st
+		return res
+
 	def eval_obj(self, state: state_py):
 		return objective_value(&self.con, state.state)
 
@@ -144,6 +150,9 @@ cdef class state_py:
 	def __init__(self, ObjVal, array):
 		pass
 
+	def __len__(self):
+		return self.num_states
+
 	def load(self, file):
 		f = open(file, "r").read().split()
 		return state_py(float(f[0]), list(map(int, f[1:])))
@@ -157,7 +166,9 @@ cdef class state_py:
 
 	def __str__(self) -> str:
 		if self.state is NULL: return "NULL state"
-		print_state(self.state)
+		for i in range(self.num_states):
+			print_state(&self.state[i])
+			print()
 		return ""
 
 	def __dealloc__(self) -> None:
@@ -177,6 +188,29 @@ cdef class state_py:
 	def assignment(self):
 		return list(self.arr)
 
+	def store(self, file):
+		f = open(file, "w")
+		f.write(f"{self.objval} ")
+		for i in self.arr:
+			f.write(f"{i} ")
+		f.close()
+
+	def read(self, bytes name, int n) -> None:
+		value = str(name).split("states_")[1].split(".txt")[0]
+		files = [b"./" + os.path.dirname(name) + b"/" + i for i in os.listdir(b"./" + os.path.dirname(name)) if
+		         "states" in str(i) and value in str(i)]
+
+		num_files = len(files)
+		cdef char** f = <char **> calloc(num_files, sizeof(char *))
+		for i in range(num_files):
+			file_bytes = files[i]
+			f[i] = <char *> calloc(len(file_bytes) + 1, sizeof(char))
+			for j in range(len(file_bytes)):
+				f[i][j] = file_bytes[j]
+
+		free_state(self.state, self.num_states)
+		self.state = read_states(f, num_files, &self.num_states, n)
+
 
 def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 	cdef size_t iterations = 0
@@ -188,6 +222,29 @@ def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 	res.get_x()
 
 	return res, iterations, rounds
+
+import os
+
+def store(states: list[float, tuple[list[int], list[int]]] , where: bytes) -> int:
+	if os.path.exists(where): return 1
+
+	file = open(where, "a")
+	for i in states:
+		file.write(f'{int(i[0])} ')
+		for j in range(len(i[1])):
+			file.write(f'{i[1][j]} {i[2][j]} ')
+		file.write("\n")
+
+	file.close()
+	return 0
+
+def read_nodes_wrapper(name: bytes ,n: int) -> int | state_py:
+	if not os.path.exists(name):
+		return 1
+
+	res = state_py(0, [0])
+	res.read(name, n)
+	return res
 
 
 # define callback functionality ===============================

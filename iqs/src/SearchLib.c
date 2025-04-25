@@ -475,8 +475,8 @@ int bfs(
     int count[2] = {0, 0};
     int64_t potentials[C];
     memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
-    look_ahead(0, 0, n, &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
-    look_ahead(0, 1, n, &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+    look_ahead(0, 0, n - 1, &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
+    look_ahead(0, 1, n - 1, &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, cur_sol);
     printf("counts = %d %d\n", count[0], count[1]);
 
     free(positive_indices);
@@ -640,6 +640,7 @@ int ctg(
 //        }
 //    }
 
+//    printf("bias = %f\n", BranchingStats.bias);
     // Start sampling after preprocessing
     while (m_tot < M){
         signal(SIGINT, handle_signal);
