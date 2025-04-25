@@ -1,5 +1,5 @@
 .idea
-test.py
+random_QOQC/test.py
 venv
 iqs/*.c
 iqs/*.so

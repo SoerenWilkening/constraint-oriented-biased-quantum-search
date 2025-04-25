@@ -668,7 +668,7 @@ int ctg(
             m_tot = 0;
 
             rounds = 0;
-            if((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) || (new_sol->tot_profit <= stop_val && stop_val != -1)) {
+            if((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) || (cur_sol->tot_profit <= stop_val && stop_val != -1)) {
                 break;
             }
         }
