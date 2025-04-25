@@ -132,7 +132,7 @@ or {self.runtime}s sampling
 		    #            stop_val, callback, max_delta, reset_delta)
 			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			               stop_val, callback, max_delta, reset_delta)
-			print(res[0])
+			# print(res[0])
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
 		except KeyboardInterrupt:
@@ -180,7 +180,9 @@ or {self.runtime}s sampling
 			s = StateGenerator(self)
 			s.generate_gurobi_model()
 			s.stategen()
-			print(s.bfs)
+			print(len(s.bfs))
+			run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+			           stop_val, callback, max_delta, reset_delta)
 			return
 
 		t1 = time()
