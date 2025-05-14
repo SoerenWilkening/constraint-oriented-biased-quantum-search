@@ -126,6 +126,8 @@ int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t c
 		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
 			size_t var = con->variables[variable_index(cl, k, clause_offset)];
 			if (var > max_item) {
+			    // variable product is not closed -> clause doesn't contribute to satifyability,
+			    // since remaining assignments can always set clause to 0
 				assigned = 2;
 				break;
 			}

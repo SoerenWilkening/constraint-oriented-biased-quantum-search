@@ -151,7 +151,7 @@ or {self.runtime}s sampling
 				pass
 
 	def solve(self, M: int = -1, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
-	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=0,
+	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
 	          results = "min", bfs = False) -> float | None:
 		"""
 
@@ -177,10 +177,11 @@ or {self.runtime}s sampling
 
 
 		if bfs:
-			s = StateGenerator(self)
-			s.generate_gurobi_model()
-			s.stategen()
-			print(len(s.bfs))
+			# s = StateGenerator(self)
+			# s.generate_gurobi_model()
+			# s.stategen()
+			# print(len(s.bfs))
+			# print(self.objective)
 			run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			           stop_val, callback, max_delta, reset_delta)
 			return

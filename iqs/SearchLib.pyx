@@ -1,3 +1,4 @@
+import sys
 from copy import copy
 from time import time
 import numpy as np
@@ -336,8 +337,6 @@ cpdef run_bfs(
 		int max_delta,
 		int reset_delta):
 
-	# print(max_delta)
-	# with nogil:
 	global python_callback
 	python_callback = callback
 
@@ -355,9 +354,7 @@ cpdef run_bfs(
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int found_new;
 
-	if solver == OPTIMIZE:
-		# Run sampling for optimization based on user input
-		bfs(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+	bfs(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
 	cur_sol.get_x()
 	arr = []
