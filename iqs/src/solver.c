@@ -195,12 +195,12 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             const unsigned int *positive_indices, const unsigned int *num_positive_indices, const unsigned int *positive_offsets,
             const unsigned int *negative_indices, const unsigned int *num_negative_indices, const unsigned int *negative_offsets,
             int **Indices, int *NumIndices, int *Fulfilled,
-            int depth_look_ahead, solver_t solver
+            int depth_look_ahead
             ){
 
     int64_t potentials[con->num_constraints];
     for(int l = 0; l < 4 * j * j; l++){
-        // Store whicso h bit from the previous solution is flipped
+        // Store which bit from the previous solution is flipped
         int NumChanges = 0;
         int *ChangedBits = calloc(n, sizeof(int));
 
@@ -254,7 +254,6 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
             // was a bit flipped?
             if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
-//            printf("%d| ", new_bit);
             int all_positive;
             if (new_bit) {
                 update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol, new_bit, POSITIVE, PLAIN);
@@ -264,28 +263,18 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         // if the previous loop broke earlier, determine all bit changes
         for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;
 //        printf("%lld %lld\n", potentials[0], potentials[1]);
-        int64_t val = 0;
-        int as1 = true;
-//        print_state(new_sol);
-//        if (solver == OPTIMIZE) as1 = quantum_feasibility2(con, new_sol, n + 1, false);
-        if (solver == OPTIMIZE) as1 = eval_constraints(con, new_sol, n);
+        int as1 = eval_constraints(con, new_sol, n);
 
         int NumChangedTerms = 0;
         int *ChangedTerms = calloc(NTerms, sizeof(int));
-//        if (as1 && solver == OPTIMIZE) val = ChangedObjVal(obj, new_sol, NumChanges, ChangedBits, Indices, NumIndices, Fulfilled, ChangedTerms, &NumChangedTerms);
-        if (solver == OPTIMIZE) val = objective_value(obj, new_sol);
-        if (solver == SATISFY) {
-//            val = count_satisfyed_constraints(con, new_sol, n + 1, false, con->num_constraints - cur_sol->tot_profit);
-            val = -num_satisfied_constrains(con, new_sol);
-        }
-//        printf("%d %lld %lld %lld\n", as1, val, potentials[0], potentials[1]);
+        int64_t val = objective_value(obj, new_sol);
+
         if (as1 && cur_sol->tot_profit > val){
             // If solution is updated, change the array of fulfilled terms
 //            for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
             cur_sol->tot_profit = val;
             sw_clear(cur_sol->vector);
             cur_sol->vector = sw_set(new_sol->vector);
-//            printf(" feasible = %d value = %lld %lld\n", as1, cur_sol->tot_profit, val);
 
             free(ChangedTerms);
             free(ChangedBits);
@@ -293,6 +282,82 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
         }
         free(ChangedTerms);
         free(ChangedBits);
+    }
+    return 0;
+}
+
+
+int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+            new_constraints_t *con, new_constraints_t *obj,
+            const unsigned int *positive_indices, const unsigned int *num_positive_indices, const unsigned int *positive_offsets,
+            const unsigned int *negative_indices, const unsigned int *num_negative_indices, const unsigned int *negative_offsets,
+            int **Indices, int *NumIndices, int *Fulfilled,
+            int depth_look_ahead
+            ){
+
+    int64_t potentials[con->num_constraints];
+    for(int l = 0; l < 4 * j * j; l++){
+        // reset constraint rhs to initial values
+        memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+
+        // initialize new solution
+        new_sol->tot_profit = cur_sol->tot_profit;
+        sw_set_ui_0(new_sol->vector);
+
+        int i;
+        for(i = 0; i < n; i++){
+            int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
+            double random_num = ((double) (rand() % 123456)) / 123455.;
+
+            // Initialize new bit to be 0
+            sw_clrbit(new_sol->vector, i);
+            int new_bit = 0;
+
+            // check, if assignment does not exceed potentials
+            // if depth look ahead is 0, it will check only the next assignment
+            int count[2] = {0, 0};
+            // look ahead to the left side
+            fflush(stdout);
+            look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
+            // look ahead to the right side
+            look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices, num_positive_indices, positive_offsets, negative_indices, num_negative_indices, negative_offsets, new_sol);
+
+            // only counts needs to be checked, since they also include bool_plus and bool_minus
+            // If all the constraints ar fulfilled by both assignments, "branch"
+            if (count[0] > 0 && count[1] > 0){
+                if (random_num > BranchingFunction(i, bit, 0, 0)){
+                    sw_setbit(new_sol->vector, i);
+                    new_bit = 1;
+                } else{ sw_clrbit(new_sol->vector, i); }
+            }
+            // we are forced to go left, when only count[0] leads to a feasible solution
+            // count[0] > 0 does not need to be checked, since both == 0 was checked prior
+            if (count[1] == 0) {
+                // but if left don't lead to feasible solution: break
+                sw_clrbit(new_sol->vector, i);
+                new_bit = 0;
+            }
+            // we are forced to go right, when only count[1] leads to feasible solution
+            if (count[0] == 0){
+                // but if right don't lead to feasible solution: break
+                sw_setbit(new_sol->vector, i);
+                new_bit = 1;
+            }
+
+            if (new_bit) {
+                update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol, new_bit, POSITIVE, PLAIN);
+            }
+            else update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol, new_bit, NEGATIVE, PLAIN);
+        }
+        int64_t val = -num_satisfied_constrains(con, new_sol);
+        if (cur_sol->tot_profit > val){
+            // If solution is updated, change the array of fulfilled terms
+            cur_sol->tot_profit = val;
+            sw_clear(cur_sol->vector);
+            cur_sol->vector = sw_set(new_sol->vector);
+
+            return 1;
+        }
     }
     return 0;
 }

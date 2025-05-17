@@ -54,59 +54,59 @@ cdef class new_constraint:
 
 
 
-cdef class constraints:
-	cdef constraint_list_t con;
-	cdef constraint_list_t *pointer;
-	cdef int num_constraints;
-
-	def __cinit__(self):
-		self.con = init_con_list()
-		self.pointer = &self.con
-		self.num_constraints = 0
-
-	def __iadd__(self, other):
-		self.num_constraints += 1
-		cdef constraint_t *con = add_constraint(&self.con)
-		liste, sense, rhs = other[:-2], other[-2], other[-1]
-		for i in liste:
-			l_p = <int64_t *> calloc(len(i), sizeof(int64_t))
-			# print(len(i))
-			for j in range(len(i)):
-				l_p[j] = <int64_t> i[j]
-
-			add_literal(con, l_p, len(i))
-
-		add_sense(con, sense)
-		add_rhs(con, rhs)
-		con[0].evaluated = -2
-		# add_constraint(&self.con, &con)
-		return self
-
-	def __str__(self):
-		print_constraints(&self.con)
-		return ""
-
-	def __len__(self):
-		return self.num_constraints
-
-	def eval(self, state: state_py):
-		return quantum_feasibility2(self.pointer, state.state, state.state[0].vector.bits, False)
-
-	def obj(self, st: state_py):
-		return ObjVal(st.state, self.pointer)
-
-	def set_rhs(self, rhs):
-		add_rhs(&self.con.constraints[0], rhs)
-
-	def count(self, st: state_py, n: int):
-		return count_satisfyed_constraints(&self.con, st.state, n + 1, False, n)
-
-	def liste(self):
-		return [[[self.con.constraints[i].literals[j].factor] +
-		         [self.con.constraints[i].literals[j].variables[k] for k in range(0, self.con.constraints[i].literals[j].len_literal - 1)]
-			            for j in range(self.con.constraints[i].num_literals)] + [self.con.constraints[i].rhs]
-		        for i in range(self.con.num_constraints)
-		]
+# cdef class constraints:
+# 	cdef constraint_list_t con;
+# 	cdef constraint_list_t *pointer;
+# 	cdef int num_constraints;
+#
+# 	def __cinit__(self):
+# 		self.con = init_con_list()
+# 		self.pointer = &self.con
+# 		self.num_constraints = 0
+#
+# 	def __iadd__(self, other):
+# 		self.num_constraints += 1
+# 		cdef constraint_t *con = add_constraint(&self.con)
+# 		liste, sense, rhs = other[:-2], other[-2], other[-1]
+# 		for i in liste:
+# 			l_p = <int64_t *> calloc(len(i), sizeof(int64_t))
+# 			# print(len(i))
+# 			for j in range(len(i)):
+# 				l_p[j] = <int64_t> i[j]
+#
+# 			add_literal(con, l_p, len(i))
+#
+# 		add_sense(con, sense)
+# 		add_rhs(con, rhs)
+# 		con[0].evaluated = -2
+# 		# add_constraint(&self.con, &con)
+# 		return self
+#
+# 	def __str__(self):
+# 		print_constraints(&self.con)
+# 		return ""
+#
+# 	def __len__(self):
+# 		return self.num_constraints
+#
+# 	def eval(self, state: state_py):
+# 		return quantum_feasibility2(self.pointer, state.state, state.state[0].vector.bits, False)
+#
+# 	def obj(self, st: state_py):
+# 		return ObjVal(st.state, self.pointer)
+#
+# 	def set_rhs(self, rhs):
+# 		add_rhs(&self.con.constraints[0], rhs)
+#
+# 	def count(self, st: state_py, n: int):
+# 		return count_satisfyed_constraints(&self.con, st.state, n + 1, False, n)
+#
+# 	def liste(self):
+# 		return [[[self.con.constraints[i].literals[j].factor] +
+# 		         [self.con.constraints[i].literals[j].variables[k] for k in range(0, self.con.constraints[i].literals[j].len_literal - 1)]
+# 			            for j in range(self.con.constraints[i].num_literals)] + [self.con.constraints[i].rhs]
+# 		        for i in range(self.con.num_constraints)
+# 		]
 
 
 def set_factors_wrapper(double objective_factor, double constraint_factor, double bias_factor, double look_factor):

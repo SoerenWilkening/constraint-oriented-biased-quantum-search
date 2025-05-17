@@ -66,40 +66,40 @@ cdef extern from "src/constraint.h":
 	int true
 	int false
 	# int undetermined
+	#
+	# ctypedef struct lit_t:
+	# 	int64_t factor;
+	# 	int *variables;
+	# 	int len_literal;
+	#
+	# ctypedef struct constraint_t:
+	# 	lit_t *literals;
+	# 	int num_literals;
+	# 	int sense;
+	# 	long double rhs;
+	# 	int first_non_closed;
+	# 	long double rhs_adapted;
+	# 	int digits;
+	# 	int evaluated;
+	#
+	# ctypedef struct constraint_list_t:
+	# 	constraint_t *constraints;
+	# 	int num_constraints;
 
-	ctypedef struct lit_t:
-		int64_t factor;
-		int *variables;
-		int len_literal;
-
-	ctypedef struct constraint_t:
-		lit_t *literals;
-		int num_literals;
-		int sense;
-		long double rhs;
-		int first_non_closed;
-		long double rhs_adapted;
-		int digits;
-		int evaluated;
-
-	ctypedef struct constraint_list_t:
-		constraint_t *constraints;
-		int num_constraints;
-
-	constraint_list_t init_con_list();
-	constraint_t init_con();
-	lit_t init_literal(int64_t *literal, int len_literal);
-
-	constraint_t *add_constraint(constraint_list_t *con_list);
-	void add_literal(constraint_t *con, int64_t *literal, int len_literal);
-	void add_sense(constraint_t *con, int sense);
-	void add_rhs(constraint_t *con, int64_t rhs);
-	void print_constraints(constraint_list_t *cons);
-	int quantum_feasibility2(constraint_list_t *con, state_t *assignment, int assigned, int close)
-	int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int assigned, int close,
-	                                int allowed_false);
-
-	int64_t ObjVal(state_t *state, constraint_list_t *obj);
+	# constraint_list_t init_con_list();
+	# constraint_t init_con();
+	# lit_t init_literal(int64_t *literal, int len_literal);
+	#
+	# constraint_t *add_constraint(constraint_list_t *con_list);
+	# void add_literal(constraint_t *con, int64_t *literal, int len_literal);
+	# void add_sense(constraint_t *con, int sense);
+	# void add_rhs(constraint_t *con, int64_t rhs);
+	# void print_constraints(constraint_list_t *cons);
+	# int quantum_feasibility2(constraint_list_t *con, state_t *assignment, int assigned, int close)
+	# int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int assigned, int close,
+	#                                 int allowed_false);
+	#
+	# int64_t ObjVal(state_t *state, constraint_list_t *obj);
 
 # Extern C written functions to set parameters for the biasing strategy
 #
