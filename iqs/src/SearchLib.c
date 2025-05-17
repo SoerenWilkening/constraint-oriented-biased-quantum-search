@@ -261,8 +261,8 @@ int ctg(
 	double c = 6. / 5;
 
 	int (*search_function)(state_t *, state_t *, int, int, int, new_constraints_t *, new_constraints_t *,
-			const unsigned int *, const unsigned int *, const unsigned int *, const unsigned int *,
-			const unsigned int *, const unsigned int *, int **, int *, int *, int);
+	                       const unsigned int *, const unsigned int *, const unsigned int *, const unsigned int *,
+	                       const unsigned int *, const unsigned int *, int **, int *, int *, int);
 
 	clock_t start = clock();
 
@@ -289,25 +289,23 @@ int ctg(
 	              num_positive_indices, num_negative_indices);
 
 	clock_t t1 = clock();
-	initial_state_preparation(
-			new_sol, cur_sol, n, NTerms,
-			con, obj,
-			positive_indices, num_positive_indices, positive_offsets,
-			negative_indices, num_negative_indices, negative_offsets,
-			Indices, NumIndices, Fulfilled,
-			4, solver
-	);
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con,
+	                                         positive_indices, num_positive_indices, positive_offsets,
+	                                         negative_indices, num_negative_indices, negative_offsets, 4);
 	double preprocess_time = (double) (clock() - t1) / CLOCKS_PER_SEC;
 	int res;
 
-    int init_feasable = 1;
-
-    if (solver == SATISFY) search_function = CSearch_sat;
-    else if (solver == OPTIMIZE && !init_feasable) search_function = CSearch_opt; // opt_sat
-    else search_function = CSearch_opt;
+	int feasible = eval_constraints(con, cur_sol, n);
+	if (!feasible) cur_sol->tot_profit = pot_eval;
+//	print_state(cur_sol);
+//
+	if (solver == SATISFY) search_function = CSearch_sat;
+	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
+	else search_function = CSearch_opt;
 
 	// Start sampling after initial_state_preparation
 	while (m_tot < M) {
+//	for (int i = 0; i < 100; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -327,12 +325,18 @@ int ctg(
 				depth_look_ahead
 		);
 		if (res) {
-			if (callback) {
-				callback(cur_sol->tot_profit, *qtg_applications, (double) (clock() - start) / CLOCKS_PER_SEC,
-				         preprocess_time);
+
+			if (callback && feasible) {
+				callback(cur_sol->tot_profit, *qtg_applications, (double) (clock() - start) / CLOCKS_PER_SEC, preprocess_time);
+			}
+			if (solver == OPTIMIZE && !feasible){
+				feasible = eval_constraints(con, new_sol, n);
+				if (feasible) {
+					search_function = CSearch_opt;
+					cur_sol->tot_profit = 0;
+				}
 			}
 			m_tot = 0;
-
 			rounds = 0;
 			if ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
 			    (cur_sol->tot_profit <= stop_val && stop_val != -1)) {
@@ -351,5 +355,5 @@ int ctg(
 	free(Indices);
 	free(Fulfilled);
 	free_state(new_sol, 0);
-	return !(cur_sol->tot_profit == initial_value);
+	return cur_sol->tot_profit != initial_value;
 }

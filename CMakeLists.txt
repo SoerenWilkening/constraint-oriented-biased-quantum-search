@@ -19,4 +19,5 @@ add_executable(improved_quantum_search
         iqs/src/Branching.c
         iqs/src/Branching.h
         iqs/src/solver.c
+        iqs/src/solver.h
 )
