@@ -1,6 +1,7 @@
 from time import time
 import gurobipy as gp
 from .SearchLib import read_nodes_wrapper, store
+from .Constants import OPTIMIZE, SATISFY
 class StateGenerator:
 	def __init__(self, model, path = "./"):
 		self.model = model
@@ -21,15 +22,31 @@ class StateGenerator:
 			gr_clause = clause[0]
 			for i in clause[1:]:
 				gr_clause *= self.vars[i]
+			if self.model.solver == SATISFY and clause[0] < 0:
+				gr_clause = 1 - gr_clause
 			return gr_clause
 
-		self.gur_model.setObjective(sum([product(i) for i in self.model.obj_expr[0] if type(i) != int]), sense = gp.GRB.MINIMIZE)
+		# model for optimization problems
+		if self.model.solver == OPTIMIZE:
+			self.gur_model.setObjective(sum([product(i) for i in self.model.obj_expr[0] if type(i) != int]), sense = gp.GRB.MINIMIZE)
 
-		for i in self.model.con_expr:
-			expr = list(i)
-			# subtract potential again
-			rhs = expr[-1] + sum(i[0] for i in expr[:-2] if i[0] < 0)
-			self.gur_model.addConstr(sum([product(i) for i in expr[:-2]]) <= rhs)
+			for i in self.model.con_expr:
+				expr = list(i)
+				# subtract potential again
+				rhs = expr[-1] + sum(i[0] for i in expr[:-2] if i[0] < 0)
+				self.gur_model.addConstr(sum([product(i) for i in expr[:-2]]) <= rhs)
+		# For satisfiability we require a maxsat solver
+		else:
+			sat = self.gur_model.addVars(len(self.model.con_expr), vtype = gp.GRB.BINARY)
+			# print(len(self.model.con_expr))
+			counter = 0
+			for i in self.model.con_expr:
+				expr = list(i)
+				# rhs = expr[-1] + sum(j[0] for j in expr[:-2] if j[0] < 0)
+				self.gur_model.addConstr(sum([product(j) for j in expr[:-2]]) >= sat[counter])
+				counter += 1
+			self.gur_model.setObjective(-sum(sat[i] for i in sat), sense = gp.GRB.MINIMIZE)
+
 
 	def stategen(self):
 		self.counter = 0
@@ -130,7 +147,7 @@ class StateGenerator:
 			# obj = int(round(decimal.Decimal(self.model.ObjVal) * decimal.Decimal(10 ** self.digits)))
 			obj = self.gur_model.ObjVal
 			# if solver == "sat": obj = self.Con.count()
-			if threshold > obj:
+			if threshold > obj and would_branch:
 				self.breadth_first_search(
 					threshold,
 					level + 1,

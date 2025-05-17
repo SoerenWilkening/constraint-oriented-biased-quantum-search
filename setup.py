@@ -15,6 +15,7 @@ extensions = [
 	Extension("iqs.Model", ["iqs/Model.py"]),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
+			   os.path.join("iqs", "src", "solver.c"),
 	           os.path.join("iqs", "src", "SearchLib.c"),
 	           os.path.join("iqs", "src", "Branching.c"),
 	           os.path.join("iqs", "src", "intarray.c"),

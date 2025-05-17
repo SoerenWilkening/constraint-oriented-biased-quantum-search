@@ -5,16 +5,14 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
-#include "intarray.h"
-#include "definitions.h"
-#include "Branching.h"
+#include <signal.h>
+#include "solver.h"
 #include "constraint.h"
-#include "state.h"
 
 // define callback functionality
 typedef void (*callback_t)(int, size_t, double, double);
 
-typedef int solver_t;
+//typedef int solver_t;
 int compare(int64_t obj, int64_t thr, int sense);
 
 state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M);

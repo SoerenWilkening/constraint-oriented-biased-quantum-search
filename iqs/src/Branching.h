@@ -6,7 +6,7 @@
 #include <math.h>
 #include <string.h>
 #include "intarray.h"
-#include "SearchLib.h"
+//#include "SearchLib.h"
 #include "definitions.h"
 #include "state.h"
 

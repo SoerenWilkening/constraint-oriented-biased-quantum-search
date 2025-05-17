@@ -128,10 +128,9 @@ or {self.runtime}s sampling
 			existing_shm = shared_memory.SharedMemory(shm_name)
 			arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
 			set_seed(time() + os.getpid() * 1234)
-			# run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-		    #            stop_val, callback, max_delta, reset_delta)
 			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			               stop_val, callback, max_delta, reset_delta)
+			# print(res[0])
 			# print(res[0])
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
@@ -177,11 +176,10 @@ or {self.runtime}s sampling
 
 
 		if bfs:
-			# s = StateGenerator(self)
-			# s.generate_gurobi_model()
-			# s.stategen()
-			# print(len(s.bfs))
-			# print(self.objective)
+			s = StateGenerator(self)
+			s.generate_gurobi_model()
+			s.stategen()
+			print(len(s.bfs))
 			run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			           stop_val, callback, max_delta, reset_delta)
 			return
