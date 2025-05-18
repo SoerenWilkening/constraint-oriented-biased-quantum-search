@@ -15,16 +15,16 @@ class Variable:
 	def __add__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			expr = Expression2()
+			expr = Expression()
 			add_constant(expr.expr, other)
 			add_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Variable):
-			expr = Expression2()
+			expr = Expression()
 			add_variable(expr.expr, other.index)
 			add_variable(expr.expr, self.index)
 			return expr
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			other += self
 			# add_variable(<expression_t *>other.expr, self.index)
 			return other
@@ -32,53 +32,53 @@ class Variable:
 	def __radd__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			expr = Expression2()
+			expr = Expression()
 			add_constant(expr.expr, other)
 			add_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Variable):
-			expr = Expression2()
+			expr = Expression()
 			add_variable(expr.expr, other.index)
 			add_variable(expr.expr, self.index)
 			return expr
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			other += self
 			return other
 
 	def __mul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			expr = Expression2()
+			expr = Expression()
 			add_constant(expr.expr, other)
 			multiply_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Variable):
-			expr = Expression2()
+			expr = Expression()
 			add_variable(expr.expr, other.index)
 			multiply_variable(expr.expr, self.index)
 			return expr
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			other *= self
 			return other
 
 	def __rmul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			expr = Expression2()
+			expr = Expression()
 			add_constant(expr.expr, other)
 			multiply_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Variable):
-			expr = Expression2()
+			expr = Expression()
 			add_variable(expr.expr, other.index)
 			multiply_variable(expr.expr, self.index)
 			return expr
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			other *= self
 			return other
 
 
-cdef class Expression2:
+cdef class Expression:
 
 	def __cinit__(self):
 		self.expr = <expression_t *> init_expression()
@@ -92,7 +92,12 @@ cdef class Expression2:
 			print()
 		return ""
 
-	cdef add_expr(self, Expression2 other):
+	def __dealloc__(self):
+		free_expression(self.expr)
+		self.expr = NULL
+		del self
+
+	cdef add_expr(self, Expression other):
 		add_expression(<expression_t *> self.expr, <expression_t *> other.expr)
 
 	def merge(self):
@@ -121,7 +126,7 @@ cdef class Expression2:
 		if isinstance(other, Variable):
 			add_variable(self.expr, other.index)
 			return self
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			self.add_expr(other)
 			return self
 
@@ -134,7 +139,7 @@ cdef class Expression2:
 		if isinstance(other, Variable):
 			add_variable(self.expr, other.index)
 			return self
-		if isinstance(other, Expression2):
+		if isinstance(other, Expression):
 			self.add_expr(other)
 			return self
 

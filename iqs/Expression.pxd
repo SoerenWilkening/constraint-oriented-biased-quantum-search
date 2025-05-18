@@ -24,9 +24,9 @@ cdef extern from "src/Expression.h":
 	void add_sense_to_expression(expression_t *expr, int sense);
 	void add_rhs_to_expression(expression_t *expr, int64_t rhs);
 
-cdef class Expression2:
+cdef class Expression:
 	cdef expression_t *expr
 	cdef int sense
 	cdef int rhs
 	cdef c_liste(self)
-	cdef add_expr(self, Expression2 other)
+	cdef add_expr(self, Expression other)

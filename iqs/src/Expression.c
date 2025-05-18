@@ -71,7 +71,7 @@ void add_expression(expression_t *expr1, expression_t *expr2){
         expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
        expr1->expr_size++;
     }
-    free_expression(expr2);
+//    free_expression(expr2);
 }
 
 void sub_constant(expression_t *expr, int64_t constant){
@@ -99,7 +99,7 @@ void sub_expression(expression_t *expr1, expression_t *expr2){
         expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
         expr1->expr_size++;
     }
-    free_expression(expr2);
+//    free_expression(expr2);
 }
 
 void multiply_constant(expression_t *expr, int64_t constant){

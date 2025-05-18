@@ -7,8 +7,8 @@ import numpy as np
 
 from iqs.Metal_executor import Executor
 from .Constants import *
-from .Expression import Variable, Expression2
-from .SearchLib import state_py, new_constraint, run_ctg, set_seed, set_bias_wrapper, run_bfs
+from .Expression import Variable, Expression
+from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs
 from copy import copy
 from warnings import warn
 
@@ -92,7 +92,7 @@ or {self.runtime}s sampling
 
 		return x
 
-	def set_objective(self, objective: Expression2 | int | None = None, sense: int = MAXIMIZE) -> None:
+	def set_objective(self, objective: Expression | int | None = None, sense: int = MAXIMIZE) -> None:
 		if sense not in [MINIMIZE, MAXIMIZE]:
 			raise TypeError
 
@@ -104,13 +104,13 @@ or {self.runtime}s sampling
 			expr = expr <= 0
 		else:
 			expr = expr >= 0
-		self.obj_expr.append(expr)
+		# self.obj_expr.append(expr)
 		self.objective.add_expression(expr)
 
-	def add_constraint(self, constraint: Expression2 | int | None = None) -> None:
+	def add_constraint(self, constraint: Expression | int | None = None) -> None:
 		expr = constraint
 		expr.merge()
-		self.con_expr.append(expr)
+		# self.con_expr.append(expr)
 		self.constraint.add_expression(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
@@ -128,14 +128,21 @@ or {self.runtime}s sampling
 			existing_shm = shared_memory.SharedMemory(shm_name)
 			arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
 			set_seed(time() + os.getpid() * 1234)
-			res = run_ctg(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-			               stop_val, callback, max_delta, reset_delta)
+			res = run_sampling(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+			                   stop_val, callback, max_delta, reset_delta)
 			# print(res[0])
 			# print(res[0])
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
 		except KeyboardInterrupt:
 			pass
+
+	def __del__(self):
+		if self.final_state is not None: del self.final_state
+		if self.initial_state is not None: del self.initial_state
+		del self.objective
+		del self.constraint
+
 
 	def kill_children(self):
 		for pid in self.child_pid:
@@ -227,4 +234,3 @@ or {self.runtime}s sampling
 			self.shm.unlink()
 		except:
 			pass
-		# self.cleanup()

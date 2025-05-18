@@ -1,7 +1,7 @@
 from libc.stdint cimport uint64_t, uint32_t, int64_t
 from libc.stdlib cimport calloc, free, srand
 from .Expression cimport expression_t
-from .Expression cimport Expression2
+from .Expression cimport Expression
 from .Constants import *
 
 # typedef of the array_t structure to be usable in cython scripts
