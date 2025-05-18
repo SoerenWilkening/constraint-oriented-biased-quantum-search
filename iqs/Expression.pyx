@@ -79,7 +79,6 @@ class Variable:
 
 
 cdef class Expression:
-
 	def __cinit__(self):
 		self.expr = <expression_t *> init_expression()
 		self.sense = -2

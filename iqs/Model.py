@@ -43,6 +43,7 @@ class Model:
 		self.solver = SATISFY
 
 		self.runtime: float = 0
+		self.feasible = 0
 		self.grover_iterations: list[int] | int = 0
 		self.quantum_cycles: list[int] | int = 0
 		self.objective_value: list[int] | int = 0
@@ -131,9 +132,10 @@ or {self.runtime}s sampling
 			res = run_sampling(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
 			                   stop_val, callback, max_delta, reset_delta)
 			# print(res[0])
-			# print(res[0])
+			# print(res[2])
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
+			arr[index, 2] = res[2]
 		except KeyboardInterrupt:
 			pass
 
@@ -192,7 +194,7 @@ or {self.runtime}s sampling
 			return
 
 		t1 = time()
-		shape = (num_workers, 2)
+		shape = (num_workers, 3)
 		self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
 		arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
 
@@ -225,10 +227,11 @@ or {self.runtime}s sampling
 		if results == "min":
 			self.objective_value =  min(i[0] for i in arr)
 			self.grover_iterations = min(list(i[1] for i in arr if i[0] == self.objective_value))
+			self.feasible = max(i[2] for i in arr)
 		else:
 			self.objective_value = np.mean([i[0] for i in arr])
 			self.grover_iterations = np.mean([i[1] for i in arr])
-
+			self.feasible = np.mean(i[2] for i in arr)
 		try:
 			self.shm.close()
 			self.shm.unlink()

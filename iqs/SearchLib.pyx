@@ -192,7 +192,7 @@ def read_nodes_wrapper(name: bytes ,n: int) -> int | state_py:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int a, size_t b, double c, double d) with gil:
+cdef void my_callback_c(int64_t a, size_t b, double c, double d) with gil:
 	if python_callback is not None:
 		python_callback(a, b, c, d)
 
@@ -223,17 +223,17 @@ cpdef run_sampling(
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
 	cdef int slvr = solver
-	cdef int stpvl = stop_val
+	cdef int64_t stpvl = stop_val
 	cdef int M_c = M
 	cdef state_t *stt = cur_sol.state
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
-	cdef int found_new;
+	cdef int feasible;
 
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -249,11 +249,10 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			# with nogil:
-			found_new = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
-			if found_new and reset_delta:
-				delta = 0
-				# print("redefine delta")
+			# if found_new and reset_delta:
+			# 	delta = 0
 
 			if stt.tot_profit == stpvl: break
 
@@ -263,8 +262,7 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications
-	# return qtg_applications
+	return cur_sol, qtg_applications, feasible
 
 cpdef run_bfs(
 		initial: state_py,
@@ -288,7 +286,7 @@ cpdef run_bfs(
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
 	cdef int slvr = solver
-	cdef int stpvl = stop_val
+	cdef int64_t stpvl = stop_val
 	cdef int M_c = M
 	cdef state_t *stt = cur_sol.state
 	cdef new_constraints_t *cnstrs = &con.con

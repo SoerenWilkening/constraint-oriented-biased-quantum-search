@@ -10,7 +10,7 @@
 #include "constraint.h"
 
 // define callback functionality
-typedef void (*callback_t)(int, size_t, double, double);
+typedef void (*callback_t)(int64_t, size_t, double, double);
 
 //typedef int solver_t;
 int compare(int64_t obj, int64_t thr, int sense);

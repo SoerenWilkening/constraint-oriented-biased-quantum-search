@@ -337,8 +337,9 @@ int ctg(
 			}
 			m_tot = 0;
 			rounds = 0;
-			if ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
-			    (cur_sol->tot_profit <= stop_val && stop_val != -1)) {
+//			printf("%lld %lld %d\n", cur_sol->tot_profit, stop_val, feasible);
+			if (feasible && ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
+			    (cur_sol->tot_profit <= stop_val && stop_val != -1))) {
 				break;
 			}
 		}
@@ -354,5 +355,5 @@ int ctg(
 	free(Indices);
 	free(Fulfilled);
 	free_state(new_sol, 0);
-	return cur_sol->tot_profit != initial_value;
+	return feasible;
 }

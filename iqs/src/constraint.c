@@ -99,12 +99,8 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
-//    printf("start\n");
-//	fflush(stdout);
 	for (int cls = 0; cls < expr->expr_size; ++cls) {
 		if (expr->len_literal[cls] != 0) {
-//		    printf("vars\n");
-//	        fflush(stdout);
 			for (int i = 1; i < expr->len_literal[cls]; ++i) {
 				int index = variable_index(clause_counter, i - 1, clause_offset);
 				if (con->allocated_variables < index){
@@ -113,30 +109,20 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 				}
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
-//			printf("factors\n");
-//	        fflush(stdout);
 			if (con->allocated_factors < clause_offset + clause_counter){
 				con->clause_length = realloc(con->clause_length, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
 				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
 				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
 			}
-//			printf("allocated\n");
-//	        fflush(stdout);
 			con->clause_length[clause_offset + clause_counter] = expr->len_literal[cls] - 1;
 			con->factors[clause_offset + clause_counter] = expr->literals[expr_index(cls, 0)];
-//			printf("done\n");
-//	        fflush(stdout);
 			clause_counter++;
 		}
 	}
 
-//    printf("end\n");
-//	fflush(stdout);
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;
-//	printf("done\n");
-//	fflush(stdout);
 
 	con->rhs[C] = expr->rhs;
 	con->sense[C] = expr->sense;
