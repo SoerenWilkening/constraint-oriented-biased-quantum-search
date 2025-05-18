@@ -24,7 +24,7 @@
 //      -> senses: length = C,
 //      -> rhs: length = C
 
-#define MINARRAYSIZE 500000
+#define MINARRAYSIZE 50000
 
 typedef struct{
 	size_t num_constraints; // number of constraints
@@ -34,6 +34,10 @@ typedef struct{
 	size_t *clause_length;  // how many variables per clause
 	size_t *variable_offset;// where is the first index of the variables of a clause given constraint C
 	size_t *variables;      //
+
+    int allocated_factors;
+	int allocated_variables;
+
 	int *sense;
 	int64_t *rhs;
 } new_constraints_t;

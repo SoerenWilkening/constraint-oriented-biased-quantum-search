@@ -6,13 +6,16 @@ new_constraints_t init_new_constraint() {
 
 	con.num_constraints = 0;
 	con.num_clauses = calloc(0, sizeof(size_t));
-	con.clause_offset = calloc(MINARRAYSIZE, sizeof(size_t));
+	con.clause_offset = calloc(0, sizeof(size_t));
 	con.factors = calloc(MINARRAYSIZE, sizeof(int64_t));
 	con.clause_length = calloc(MINARRAYSIZE, sizeof(size_t));
 	con.variable_offset = calloc(MINARRAYSIZE, sizeof(size_t));
 	con.variables = calloc(MINARRAYSIZE, sizeof(size_t));
 	con.sense = calloc(0, sizeof(int));
 	con.rhs = calloc(0, sizeof(int64_t));
+
+    con.allocated_factors = MINARRAYSIZE;
+	con.allocated_variables = MINARRAYSIZE;
 
 	return con;
 }
@@ -30,7 +33,7 @@ new_constraints_t copy_new_constraint(new_constraints_t *con){
 	new_con.num_clauses = realloc(new_con.num_clauses, con->num_constraints * sizeof(int64_t));
 	memcpy(new_con.num_clauses, con->num_clauses, con->num_constraints * sizeof(size_t));
 
-	memcpy(new_con.clause_offset, con->clause_offset, MINARRAYSIZE * sizeof(size_t));
+	memcpy(new_con.clause_offset, con->clause_offset, con->num_constraints * sizeof(size_t));
 	memcpy(new_con.factors, con->factors, MINARRAYSIZE * sizeof(int64_t));
 	memcpy(new_con.clause_length, con->clause_length, MINARRAYSIZE * sizeof(size_t));
 	memcpy(new_con.variable_offset, con->variable_offset, MINARRAYSIZE * sizeof(size_t));
@@ -86,30 +89,54 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	// always occupy MAXClAUSELENGTH - 1 for variables
 
-	con->num_constraints++;
+    con->num_constraints++;
 	con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(size_t));
+	con->clause_offset = realloc(con->clause_offset, con->num_constraints * sizeof(size_t));
 	con->sense = realloc(con->sense, con->num_constraints * sizeof(int));
 	con->rhs = realloc(con->rhs, con->num_constraints * sizeof(int64_t));
-
 
 	int clause_counter = 0;
 
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
-
+//    printf("start\n");
+//	fflush(stdout);
 	for (int cls = 0; cls < expr->expr_size; ++cls) {
 		if (expr->len_literal[cls] != 0) {
+//		    printf("vars\n");
+//	        fflush(stdout);
 			for (int i = 1; i < expr->len_literal[cls]; ++i) {
-				con->variables[variable_index(clause_counter, i - 1, clause_offset)] = expr->literals[expr_index(cls, i)];
+				int index = variable_index(clause_counter, i - 1, clause_offset);
+				if (con->allocated_variables < index){
+					con->variables = realloc(con->variables, (index + MINARRAYSIZE) * sizeof(size_t));
+					con->allocated_variables = index + MINARRAYSIZE;
+				}
+				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
+//			printf("factors\n");
+//	        fflush(stdout);
+			if (con->allocated_factors < clause_offset + clause_counter){
+				con->clause_length = realloc(con->clause_length, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
+				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
+				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
+			}
+//			printf("allocated\n");
+//	        fflush(stdout);
 			con->clause_length[clause_offset + clause_counter] = expr->len_literal[cls] - 1;
-			con->factors[clause_offset + clause_counter++] = expr->literals[expr_index(cls, 0)];
+			con->factors[clause_offset + clause_counter] = expr->literals[expr_index(cls, 0)];
+//			printf("done\n");
+//	        fflush(stdout);
+			clause_counter++;
 		}
 	}
 
+//    printf("end\n");
+//	fflush(stdout);
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;
+//	printf("done\n");
+//	fflush(stdout);
 
 	con->rhs[C] = expr->rhs;
 	con->sense[C] = expr->sense;

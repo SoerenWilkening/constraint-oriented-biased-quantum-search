@@ -297,8 +297,7 @@ int ctg(
 
 	int feasible = eval_constraints(con, cur_sol, n);
 	if (!feasible) cur_sol->tot_profit = pot_eval;
-//	print_state(cur_sol);
-//
+
 	if (solver == SATISFY) search_function = CSearch_sat;
 	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
 	else search_function = CSearch_opt;
