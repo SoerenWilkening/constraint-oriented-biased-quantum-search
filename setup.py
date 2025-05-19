@@ -11,7 +11,7 @@ extensions = [
 	Extension("iqs.Constants", ["iqs/Constants.py"]),
 	Extension("iqs.Constants", ["iqs/StateGenerator.py"]),
 	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"]),
-	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/main.m"], extra_compile_args=["-ObjC"]  ),
+	#Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/main.m"], extra_compile_args=["-ObjC"]  ),
 	Extension("iqs.Model", ["iqs/Model.py"]),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
@@ -19,6 +19,7 @@ extensions = [
 	           os.path.join("iqs", "src", "SearchLib.c"),
 	           os.path.join("iqs", "src", "Branching.c"),
 	           os.path.join("iqs", "src", "intarray.c"),
+	           os.path.join("iqs", "src", "Expression.c"),
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "constraint.c")],
 	          extra_compile_args=["-O3", "-flto"],
@@ -30,5 +31,5 @@ setup(
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions, language_level=3),
+	ext_modules = cythonize(extensions, language_level=2),
 )

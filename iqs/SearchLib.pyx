@@ -4,7 +4,7 @@ from time import time
 import numpy as np
 from .Constants import *
 
-def set_seed(seed):
+def set_seed(unsigned int seed):
 	srand(seed)
 
 cdef class new_constraint:
@@ -120,6 +120,9 @@ cdef class state_py:
 	def objective_value(self):
 		return self.objval
 
+	def __iter__(self):
+		return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
+
 	def integer_liste(self):
 		step = [[
 			self.state[0].vector.part[i] & 0xFFFFFFFF,
@@ -204,6 +207,7 @@ cpdef run_sampling(
 		con: new_constraint,
 		obj: new_constraint,
 		M: int,
+		stopping_time: int,
 		depth_look_ahead: int,
 		solver: int,
 		int64_t stop_val,
@@ -225,6 +229,7 @@ cpdef run_sampling(
 	cdef int slvr = solver
 	cdef int64_t stpvl = stop_val
 	cdef int M_c = M
+	cdef int stppngtm = stopping_time
 	cdef state_t *stt = cur_sol.state
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
@@ -233,7 +238,7 @@ cpdef run_sampling(
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -249,7 +254,7 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			# with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
 
 			# if found_new and reset_delta:
 			# 	delta = 0
@@ -262,7 +267,7 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible
+	return cur_sol, qtg_applications, feasible, arr
 
 cpdef run_bfs(
 		initial: state_py,

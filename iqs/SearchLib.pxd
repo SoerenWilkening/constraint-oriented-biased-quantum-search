@@ -32,7 +32,7 @@ cdef extern from "src/SearchLib.h":
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M)
-	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
+	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
 
 cdef extern from "src/constraint.h":

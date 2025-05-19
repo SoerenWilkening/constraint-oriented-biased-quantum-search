@@ -17,3 +17,5 @@ test_callback.txt
 random_QOQC
 random_QOQC2
 dist
+.rsync-exclude
+makefile

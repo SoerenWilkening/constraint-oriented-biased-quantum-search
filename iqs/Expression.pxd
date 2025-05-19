@@ -7,6 +7,7 @@ cdef extern from "src/Expression.h":
 		int expr_size;
 
 	expression_t *init_expression();
+	int expr_index(int lit, int ind);
 	void free_expression(expression_t *expr);
 	void merge_expression(expression_t *expr);
 

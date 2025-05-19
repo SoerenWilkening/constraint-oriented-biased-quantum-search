@@ -5,14 +5,14 @@ new_constraints_t init_new_constraint() {
 	new_constraints_t con;
 
 	con.num_constraints = 0;
-	con.num_clauses = calloc(0, sizeof(size_t));
-	con.clause_offset = calloc(0, sizeof(size_t));
+	con.num_clauses = calloc(1, sizeof(size_t));
+	con.clause_offset = calloc(1, sizeof(size_t));
 	con.factors = calloc(MINARRAYSIZE, sizeof(int64_t));
 	con.clause_length = calloc(MINARRAYSIZE, sizeof(size_t));
 	con.variable_offset = calloc(MINARRAYSIZE, sizeof(size_t));
 	con.variables = calloc(MINARRAYSIZE, sizeof(size_t));
-	con.sense = calloc(0, sizeof(int));
-	con.rhs = calloc(0, sizeof(int64_t));
+	con.sense = calloc(1, sizeof(int));
+	con.rhs = calloc(1, sizeof(int64_t));
 
     con.allocated_factors = MINARRAYSIZE;
 	con.allocated_variables = MINARRAYSIZE;
@@ -90,12 +90,15 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 	// always occupy MAXClAUSELENGTH - 1 for variables
 
     con->num_constraints++;
-	con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(size_t));
-	con->clause_offset = realloc(con->clause_offset, con->num_constraints * sizeof(size_t));
-	con->sense = realloc(con->sense, con->num_constraints * sizeof(int));
-	con->rhs = realloc(con->rhs, con->num_constraints * sizeof(int64_t));
+    if (con->num_constraints > 1){
+	    con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(size_t));
+	    con->clause_offset = realloc(con->clause_offset, con->num_constraints * sizeof(size_t));
+	    con->sense = realloc(con->sense, con->num_constraints * sizeof(int));
+	    con->rhs = realloc(con->rhs, con->num_constraints * sizeof(int64_t));
+	}
 
 	int clause_counter = 0;
+
 
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
@@ -103,13 +106,15 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 		if (expr->len_literal[cls] != 0) {
 			for (int i = 1; i < expr->len_literal[cls]; ++i) {
 				int index = variable_index(clause_counter, i - 1, clause_offset);
-				if (con->allocated_variables < index){
-					con->variables = realloc(con->variables, (index + MINARRAYSIZE) * sizeof(size_t));
+				if (con->allocated_variables <= index){
+                    size_t new_size = index + MINARRAYSIZE;
+					con->variables = realloc(con->variables, new_size * sizeof(size_t));
 					con->allocated_variables = index + MINARRAYSIZE;
 				}
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
-			if (con->allocated_factors < clause_offset + clause_counter){
+
+			if (con->allocated_factors <= clause_offset + clause_counter){
 				con->clause_length = realloc(con->clause_length, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
 				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
 				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;

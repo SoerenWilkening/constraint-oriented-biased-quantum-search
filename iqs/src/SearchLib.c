@@ -248,6 +248,7 @@ int ctg(
 		new_constraints_t *con,
 		new_constraints_t *obj,
 		int M,
+		int stopping_time,
 		size_t *qtg_applications,
 		int depth_look_ahead,
 		solver_t solver,
@@ -303,8 +304,9 @@ int ctg(
 	else search_function = CSearch_opt;
 
 	// Start sampling after initial_state_preparation
-	while (m_tot < M) {
-//	for (int i = 0; i < 100; ++i) {
+	double total_time = preprocess_time * CLOCKS_PER_SEC;
+	double time_limit = stopping_time * CLOCKS_PER_SEC;
+	while (m_tot < M && total_time < time_limit) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -323,10 +325,10 @@ int ctg(
 				Indices, NumIndices, Fulfilled,
 				depth_look_ahead
 		);
+		total_time = (double) (clock() - start);
 		if (res) {
-
 			if (callback && feasible) {
-				callback(cur_sol->tot_profit, *qtg_applications, (double) (clock() - start) / CLOCKS_PER_SEC, preprocess_time);
+				callback(cur_sol->tot_profit, *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
 			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
@@ -337,7 +339,6 @@ int ctg(
 			}
 			m_tot = 0;
 			rounds = 0;
-//			printf("%lld %lld %d\n", cur_sol->tot_profit, stop_val, feasible);
 			if (feasible && ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
 			    (cur_sol->tot_profit <= stop_val && stop_val != -1))) {
 				break;
