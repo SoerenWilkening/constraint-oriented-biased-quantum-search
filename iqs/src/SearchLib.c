@@ -263,7 +263,7 @@ int ctg(
 
 	int (*search_function)(state_t *, state_t *, int, int, int, new_constraints_t *, new_constraints_t *,
 	                       const unsigned int *, const unsigned int *, const unsigned int *, const unsigned int *,
-	                       const unsigned int *, const unsigned int *, int **, int *, int *, int);
+	                       const unsigned int *, const unsigned int *, int **, int *, int *, int, int);
 
 	clock_t start = clock();
 
@@ -292,8 +292,10 @@ int ctg(
 	clock_t t1 = clock();
 	int pot_eval = initial_state_preparation(new_sol, cur_sol, con,
 	                                         positive_indices, num_positive_indices, positive_offsets,
-	                                         negative_indices, num_negative_indices, negative_offsets, 4);
+	                                         negative_indices, num_negative_indices, negative_offsets, 1);
 	double preprocess_time = (double) (clock() - t1) / CLOCKS_PER_SEC;
+//	print_state(cur_sol);
+//	printf("\n");
 	int res;
 
 	int feasible = eval_constraints(con, cur_sol, n);
@@ -302,6 +304,9 @@ int ctg(
 	if (solver == SATISFY) search_function = CSearch_sat;
 	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
 	else search_function = CSearch_opt;
+	int direction = 1;
+	int counter = -1;
+	int updated = 0;
 
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time * CLOCKS_PER_SEC;
@@ -323,20 +328,24 @@ int ctg(
 				positive_indices, num_positive_indices, positive_offsets,
 				negative_indices, num_negative_indices, negative_offsets,
 				Indices, NumIndices, Fulfilled,
-				depth_look_ahead
+				depth_look_ahead, direction
 		);
+//		printf("%lld %d\n", cur_sol->tot_profit, counter);
 		total_time = (double) (clock() - start);
 		if (res) {
-			if (callback && feasible) {
+			if (callback && feasible && updated) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
 			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-					search_function = CSearch_opt;
-					cur_sol->tot_profit = 0;
+//				    printf("Stage 2\n");
+				    direction = -1;
+//					search_function = CSearch_opt;
+//					cur_sol->tot_profit = 0;
 				}
 			}
+
 			m_tot = 0;
 			rounds = 0;
 			if (feasible && ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
@@ -344,6 +353,14 @@ int ctg(
 				break;
 			}
 		}
+        // improve violations before optimizing
+        if (solver == OPTIMIZE && counter > 20 && !updated) {
+//            printf("Stage 3\n");
+            search_function = CSearch_opt;
+            cur_sol->tot_profit = 0;
+            updated = 1;
+        }
+        if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 
 	free(positive_indices);

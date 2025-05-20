@@ -176,19 +176,26 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 			sw_setbit(new_sol->vector, i);
 			new_bit = 1;
 		}
-		// we are forced to go left, when only count[0] leads to a feasible solution
-		// count[0] > 0 does not need to be checked, since both == 0 was checked prior
-		// we are forced to go right, when only count[1] leads to feasible solution
-		if (count[0] == 0) {
-			// but if right don't lead to feasible solution: break
-			sw_setbit(new_sol->vector, i);
-			new_bit = 1;
-		}
-		if (count[1] == 0) {
-			// but if left don't lead to feasible solution: break
-			sw_clrbit(new_sol->vector, i);
-			new_bit = 0;
-		}
+		double random_num = ((double) (rand() % 123456)) / 123455.;
+//		if (count[0] == 0 && count[1] == 0) {
+//            if (random_num > 0.05) {
+//                sw_setbit(new_sol->vector, i);
+//                new_bit = 1;
+//            } else { sw_clrbit(new_sol->vector, i); }
+//        }
+        // we are forced to go left, when only count[0] leads to a feasible solution
+        // count[0] > 0 does not need to be checked, since both == 0 was checked prior
+        if (count[0] != 0 && count[1] == 0) {
+            // but if left don't lead to feasible solution: break
+            sw_clrbit(new_sol->vector, i);
+            new_bit = 0;
+        }
+        // we are forced to go right, when only count[1] leads to feasible solution
+        if (count[0] == 0 && count[1] != 0) {
+            // but if right don't lead to feasible solution: break
+            sw_setbit(new_sol->vector, i);
+            new_bit = 1;
+        }
 		int all_positive;
 		if (new_bit) {
 			update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol,
@@ -214,7 +221,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                 const unsigned int *negative_offsets,
                 int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead
+                int depth_look_ahead, int direction
 ) {
 
 	int64_t potentials[con->num_constraints];
@@ -259,6 +266,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
 			}
+			if(count[0] == 0 && count[1] == 0) break;
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
 			if (count[1] == 0) {
@@ -318,7 +326,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
                     const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                     const unsigned int *negative_offsets,
                     int **Indices, int *NumIndices, int *Fulfilled,
-                    int depth_look_ahead
+                    int depth_look_ahead, int direction
 ) {
 
 	int64_t potentials[con->num_constraints];
@@ -359,15 +367,23 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
 			}
+		    if (count[0] == 0 && count[1] == 0) {
+                if (random_num > 0.9) {
+                    sw_setbit(new_sol->vector, i);
+                    new_bit = 1;
+                } else { sw_clrbit(new_sol->vector, i); }
+//                sw_setbit(new_sol->vector, i);
+//				new_bit = 0;
+            }
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
-			if (count[1] == 0) {
+			if (count[0] != 0 && count[1] == 0) {
 				// but if left don't lead to feasible solution: break
 				sw_clrbit(new_sol->vector, i);
 				new_bit = 0;
 			}
 			// we are forced to go right, when only count[1] leads to feasible solution
-			if (count[0] == 0) {
+			if (count[0] == 0 && count[1] != 0) {
 				// but if right don't lead to feasible solution: break
 				sw_setbit(new_sol->vector, i);
 				new_bit = 1;
@@ -383,7 +399,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 //		int as1 = eval_constraints(con, new_sol, n);
 		int64_t val = min_value(potentials, con->num_constraints);
 
-		if (cur_sol->tot_profit < val) {
+		if (direction * cur_sol->tot_profit <  direction * val && (direction == 1 || direction == -1 && val > 0)) {
 //			printf("%lld %lld %d\n", potentials[0], potentials[1], eval_constraints(con, new_sol, n));
 			// If solution is updated, change the array of fulfilled terms
 			cur_sol->tot_profit = val;
@@ -404,7 +420,7 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                 const unsigned int *negative_offsets,
                 int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead
+                int depth_look_ahead, int direction
 ) {
 
 	int64_t potentials[con->num_constraints];
@@ -448,13 +464,13 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			}
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
-			if (count[1] == 0) {
+			if (count[0] != 0 && count[1] == 0 || count[0] == 0 && count[1] == 0) {
 				// but if left don't lead to feasible solution: break
 				sw_clrbit(new_sol->vector, i);
 				new_bit = 0;
 			}
 			// we are forced to go right, when only count[1] leads to feasible solution
-			if (count[0] == 0) {
+			if (count[0] == 0 && count[1] != 0) {
 				// but if right don't lead to feasible solution: break
 				sw_setbit(new_sol->vector, i);
 				new_bit = 1;

@@ -43,7 +43,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                 const unsigned int *negative_offsets,
                 int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead
+                int depth_look_ahead, int direction
 );
 
 int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
@@ -53,7 +53,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
                     const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                     const unsigned int *negative_offsets,
                     int **Indices, int *NumIndices, int *Fulfilled,
-                    int depth_look_ahead
+                    int depth_look_ahead, int direction
 );
 
 int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
@@ -63,7 +63,7 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 const unsigned int *negative_indices, const unsigned int *num_negative_indices,
                 const unsigned int *negative_offsets,
                 int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead
+                int depth_look_ahead, int direction
 );
 
 
