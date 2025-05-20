@@ -340,6 +340,7 @@ int ctg(
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
 //				    printf("Stage 2\n");
+//				    cur_sol->tot_profit = INT64_MAX; // we want to mimimze the maximum non violation of constraint
 				    direction = -1;
 //					search_function = CSearch_opt;
 //					cur_sol->tot_profit = 0;
@@ -354,7 +355,7 @@ int ctg(
 			}
 		}
         // improve violations before optimizing
-        if (solver == OPTIMIZE && counter > 20 && !updated) {
+        if (solver == OPTIMIZE && counter > 10 && !updated) {
 //            printf("Stage 3\n");
             search_function = CSearch_opt;
             cur_sol->tot_profit = 0;

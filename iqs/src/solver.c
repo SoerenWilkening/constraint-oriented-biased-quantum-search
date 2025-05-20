@@ -132,6 +132,15 @@ int64_t min_value(const int64_t *arr, int n) {
 	return mini;
 }
 
+int64_t max_value(const int64_t *arr, int n) {
+	int64_t mini = 0;
+	for (int i = 0; i < n; i++) {
+		mini += arr[i];
+	}
+	return mini;
+}
+
+
 int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
                               new_constraints_t *con,
                               const unsigned int *positive_indices, const unsigned int *num_positive_indices,
@@ -340,6 +349,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 		int i;
 		for (i = 0; i < n; i++) {
+//	        int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = ((double) (rand() % 123456)) / 123455.;
 
@@ -361,20 +371,27 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
-			if (count[0] > 0 && count[1] > 0) {
+			if (count[0] > 0 && count[1] > 0 || count[0] == 0 && count[1] == 0) {
 				if (random_num > BranchingFunction(i, bit, 0, 0)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
 			}
-		    if (count[0] == 0 && count[1] == 0) {
-                if (random_num > 0.9) {
-                    sw_setbit(new_sol->vector, i);
-                    new_bit = 1;
-                } else { sw_clrbit(new_sol->vector, i); }
-//                sw_setbit(new_sol->vector, i);
-//				new_bit = 0;
-            }
+//		    if (count[0] == 0 && count[1] == 0) {
+//                if (random_num > 0.9) {
+//                    sw_setbit(new_sol->vector, i);
+//                    new_bit = 1;
+//                } else { sw_clrbit(new_sol->vector, i); }
+////                sw_setbit(new_sol->vector, i);
+////				new_bit = 0;
+////                if(bit){
+////                    sw_setbit(new_sol->vector, i);
+////				    new_bit = 1;
+////                } else {
+////                    sw_clrbit(new_sol->vector, i);
+////				    new_bit = 0;
+////                }
+//            }
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
 			if (count[0] != 0 && count[1] == 0) {
@@ -398,11 +415,12 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 		// if the previous loop broke earlier, determine all bit changes
 //		int as1 = eval_constraints(con, new_sol, n);
 		int64_t val = min_value(potentials, con->num_constraints);
+        int64_t val_max = max_value(potentials, con->num_constraints);
 
-		if (direction * cur_sol->tot_profit <  direction * val && (direction == 1 || direction == -1 && val > 0)) {
-//			printf("%lld %lld %d\n", potentials[0], potentials[1], eval_constraints(con, new_sol, n));
-			// If solution is updated, change the array of fulfilled terms
+		if ((cur_sol->tot_profit < val && direction == 1) || // maximize, if constraint is violated
+		    (cur_sol->tot_profit > val_max && direction == -1 && val > 0)) { // minimize otherwise, but keep constraints satisfied
 			cur_sol->tot_profit = val;
+		    if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
 			sw_clear(cur_sol->vector);
 			cur_sol->vector = sw_set(new_sol->vector);
 
