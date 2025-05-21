@@ -234,10 +234,10 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 ) {
 
 	int64_t potentials[con->num_constraints];
-	for (int l = 0; l < 4 * j * j; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// Store which bit from the previous solution is flipped
-		int NumChanges = 0;
-		int *ChangedBits = calloc(n, sizeof(int));
+//		int NumChanges = 0;
+//		int *ChangedBits = calloc(n, sizeof(int));
 
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
@@ -291,7 +291,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			}
 
 			// was a bit flipped?
-			if (bit != new_bit) ChangedBits[NumChanges++] = i;
+//			if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
 			int all_positive;
 			if (new_bit) {
@@ -302,13 +302,15 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 				                  new_bit, NEGATIVE, PLAIN);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-		for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;
+//		for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;
 //        printf("%lld %lld\n", potentials[0], potentials[1]);
-		int as1 = eval_constraints(con, new_sol, n);
+		int as1 = 0;
+		if (i == n) as1 = eval_constraints(con, new_sol, n);
 
-		int NumChangedTerms = 0;
-		int *ChangedTerms = calloc(NTerms, sizeof(int));
-		int64_t val = objective_value(obj, new_sol);
+//		int NumChangedTerms = 0;
+//		int *ChangedTerms = calloc(NTerms, sizeof(int));
+		int64_t val = INT64_MAX;
+		if (as1) val = objective_value(obj, new_sol);
 
 		if (as1 && cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms
@@ -317,12 +319,12 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			sw_clear(cur_sol->vector);
 			cur_sol->vector = sw_set(new_sol->vector);
 
-			free(ChangedTerms);
-			free(ChangedBits);
+//			free(ChangedTerms);
+//			free(ChangedBits);
 			return 1;
 		}
-		free(ChangedTerms);
-		free(ChangedBits);
+//		free(ChangedTerms);
+//		free(ChangedBits);
 	}
 	return 0;
 }
@@ -339,7 +341,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 ) {
 
 	int64_t potentials[con->num_constraints];
-	for (int l = 0; l < 4 * j * j; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
@@ -348,8 +350,8 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
+		int both_infeasible = 0;
 		for (i = 0; i < n; i++) {
-//	        int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = ((double) (rand() % 123456)) / 123455.;
 
@@ -360,14 +362,17 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 			// check, if assignment does not exceed potentials
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
-			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
-			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+
+			if (!both_infeasible){
+                // look ahead to the left side
+                look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
+                                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
+                                   negative_offsets, new_sol);
+                // look ahead to the right side
+                look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
+                                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
+                                   negative_offsets, new_sol);
+            }
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -376,22 +381,8 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
+				if (count[0] == 0 && count[1] == 0) both_infeasible = 1;
 			}
-//		    if (count[0] == 0 && count[1] == 0) {
-//                if (random_num > 0.9) {
-//                    sw_setbit(new_sol->vector, i);
-//                    new_bit = 1;
-//                } else { sw_clrbit(new_sol->vector, i); }
-////                sw_setbit(new_sol->vector, i);
-////				new_bit = 0;
-////                if(bit){
-////                    sw_setbit(new_sol->vector, i);
-////				    new_bit = 1;
-////                } else {
-////                    sw_clrbit(new_sol->vector, i);
-////				    new_bit = 0;
-////                }
-//            }
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
 			if (count[0] != 0 && count[1] == 0) {
@@ -413,7 +404,6 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 				                  new_bit, NEGATIVE, PLAIN);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-//		int as1 = eval_constraints(con, new_sol, n);
 		int64_t val = min_value(potentials, con->num_constraints);
         int64_t val_max = max_value(potentials, con->num_constraints);
 
@@ -442,7 +432,7 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 ) {
 
 	int64_t potentials[con->num_constraints];
-	for (int l = 0; l < 4 * j * j; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 

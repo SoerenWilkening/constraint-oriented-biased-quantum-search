@@ -307,6 +307,8 @@ int ctg(
 	int direction = 1;
 	int counter = -1;
 	int updated = 0;
+	int stage = 1;
+//	printf("%lld %d %f\n", cur_sol->tot_profit, counter, (double) (clock() - start) / CLOCKS_PER_SEC - preprocess_time);
 
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time * CLOCKS_PER_SEC;
@@ -318,7 +320,9 @@ int ctg(
 		if (stop_flag) return 0;
 
 		int m = ceil(pow(c, rounds));
-		int j = rand() % (m + 1);
+		int j;
+		if (stage == 2) j = 1; // when improving constraint tightness, use only small constant number of grover iterations
+		else j = rand() % (m + 1);
 		m_tot += 2 * j + 1;
 		*qtg_applications += 2 * j + 1;
 		rounds++;
@@ -330,8 +334,8 @@ int ctg(
 				Indices, NumIndices, Fulfilled,
 				depth_look_ahead, direction
 		);
-//		printf("%lld %d\n", cur_sol->tot_profit, counter);
 		total_time = (double) (clock() - start);
+//		printf("%lld %d %f\n", cur_sol->tot_profit, counter, total_time / CLOCKS_PER_SEC);
 		if (res) {
 			if (callback && feasible && updated) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
@@ -340,10 +344,11 @@ int ctg(
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
 //				    printf("Stage 2\n");
-//				    cur_sol->tot_profit = INT64_MAX; // we want to mimimze the maximum non violation of constraint
+				    stage = 2;
+				    if (callback) {
+			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
+			        }
 				    direction = -1;
-//					search_function = CSearch_opt;
-//					cur_sol->tot_profit = 0;
 				}
 			}
 
@@ -357,6 +362,7 @@ int ctg(
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
 //            printf("Stage 3\n");
+            stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = 0;
             updated = 1;
