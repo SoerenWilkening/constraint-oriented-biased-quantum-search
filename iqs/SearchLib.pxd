@@ -47,6 +47,13 @@ cdef extern from "src/constraint.h":
 		int * sense;
 		int64_t *rhs;
 
+		unsigned int *positive_indices;
+		unsigned int *negative_indices;
+		unsigned int *positive_offsets;
+		unsigned int *negative_offsets;
+		unsigned int *num_positive_indices;
+		unsigned int *num_negative_indices;
+
 
 	new_constraints_t init_new_constraint();
 
@@ -55,6 +62,8 @@ cdef extern from "src/constraint.h":
 	void free_constraints(new_constraints_t *con);
 
 	void print_new_constraint(new_constraints_t *con);
+
+	void preprocessing(int n, new_constraints_t *con);
 
 	void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
 

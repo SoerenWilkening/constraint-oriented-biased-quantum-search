@@ -51,6 +51,8 @@ class Model:
 		self.improved: bool = False
 
 		self.gpu_compiled: bool = False
+
+		self.constraints_compiled: bool = False
 		# set_seed(time())
 
 	def __copy__(self):
@@ -160,6 +162,11 @@ or {self.runtime}s sampling
 			except ChildProcessError:
 				pass
 
+	def close(self):
+		if not self.constraints_compiled:
+			self.constraint.process(self.n)
+			self.constraints_compiled = True
+
 	def solve(self, M: int = -1, stopping_time: int = 1e9, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
 	          results = "min", bfs = False) -> float | None:
@@ -170,6 +177,9 @@ or {self.runtime}s sampling
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
+		if not self.constraints_compiled:
+			raise ValueError("No constraints compiled")
+
 		assert results in ["min", "average"]
 
 		self.calls += 1
@@ -184,7 +194,6 @@ or {self.runtime}s sampling
 		if M == -1: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 		set_bias_wrapper(bias)
-
 
 		if bfs:
 			s = StateGenerator(self)

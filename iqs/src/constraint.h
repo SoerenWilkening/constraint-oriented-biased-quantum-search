@@ -40,6 +40,14 @@ typedef struct{
 
 	int *sense;
 	int64_t *rhs;
+
+	// faster access for sampling routine
+	unsigned int *positive_indices;
+	unsigned int *negative_indices;
+	unsigned int *positive_offsets;
+	unsigned int *negative_offsets;
+	unsigned int *num_positive_indices;
+	unsigned int *num_negative_indices;
 } new_constraints_t;
 
 
@@ -61,6 +69,8 @@ void free_constraints(new_constraints_t *con);
 void print_new_constraint(new_constraints_t *con);
 
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
+
+void preprocessing(int n, new_constraints_t *con);
 
 int eval_constraints(new_constraints_t *con, state_t *sol, int max_item);
 int num_satisfied_constrains(new_constraints_t *con, state_t *sol);

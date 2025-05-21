@@ -31,6 +31,9 @@ cdef class new_constraint:
 	def __len__(self):
 		return self.num_constraints
 
+	def process(self, int n):
+		preprocessing(n, &self.con)
+
 	cdef add(self, expr: Expression):
 		self.num_constraints += 1
 		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)

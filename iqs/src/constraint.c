@@ -85,6 +85,79 @@ void print_new_constraint(new_constraints_t *con) {
 	}
 }
 
+void preprocessing(
+		int n,
+		new_constraints_t *con
+) {
+	int C = con->num_constraints;
+
+	con->positive_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+	con->negative_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+	con->positive_offsets = malloc(n * C * sizeof(unsigned int));
+	con->negative_offsets = malloc(n * C * sizeof(unsigned int));
+	con->num_positive_indices = malloc(n * C * sizeof(unsigned int));
+	con->num_negative_indices = malloc(n * C * sizeof(unsigned int));
+	// preprocess the constraints for usage in the sampling routine
+	// go through every item and collect all the constraint indices containing the items
+	// sort indices by positive and negative coefficients
+	// an item can appear more than once in a constraint (linear + quadratic terms ...)
+	// simplifications can be made:
+	//  - in a clause, items are always sorted in ascending order
+	//  - non-linear factors only come into play, if the last non-assigned item is investigated
+	//      -> only store index of clause for last item
+	// for every constraint, for every item an array is needed to store all the clauses
+	// categorize for positive and negative constraints
+	// improvement: use 1d-array implementations:
+	//      - positive_indices      -> 1d array storing indices
+	//                              -> length not fixed
+	//      - positive_offsets      -> 1d array storing location of values in "positive_indices" given (item, cnstr)
+	//                              -> length fixed
+	//      - num_positive_indices  -> 1d array storing number of values in "positive_indices" at location from
+	//                              -> given (item, cnstr)
+	//                              -> length fixed
+
+	size_t counter_positive = 0;
+	size_t counter_negative = 0;
+	for (int item = 0; item < n; item++) {
+
+		for (int cnstr = 0; cnstr < C; cnstr++) {
+			size_t clause_offset = first_clause_index(con, cnstr);
+//            constraint_t *constr = &con->constraints[cnstr];
+
+			unsigned int npi = 0;
+			unsigned int nni = 0;
+			for (int cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+				size_t clause_index = clause_offset + cls;
+//                int cls_length = constr->literals[cls].len_literal - 2; // index of the last item in the clause
+//                size_t cls_length = con->clause_length[clause_index] - 1; // index of the last item in the clause
+				int64_t factor = con->factors[clause_index];
+				size_t prev_var = -1;
+				for (int k = 0; k < con->clause_length[clause_index]; k++) {
+					size_t var = con->variables[variable_index(cls, k, clause_offset)];
+
+//                    if (item == constr->literals[cls].variables[cls_length]){
+					if (item == var && var != prev_var) {
+						if (factor < 0) {
+							// add index to "negative_indices"
+							con->negative_indices[counter_negative++] = cls;
+							nni++;
+						} else {
+							// add index to "positive_indices"
+							con->positive_indices[counter_positive++] = cls;
+							npi++;
+						}
+					}
+					prev_var = var;
+				}
+			}
+			con->num_negative_indices[item * C + cnstr] = nni;
+			con->negative_offsets[item * C + cnstr] = counter_negative - nni;
+			con->num_positive_indices[item * C + cnstr] = npi;
+			con->positive_offsets[item * C + cnstr] = counter_positive - npi;
+		}
+	}
+}
+
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	// always occupy MAXClAUSELENGTH - 1 for variables
