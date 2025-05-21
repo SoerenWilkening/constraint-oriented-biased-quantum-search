@@ -17,6 +17,13 @@ new_constraints_t init_new_constraint() {
     con.allocated_factors = MINARRAYSIZE;
 	con.allocated_variables = MINARRAYSIZE;
 
+	con.positive_indices = NULL;
+	con.positive_offsets = NULL;
+	con.negative_indices = NULL;
+	con.negative_offsets = NULL;
+	con.num_positive_indices = NULL;
+	con.num_negative_indices = NULL;
+
 	return con;
 }
 
@@ -52,6 +59,15 @@ void free_constraints(new_constraints_t *con) {
 	free(con->variables);
 	free(con->sense);
 	free(con->rhs);
+
+	if (con->positive_indices != NULL) {
+		free(con->positive_indices);
+		free(con->positive_offsets);
+		free(con->negative_indices);
+		free(con->negative_offsets);
+		free(con->num_positive_indices);
+		free(con->num_negative_indices);
+	}
 }
 
 size_t first_clause_index(new_constraints_t *con, size_t C) {

@@ -70,10 +70,10 @@ static inline int update_potentials(new_constraints_t *con, int64_t *potentials,
 //                int **S_minus, int64_t **S_minus_value, int *num_minus){
 int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
-                       const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-                       const unsigned int *positive_offsets,
-                       const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-                       const unsigned int *negative_offsets,
+//                       const unsigned int *positive_indices, const unsigned int *num_positive_indices,
+//                       const unsigned int *positive_offsets,
+//                       const unsigned int *negative_indices, const unsigned int *num_negative_indices,
+//                       const unsigned int *negative_offsets,
                        state_t *cur_sol) {
 	// check, if assignment does not exceed potentials
 //    if (next_assignment) sw_setbit(cur_sol->vector, index); // set assignment to 1
@@ -84,38 +84,52 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 	else sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 
 	if (next_assignment)
-		bool_ = evaluation(con, potentials, index, positive_indices, num_positive_indices, positive_offsets, cur_sol,
+		bool_ = evaluation(con, potentials, index,
+		                   con->positive_indices,
+		                   con->num_positive_indices,
+		                   con->positive_offsets, cur_sol,
 		                   POSITIVE);
 	else
-		bool_ = evaluation(con, potentials, index, negative_indices, num_negative_indices, negative_offsets, cur_sol,
+		bool_ = evaluation(con, potentials, index,
+		                   con->negative_indices,
+		                   con->num_negative_indices,
+		                   con->negative_offsets, cur_sol,
 		                   NEGATIVE);
 
 	if (bool_) {
 		if (index == depth) (*count_solutions)++;
 		else {
 			if (next_assignment) {
-				update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets,
+				update_potentials(con, potentials, index,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets,
 				                  cur_sol, next_assignment, POSITIVE, PLAIN);
 				sw_setbit(cur_sol->vector, index); // set assignment to 1
 			} else {
-				update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets,
+				update_potentials(con, potentials, index,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets,
 				                  cur_sol, next_assignment, NEGATIVE, PLAIN);
 				sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 			}
 
-			int b1 = look_ahead_correct(index + 1, 0, depth, count_solutions, con, potentials, positive_indices,
-			                            num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                            negative_offsets, cur_sol);
-			int b2 = look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, positive_indices,
-			                            num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                            negative_offsets, cur_sol);
+			int b1 = look_ahead_correct(index + 1, 0, depth, count_solutions, con, potentials, cur_sol);
+			int b2 = look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, cur_sol);
 //            if (!b1 && !b2) (*count_solutions)++;
 			// reset potentials for proper use in sampling algorithm
 			if (next_assignment)
-				update_potentials(con, potentials, index, positive_indices, num_positive_indices, positive_offsets,
+				update_potentials(con, potentials, index,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets,
 				                  cur_sol, next_assignment, POSITIVE, INVERSE);
 			else
-				update_potentials(con, potentials, index, negative_indices, num_negative_indices, negative_offsets,
+				update_potentials(con, potentials, index,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets,
 				                  cur_sol, next_assignment, NEGATIVE, INVERSE);
 		}
 	}
@@ -143,10 +157,10 @@ int64_t max_value(const int64_t *arr, int n) {
 
 int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
                               new_constraints_t *con,
-                              const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-                              const unsigned int *positive_offsets,
-                              const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-                              const unsigned int *negative_offsets,
+//                              const unsigned int *positive_indices, const unsigned int *num_positive_indices,
+//                              const unsigned int *positive_offsets,
+//                              const unsigned int *negative_indices, const unsigned int *num_negative_indices,
+//                              const unsigned int *negative_offsets,
                               int depth_look_ahead
 ) {
 	int n = cur_sol->vector.bits;
@@ -171,48 +185,42 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 		// if depth look ahead is 0, it will check only the next assignment
 		int count[2] = {0, 0};
 		// look ahead to the left side
-		look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
-		                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-		                   negative_offsets, new_sol);
+		look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol);
 		// look ahead to the right side
 		if (count[1] != 0)
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol);
 
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
 			sw_setbit(new_sol->vector, i);
 			new_bit = 1;
 		}
-		double random_num = ((double) (rand() % 123456)) / 123455.;
-//		if (count[0] == 0 && count[1] == 0) {
-//            if (random_num > 0.05) {
-//                sw_setbit(new_sol->vector, i);
-//                new_bit = 1;
-//            } else { sw_clrbit(new_sol->vector, i); }
-//        }
-        // we are forced to go left, when only count[0] leads to a feasible solution
-        // count[0] > 0 does not need to be checked, since both == 0 was checked prior
-        if (count[0] != 0 && count[1] == 0) {
-            // but if left don't lead to feasible solution: break
-            sw_clrbit(new_sol->vector, i);
-            new_bit = 0;
-        }
-        // we are forced to go right, when only count[1] leads to feasible solution
-        if (count[0] == 0 && count[1] != 0) {
-            // but if right don't lead to feasible solution: break
-            sw_setbit(new_sol->vector, i);
-            new_bit = 1;
-        }
+		// we are forced to go left, when only count[0] leads to a feasible solution
+		// count[0] > 0 does not need to be checked, since both == 0 was checked prior
+		if (count[0] != 0 && count[1] == 0) {
+			// but if left don't lead to feasible solution: break
+			sw_clrbit(new_sol->vector, i);
+			new_bit = 0;
+		}
+		// we are forced to go right, when only count[1] leads to feasible solution
+		if (count[0] == 0 && count[1] != 0) {
+			// but if right don't lead to feasible solution: break
+			sw_setbit(new_sol->vector, i);
+			new_bit = 1;
+		}
 		int all_positive;
 		if (new_bit) {
-			update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol,
+			update_potentials(con, potentials, i,
+			                  con->positive_indices,
+			                  con->num_positive_indices,
+			                  con->positive_offsets, new_sol,
 			                  new_bit, POSITIVE, PLAIN);
 		} else
-			update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol,
+			update_potentials(con, potentials, i,
+			                  con->negative_indices,
+			                  con->num_negative_indices,
+			                  con->negative_offsets, new_sol,
 			                  new_bit, NEGATIVE, PLAIN);
-//        printf("%d %lld %lld\n", new_bit, potentials[0], potentials[1]);
 	}
 
 	cur_sol->tot_profit = 0; // solution might be infeasible
@@ -225,11 +233,11 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 
 int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 new_constraints_t *con, new_constraints_t *obj,
-                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-                const unsigned int *positive_offsets,
-                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-                const unsigned int *negative_offsets,
-                int **Indices, int *NumIndices, int *Fulfilled,
+//                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
+//                const unsigned int *positive_offsets,
+//                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
+//                const unsigned int *negative_offsets,
+//                int **Indices, int *NumIndices, int *Fulfilled,
                 int depth_look_ahead, int direction
 ) {
 
@@ -259,13 +267,9 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol);
 			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -275,7 +279,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
 			}
-			if(count[0] == 0 && count[1] == 0) break;
+			if (count[0] == 0 && count[1] == 0) break;
 			// we are forced to go left, when only count[0] leads to a feasible solution
 			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
 			if (count[1] == 0) {
@@ -295,10 +299,16 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 			int all_positive;
 			if (new_bit) {
-				update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets, new_sol,
 				                  new_bit, POSITIVE, PLAIN);
 			} else
-				update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets, new_sol,
 				                  new_bit, NEGATIVE, PLAIN);
 		}
 		// if the previous loop broke earlier, determine all bit changes
@@ -332,11 +342,11 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                     new_constraints_t *con, new_constraints_t *obj,
-                    const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-                    const unsigned int *positive_offsets,
-                    const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-                    const unsigned int *negative_offsets,
-                    int **Indices, int *NumIndices, int *Fulfilled,
+//                    const unsigned int *positive_indices, const unsigned int *num_positive_indices,
+//                    const unsigned int *positive_offsets,
+//                    const unsigned int *negative_indices, const unsigned int *num_negative_indices,
+//                    const unsigned int *negative_offsets,
+//                    int **Indices, int *NumIndices, int *Fulfilled,
                     int depth_look_ahead, int direction
 ) {
 
@@ -363,16 +373,12 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 
-			if (!both_infeasible){
-                // look ahead to the left side
-                look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
-                                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-                                   negative_offsets, new_sol);
-                // look ahead to the right side
-                look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
-                                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-                                   negative_offsets, new_sol);
-            }
+			if (!both_infeasible) {
+				// look ahead to the left side
+				look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol);
+				// look ahead to the right side
+				look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol);
+			}
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -397,20 +403,27 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 				new_bit = 1;
 			}
 			if (new_bit) {
-				update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets, new_sol,
 				                  new_bit, POSITIVE, PLAIN);
 			} else
-				update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets, new_sol,
 				                  new_bit, NEGATIVE, PLAIN);
 		}
 		// if the previous loop broke earlier, determine all bit changes
 		int64_t val = min_value(potentials, con->num_constraints);
-        int64_t val_max = max_value(potentials, con->num_constraints);
+		int64_t val_max = max_value(potentials, con->num_constraints);
 
 		if ((cur_sol->tot_profit < val && direction == 1) || // maximize, if constraint is violated
-		    (cur_sol->tot_profit > val_max && direction == -1 && val > 0)) { // minimize otherwise, but keep constraints satisfied
+		    (cur_sol->tot_profit > val_max && direction == -1 &&
+		     val > 0)) { // minimize otherwise, but keep constraints satisfied
 			cur_sol->tot_profit = val;
-		    if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
+			if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
 			sw_clear(cur_sol->vector);
 			cur_sol->vector = sw_set(new_sol->vector);
 
@@ -423,11 +436,11 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 new_constraints_t *con, new_constraints_t *obj,
-                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-                const unsigned int *positive_offsets,
-                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-                const unsigned int *negative_offsets,
-                int **Indices, int *NumIndices, int *Fulfilled,
+//                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
+//                const unsigned int *positive_offsets,
+//                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
+//                const unsigned int *negative_offsets,
+//                int **Indices, int *NumIndices, int *Fulfilled,
                 int depth_look_ahead, int direction
 ) {
 
@@ -454,13 +467,9 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			int count[2] = {0, 0};
 			// look ahead to the left side
 			fflush(stdout);
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol);
 			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, positive_indices,
-			                   num_positive_indices, positive_offsets, negative_indices, num_negative_indices,
-			                   negative_offsets, new_sol);
+			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -485,10 +494,16 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			}
 
 			if (new_bit) {
-				update_potentials(con, potentials, i, positive_indices, num_positive_indices, positive_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets, new_sol,
 				                  new_bit, POSITIVE, PLAIN);
 			} else
-				update_potentials(con, potentials, i, negative_indices, num_negative_indices, negative_offsets, new_sol,
+				update_potentials(con, potentials, i,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets, new_sol,
 				                  new_bit, NEGATIVE, PLAIN);
 		}
 		int64_t val = -num_satisfied_constrains(con, new_sol);
