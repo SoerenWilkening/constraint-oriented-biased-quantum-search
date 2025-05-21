@@ -16,7 +16,7 @@ from multiprocessing import shared_memory
 import signal
 import sys
 from .StateGenerator import StateGenerator
-
+from joblib import Parallel, delayed
 
 class Model:
 
@@ -204,56 +204,67 @@ or {self.runtime}s sampling
 			           stop_val, callback, max_delta, reset_delta)
 			return
 
-		t1 = time()
-		shape = (num_workers, 3 + self.n)
-		self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
-		arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
+		Parallel(n_jobs = num_workers, backend = "threading")(
+		         delayed(run_sampling)(
+			         self.initial_state,
+			         self.constraint,
+			         self.objective,
+			         M, stopping_time,
+			         depth_look_ahead,
+			         self.solver,
+                     stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
+		         )
 
-		# atexit.register(self.cleanup)
-
-		self.child_pid = []
-		self.parent_pid = os.getpid()
-
-		file_pid = open("pids", "w")
-		file_pid.close()
-
-		try:
-			for i in range(num_workers):
-				pid = os.fork()
-				if pid == 0:
-					file_pid = open("pids", "a")
-					file_pid.write(f"{os.getpid()}\n")
-					file_pid.close()
-					self.worker_process(self.shm.name, i, shape, M, stopping_time, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
-					exit(0)  # Terminate child process after work is done
-				else:
-					self.child_pid.append(pid)
-
-			for _ in range(num_workers):
-				os.wait()
-		except KeyboardInterrupt:
-			self.kill_children()
-			try:
-				self.shm.close()
-				self.shm.unlink()
-			except:
-				pass
-			sys.exit(1)
-
-		self.runtime = time() - t1 # stores classical runtime of all the complete execution
-		if results == "min":
-			self.objective_value =  min(i[0] for i in arr)
-			index = [i[0] for i in arr].index(self.objective_value)
-			self.grover_iterations = min(list(i[1] for i in arr if i[0] == self.objective_value))
-			self.feasible = max(i[2] for i in arr)
-			# print(arr)
-			self.final_state = [int(arr[index, counter]) for counter in range(3, 3 + self.n)]
-		else:
-			self.objective_value = np.mean([i[0] for i in arr])
-			self.grover_iterations = np.mean([i[1] for i in arr])
-			self.feasible = np.mean(i[2] for i in arr)
-		try:
-			self.shm.close()
-			self.shm.unlink()
-		except:
-			pass
+		# t1 = time()
+		# shape = (num_workers, 3 + self.n)
+		# self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
+		# arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
+		#
+		# # atexit.register(self.cleanup)
+		#
+		# self.child_pid = []
+		# self.parent_pid = os.getpid()
+		#
+		# file_pid = open("pids", "w")
+		# file_pid.close()
+		#
+		# try:
+		# 	for i in range(num_workers):
+		# 		pid = os.fork()
+		# 		if pid == 0:
+		# 			file_pid = open("pids", "a")
+		# 			file_pid.write(f"{os.getpid()}\n")
+		# 			file_pid.close()
+		# 			self.worker_process(self.shm.name, i, shape, M, stopping_time, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
+		# 			exit(0)  # Terminate child process after work is done
+		# 		else:
+		# 			self.child_pid.append(pid)
+		#
+		# 	for _ in range(num_workers):
+		# 		os.wait()
+		# except KeyboardInterrupt:
+		# 	self.kill_children()
+		# 	try:
+		# 		self.shm.close()
+		# 		self.shm.unlink()
+		# 	except:
+		# 		pass
+		# 	sys.exit(1)
+		#
+		# self.runtime = time() - t1 # stores classical runtime of all the complete execution
+		# if results == "min":
+		# 	self.objective_value =  min(i[0] for i in arr)
+		# 	index = [i[0] for i in arr].index(self.objective_value)
+		# 	self.grover_iterations = min(list(i[1] for i in arr if i[0] == self.objective_value))
+		# 	self.feasible = max(i[2] for i in arr)
+		# 	# print(arr)
+		# 	self.final_state = [int(arr[index, counter]) for counter in range(3, 3 + self.n)]
+		# else:
+		# 	self.objective_value = np.mean([i[0] for i in arr])
+		# 	self.grover_iterations = np.mean([i[1] for i in arr])
+		# 	self.feasible = np.mean(i[2] for i in arr)
+		# try:
+		# 	self.shm.close()
+		# 	self.shm.unlink()
+		# except:
+		# 	pass

@@ -220,6 +220,8 @@ cpdef run_sampling(
 
 	# print(max_delta)
 	# with nogil:
+
+	set_seed(os.getpid())
 	global python_callback
 	python_callback = callback
 

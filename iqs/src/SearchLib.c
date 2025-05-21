@@ -120,9 +120,13 @@ int ctg(
 
 	size_t NTerms = obj->num_clauses[0]; // number terms
 
-	clock_t t1 = clock();
+	struct timespec t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
 	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 1);
-	double preprocess_time = (double) (clock() - t1) / CLOCKS_PER_SEC;
+
+	clock_gettime(CLOCK_MONOTONIC, &t2);
+	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int res;
 
 	int feasible = eval_constraints(con, cur_sol, n);
@@ -138,9 +142,8 @@ int ctg(
 //	printf("%lld %d %f\n", cur_sol->tot_profit, counter, (double) (clock() - start) / CLOCKS_PER_SEC - preprocess_time);
 
 	// Start sampling after initial_state_preparation
-	double total_time = preprocess_time * CLOCKS_PER_SEC;
-	double time_limit = stopping_time * CLOCKS_PER_SEC;
-	while (m_tot < M && total_time < time_limit) {
+	double total_time = preprocess_time;
+	while (m_tot < M && total_time < stopping_time) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -158,11 +161,11 @@ int ctg(
 				con, obj,
 				depth_look_ahead, direction
 		);
-		total_time = (double) (clock() - start);
-//		printf("%lld %d %f\n", cur_sol->tot_profit, counter, total_time / CLOCKS_PER_SEC);
+        clock_gettime(CLOCK_MONOTONIC, &t2);
+		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
 			if (callback && feasible && updated) {
-				callback(cur_sol->tot_profit, *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
+				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
 			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
@@ -170,7 +173,7 @@ int ctg(
 //				    printf("Stage 2\n");
 				    stage = 2;
 				    if (callback) {
-			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time / CLOCKS_PER_SEC, preprocess_time);
+			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
 			        }
 				    direction = -1;
 				}
