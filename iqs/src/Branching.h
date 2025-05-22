@@ -33,7 +33,58 @@ void set_obj_dependence(double *dependence, int n);
 
 void set_constraint_dependence(double *dependence, int n);
 
-double BranchingFunction(int index, int bit_S, int bit_T, int diffcount);
+//double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats);
+
+static inline double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats){
+    double total_bias, f = 0, q = 0;
+    double objective_factor = stats->objective_factor; // objective related
+    double constraint_factor = stats->constraint_factor; // constraint related
+    double bias_factor = stats->bias_factor;
+    double look_factor = stats->look_factor;
+    if (diffcount == 0) look_factor = 0;
+    double lookahead_0_probability = 0;
+
+    if (diffcount < 0) lookahead_0_probability = 0; // bias towards 1
+    else lookahead_0_probability = 1.; // bias towards 0
+
+    if (stats->obj_dependent != NULL){
+        f =  stats->obj_dependent[index];
+    }
+    if(stats->constraint_dependent != NULL){
+        q =  stats->constraint_dependent[index];
+    }
+    if (bit_T == 0){
+        if(bit_S == 0) {
+            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+        }
+        else {
+            total_bias = 1;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+        }
+    } else{
+        if(bit_S == 0) {
+            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * 1. / (stats->bias + 2.);
+            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+        }
+        else {
+            total_bias = 1;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * 1. / (stats->bias + 2.);
+            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+        }
+    }
+
+    return total_bias;
+}
 
 double StateProbability(state_t *state, state_t *threshold);
 

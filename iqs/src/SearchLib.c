@@ -87,8 +87,8 @@ int bfs(
 	int count[2] = {0, 0};
 	int64_t potentials[C];
 	memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
-	look_ahead_correct(0, 0, n - 1, &count[0], con, potentials, cur_sol);
-	look_ahead_correct(0, 1, n - 1, &count[1], con, potentials, cur_sol);
+//	look_ahead_correct(0, 0, n - 1, &count[0], con, potentials, cur_sol);
+//	look_ahead_correct(0, 1, n - 1, &count[1], con, potentials, cur_sol);
 	printf("counts = %d %d\n", count[0], count[1]);
 
 	free_state(new_sol, 0);
@@ -123,7 +123,7 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 1);
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0);
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -139,11 +139,11 @@ int ctg(
 	int counter = -1;
 	int updated = 0;
 	int stage = 1;
-//	printf("%lld %d %f\n", cur_sol->tot_profit, counter, (double) (clock() - start) / CLOCKS_PER_SEC - preprocess_time);
 
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time;
 	while (m_tot < M && total_time < stopping_time) {
+//    for (int i = 0; i < 1; i++){
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -163,6 +163,7 @@ int ctg(
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+//	    printf("%lld %d %f\n", cur_sol->tot_profit, counter, total_time);
 		if (res) {
 			if (callback && feasible && updated) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);

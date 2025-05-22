@@ -70,19 +70,19 @@ void free_constraints(new_constraints_t *con) {
 	}
 }
 
-size_t first_clause_index(new_constraints_t *con, size_t C) {
-	if (C == 0) return 0;
-	return con->clause_offset[C - 1];
-}
-
-size_t first_variable_index(size_t cls, size_t clause_offset) {
-	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
-	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
-}
-
-size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
-	return first_variable_index(cls, clause_offset) + k;
-}
+//size_t first_clause_index(new_constraints_t *con, size_t C) {
+//	if (C == 0) return 0;
+//	return con->clause_offset[C - 1];
+//}
+//
+//size_t first_variable_index(size_t cls, size_t clause_offset) {
+//	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
+//	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
+//}
+//
+//size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
+//	return first_variable_index(cls, clause_offset) + k;
+//}
 
 void print_new_constraint(new_constraints_t *con) {
 	printf("constraints -> %zu\n", con->num_constraints);

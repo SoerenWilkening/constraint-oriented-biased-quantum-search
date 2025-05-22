@@ -58,11 +58,25 @@ new_constraints_t init_new_constraint();
 
 new_constraints_t copy_new_constraint(new_constraints_t *con);
 
-inline size_t first_clause_index(new_constraints_t *con, size_t C);
+static inline size_t first_clause_index(new_constraints_t *con, size_t C) {
+	if (C == 0) return 0;
+	return con->clause_offset[C - 1];
+}
 
-inline size_t first_variable_index(size_t cls, size_t clause_offset);
+static inline size_t first_variable_index(size_t cls, size_t clause_offset) {
+	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
+	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
+}
 
-inline size_t variable_index(size_t cls, size_t k, size_t clause_offset);
+static inline size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
+	return first_variable_index(cls, clause_offset) + k;
+}
+
+//inline size_t first_clause_index(new_constraints_t *con, size_t C);
+//
+//inline size_t first_variable_index(size_t cls, size_t clause_offset);
+//
+//inline size_t variable_index(size_t cls, size_t k, size_t clause_offset);
 
 void free_constraints(new_constraints_t *con);
 
