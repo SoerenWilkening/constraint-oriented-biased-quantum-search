@@ -107,8 +107,8 @@ void preprocessing(
 ) {
 	int C = con->num_constraints;
 
-	con->positive_indices = calloc(2 * n * C * n, sizeof(unsigned int));
-	con->negative_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+	con->positive_indices = calloc(2 * n * n * n * C * n, sizeof(unsigned int));
+	con->negative_indices = calloc(2 * n * n * n * C * n, sizeof(unsigned int));
 	con->positive_offsets = malloc(n * C * sizeof(unsigned int));
 	con->negative_offsets = malloc(n * C * sizeof(unsigned int));
 	con->num_positive_indices = malloc(n * C * sizeof(unsigned int));

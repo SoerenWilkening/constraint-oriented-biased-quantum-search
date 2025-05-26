@@ -123,7 +123,9 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0);
+    int break_item = 0;
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
+	printf("break_item = %d\n", break_item);
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -134,10 +136,10 @@ int ctg(
 
 	if (solver == SATISFY) search_function = CSearch_sat;
 	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
-	else search_function = CSearch_opt;
+	else if (solver == OPTIMIZE && feasible) search_function = CSearch_opt;
 	int direction = 1;
 	int counter = -1;
-	int updated = 0;
+	int updated = feasible;
 	int stage = 1;
 
 	// Start sampling after initial_state_preparation
@@ -163,6 +165,7 @@ int ctg(
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+//		print_state(cur_sol);
 //	    printf("%lld %d %f\n", cur_sol->tot_profit, counter, total_time);
 		if (res) {
 			if (callback && feasible && updated) {
@@ -171,7 +174,7 @@ int ctg(
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-//				    printf("Stage 2\n");
+				    printf("Stage 2\n");
 				    stage = 2;
 				    if (callback) {
 			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
@@ -189,7 +192,7 @@ int ctg(
 		}
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
-//            printf("Stage 3\n");
+            printf("Stage 3\n");
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = 0;

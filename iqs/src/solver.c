@@ -103,7 +103,6 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 		if (index == depth) (*count_solutions)++;
 		else {
 			if (next_assignment) {
-//			    printf("update\n");
 				update_potentials(con, potentials, index,
 				                  con->positive_indices,
 				                  con->num_positive_indices,
@@ -119,8 +118,12 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 				sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 			}
 
-			int b1 = look_ahead_correct(index + 1, 0, depth, count_solutions, con, potentials, cur_sol, ret_total);
-			int b2 = look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, cur_sol, ret_total);
+            int64_t *sub_ret1 = calloc(con->num_constraints, sizeof(int64_t));
+		    int64_t *sub_ret2 = calloc(con->num_constraints, sizeof(int64_t));
+			int b1 = look_ahead_correct(index + 1, 0, depth, count_solutions, con, potentials, cur_sol, sub_ret1);
+			int b2 = look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, cur_sol, sub_ret2);
+			free(sub_ret1);
+            free(sub_ret2);
 //            if (!b1 && !b2) (*count_solutions)++;
 			// reset potentials for proper use in sampling algorithm
 			if (next_assignment)
@@ -135,6 +138,7 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 				                  con->num_negative_indices,
 				                  con->negative_offsets,
 				                  cur_sol, next_assignment, NEGATIVE, INVERSE, ret_total);
+
 		}
 	}
 	sw_clrbit(cur_sol->vector, index); // reset assignment to 0
@@ -165,7 +169,8 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 //                              const unsigned int *positive_offsets,
 //                              const unsigned int *negative_indices, const unsigned int *num_negative_indices,
 //                              const unsigned int *negative_offsets,
-                              int depth_look_ahead
+                              int depth_look_ahead,
+                              int *break_item
 ) {
 	int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -182,6 +187,7 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+    int updated = 1;
 	for (i = 0; i < n; i++) {
 //        int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 
@@ -202,6 +208,9 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 		if (count[0] > 0 && count[1] > 0) {
 			sw_setbit(new_sol->vector, i);
 			new_bit = 1;
+			*break_item += updated;
+		} else{
+		    updated = 0;
 		}
 		// we are forced to go left, when only count[0] leads to a feasible solution
 		// count[0] > 0 does not need to be checked, since both == 0 was checked prior

@@ -25,7 +25,7 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 
 int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
                               new_constraints_t *con,
-                              int depth_look_ahead
+                              int depth_look_ahead, int *break_item
 );
 
 int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
