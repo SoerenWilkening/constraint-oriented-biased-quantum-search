@@ -239,11 +239,12 @@ cpdef run_sampling(
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int feasible;
+	cdef int brk_tm = 0;
 
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -259,7 +260,7 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			# with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm)
 
 			# if found_new and reset_delta:
 			# 	delta = 0
@@ -272,7 +273,7 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr
+	return cur_sol, qtg_applications, feasible, arr, brk_tm
 
 cpdef run_bfs(
 		initial: state_py,

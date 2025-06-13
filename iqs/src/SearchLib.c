@@ -106,9 +106,9 @@ int ctg(
 		int depth_look_ahead,
 		solver_t solver,
 		int64_t stop_val,
-		callback_t callback) {
+		callback_t callback,
+		int *break_item) {
 	state_t *new_sol = copy_state(cur_sol);
-//	int64_t initial_value = cur_sol->tot_profit;
 	int m_tot = 0;
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
@@ -123,9 +123,10 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-    int break_item = 0;
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
-	printf("break_item = %d\n", break_item);
+//    int break_item = 0;
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, break_item);
+//	printf("break_item = %d\n", break_item);
+
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -134,18 +135,33 @@ int ctg(
 	int feasible = eval_constraints(con, cur_sol, n);
 	if (!feasible) cur_sol->tot_profit = pot_eval;
 
+	int stage = 1;
 	if (solver == SATISFY) search_function = CSearch_sat;
 	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
-	else if (solver == OPTIMIZE && feasible) search_function = CSearch_opt;
+	else if (solver == OPTIMIZE && feasible) {
+	    stage = 3;
+	    search_function = CSearch_opt;
+	}
 	int direction = 1;
 	int counter = -1;
 	int updated = feasible;
-	int stage = 1;
+
+	int method = ACCEPTONE;
+	int num_accepted = 0;
+
+	int number_states = 5;
+	state_t *stored = init_large_state(n, number_states);
+	if (method == ACCEPTMANY){
+	    for (int i = 0; i < number_states; ++i) copy_state_inplace(&stored[i], cur_sol);
+	    print_state(cur_sol);
+	    free_state(cur_sol, 1);
+	    cur_sol = stored;
+	}
 
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time;
 	while (m_tot < M && total_time < stopping_time) {
-//    for (int i = 0; i < 1; i++){
+//	for (int i = 0; i < 20; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -165,11 +181,33 @@ int ctg(
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-//		print_state(cur_sol);
-//	    printf("%lld %d %f\n", cur_sol->tot_profit, counter, total_time);
 		if (res) {
-			if (callback && feasible && updated) {
+			if (callback && feasible && updated && method != ACCEPTMANY) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
+			}
+			printf("%d %d\n", stage, num_accepted);
+			if (stage == 3 && method == ACCEPTMANY) {
+			    if (num_accepted == number_states - 1){
+			        int64_t mini = 0;
+					int index = 0;
+				    for (int i = 0; i < number_states; ++i) {
+						if (mini > stored[i].tot_profit){
+							mini = stored[i].tot_profit;
+							index = i;
+						}
+				    }
+					if (index > 0) copy_state_inplace(&stored[0], &stored[index]);
+				    for (int i = 1; i < number_states; ++i) copy_state_inplace(&stored[i], &stored[0]);
+					cur_sol = stored;
+					num_accepted = 0;
+                    if (callback) callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
+			    }
+			    else{
+				    num_accepted++;
+//				    printf("\n%d accepted | ", num_accepted);
+//				    print_state(cur_sol);
+				    cur_sol = &stored[num_accepted];
+				}
 			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
@@ -195,11 +233,13 @@ int ctg(
             printf("Stage 3\n");
             stage = 3;
             search_function = CSearch_opt;
-            cur_sol->tot_profit = 0;
+            cur_sol->tot_profit = objective_value(obj, cur_sol);
+            if (method == ACCEPTMANY) for (int i = 1; i < number_states; ++i) copy_state_inplace(&stored[i], cur_sol);
             updated = 1;
         }
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
+//	free_state(stored, number_states);
 	free_state(new_sol, 0);
 	return feasible;
 }

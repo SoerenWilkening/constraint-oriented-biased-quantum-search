@@ -204,7 +204,7 @@ or {self.runtime}s sampling
 			           stop_val, callback, max_delta, reset_delta)
 			return
 
-		Parallel(n_jobs = num_workers, backend = "threading")(
+		res = Parallel(n_jobs = num_workers, backend = "threading")(
 		         delayed(run_sampling)(
 			         self.initial_state,
 			         self.constraint,
@@ -214,7 +214,7 @@ or {self.runtime}s sampling
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
 		         )
-
+		return res[0][-1]
 		# t1 = time()
 		# shape = (num_workers, 3 + self.n)
 		# self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)

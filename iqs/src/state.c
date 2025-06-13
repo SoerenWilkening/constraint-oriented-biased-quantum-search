@@ -27,6 +27,17 @@ state_t *init_state(int64_t ObjVal, const int *array, int n) {
     return state;
 }
 
+state_t *init_large_state(int n, int number_states){
+	state_t *state = malloc(number_states * sizeof(state_t));
+	for (int i = 0; i < number_states; ++i) {
+		state[0].tot_profit = 0;
+		state[0].prob = 1.;
+		state->vector = sw_init(n);
+		state->branch = sw_init(n);
+	}
+	return state;
+}
+
 state_t *copy_state(state_t *state){
     state_t *copy = malloc(sizeof(state_t));
     copy->tot_profit = state->tot_profit;
@@ -34,6 +45,13 @@ state_t *copy_state(state_t *state){
     copy->vector = sw_set(state->vector);
     copy->branch = sw_set(state->branch);
     return copy;
+}
+
+void copy_state_inplace(state_t *dest, state_t *src){
+	dest->tot_profit = src->tot_profit;
+	dest->prob = src->prob;
+	dest->vector = sw_set(src->vector);
+	dest->branch = sw_set(src->branch);
 }
 
 void print_state(state_t *state){
