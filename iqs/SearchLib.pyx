@@ -1,7 +1,7 @@
-import sys
 from copy import copy
-from time import time
+
 import numpy as np
+
 from .Constants import *
 
 def set_seed(unsigned int seed):
@@ -314,3 +314,15 @@ cpdef run_bfs(
 	cur_sol.arr = np.array(arr, dtype = np.int32)
 	return cur_sol, qtg_applications
 	# return qtg_applications
+
+cpdef run_local_search(initial: state_py,
+		con: new_constraint,
+		obj: new_constraint,
+        int distance,
+		int stopping_time,
+        int solver,
+        int64_t stop_val):
+
+	cdef state_t *st = initial.state
+
+	local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, NULL)

@@ -9,12 +9,6 @@
 #include "solver.h"
 #include "constraint.h"
 
-#define ACCEPTMANY 1
-#define ACCEPTONE 0
-
-// define callback functionality
-typedef void (*callback_t)(int64_t, size_t, double, double);
-
 //typedef int solver_t;
 int compare(int64_t obj, int64_t thr, int sense);
 

@@ -216,7 +216,7 @@ int ctg(
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-				    printf("Stage 2\n");
+//				    printf("Stage 2\n");
 				    stage = 2;
 				    if (callback) {
 			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
@@ -234,7 +234,7 @@ int ctg(
 		}
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
-            printf("Stage 3\n");
+//            printf("Stage 3\n");
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = objective_value(obj, cur_sol);
@@ -244,6 +244,7 @@ int ctg(
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 //	free_state(stored, number_states);
+	print_state(cur_sol);
 	free_state(new_sol, 0);
 	return feasible;
 }

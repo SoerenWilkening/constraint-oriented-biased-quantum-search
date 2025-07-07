@@ -293,6 +293,30 @@ int64_t objective_value(new_constraints_t *obj, state_t *sol) {
 }
 
 
+int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
+	int64_t total = 0;
+	size_t clause_offset = first_clause_index(con, cnstr);
+	for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
+		size_t clause_index = clause_offset + cl;
+
+		// check, if every item of a clause is assigned
+		int assigned = 1;
+		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
+			size_t var = con->variables[variable_index(cl, k, clause_offset)];
+			int bit = sw_tstbit(sol->vector, var);
+			assigned *= bit;
+		}
+//		printf("assign = %d %lld\n", assigned, con->factors[clause_index]);
+		if (con->factors[clause_index] < 0) {
+			total -= con->factors[clause_index] * (1 - assigned);
+		} else {
+			total += con->factors[clause_index] * assigned;
+		}
+	}
+	return con->rhs[cnstr] - total;
+}
+
+
 //int64_t objective_value_improved(new_constraints_t *obj, // objective function
 //                                 state_t *new, // new state
 //                                 int NumChanges, // how many bits were flipped

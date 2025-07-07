@@ -164,4 +164,6 @@ int64_t ChangedObjVal(  constraint_list_t *obj, // objective function
                             int *NumChangedTerms
                             );
 
+int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr);
+
 #endif

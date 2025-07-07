@@ -8,7 +8,7 @@ import numpy as np
 # from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression
-from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs
+from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search
 from copy import copy
 from warnings import warn
 
@@ -268,3 +268,7 @@ or {self.runtime}s sampling
 		# 	self.shm.unlink()
 		# except:
 		# 	pass
+
+	def local_search(self, distance = 2):
+		if not self.initial_state: self.manual_initial(0, [0] * self.n)
+		run_local_search(self.initial_state, self.constraint, self.objective,distance, 100, self.solver, -1)

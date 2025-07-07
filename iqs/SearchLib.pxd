@@ -90,3 +90,14 @@ cdef extern from "src/Branching.h":
 	void set_bias(double bias);
 	void set_obj_dependence(double *dependence, int n);
 	void set_constraint_dependence(double *dependence, int n);
+
+
+cdef extern from "src/local_search.h":
+	int local_search(state_t *cur_sol,
+	                 new_constraints_t *con,
+	                 new_constraints_t *obj,
+	                 int distance,
+	                 int stopping_time,
+	                 int solver,
+	                 int64_t stop_val,
+	                 callback_t callback)

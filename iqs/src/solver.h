@@ -12,13 +12,6 @@
 #include "constraint.h"
 #include "state.h"
 
-typedef int solver_t;
-
-#define INVERSE 1
-#define PLAIN -1
-#define NEGATIVE 0
-#define POSITIVE 1
-
 int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total);
