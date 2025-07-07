@@ -157,6 +157,10 @@ int ctg(
 	    free_state(cur_sol, 1);
 	    cur_sol = stored;
 	}
+	if (M == 0){
+	    free_state(new_sol, 0);
+	    return feasible;
+	}
 
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time;
