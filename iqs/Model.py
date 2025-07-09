@@ -164,6 +164,7 @@ or {self.runtime}s sampling
 
 	def close(self):
 		if not self.constraints_compiled:
+			self.objective.process(self.n)
 			self.constraint.process(self.n)
 			self.constraints_compiled = True
 

@@ -91,8 +91,7 @@ int num_satisfied_constrains(new_constraints_t *con, state_t *sol);
 int64_t objective_value(new_constraints_t *obj, state_t *sol);
 
 
-
-
+int64_t prepare(new_constraints_t *obj, state_t *sol, int *fulfilled);
 
 
 
@@ -163,6 +162,13 @@ int64_t ChangedObjVal(  constraint_list_t *obj, // objective function
                             int *ChangedTerms,
                             int *NumChangedTerms
                             );
+
+int64_t objective_value_improved(new_constraints_t *obj, // objective function
+                                 state_t *new,    // new state
+                                 int NumChanges,  // how many bits were flipped
+                                 int *ChangedBits,// which bits were flipped
+                                 int *Fulfilled  // are terms of objective fulfilled
+);
 
 int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr);
 
