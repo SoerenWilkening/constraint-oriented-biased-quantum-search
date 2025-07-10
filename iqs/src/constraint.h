@@ -167,9 +167,31 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
                                  state_t *new,    // new state
                                  int NumChanges,  // how many bits were flipped
                                  int *ChangedBits,// which bits were flipped
-                                 int *Fulfilled  // are terms of objective fulfilled
+                                 int *Fulfilled,  // are terms of objective fulfilled
+                                 int **changes,
+                                 int *num_changes
 );
 
 int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr);
+int prepare_constraints(new_constraints_t *con, state_t *sol, int *fulfilled);
+int improved_constraint_violation(new_constraints_t *con,
+                                  state_t *sol,
+                                  size_t cnstr,
+                                  int NumChanges,  // how many bits were flipped
+                                  int *ChangedBits,// which bits were flipped
+                                  int *Fulfilled,  // are terms of constraint fulfilled
+                                  int **changes,
+                                  int *num_changes,
+								  int size);
+
+int adjusted_constraint_violation(
+		new_constraints_t *con, int item,
+		const unsigned int *indices,
+		const unsigned int *num_indices,
+		const unsigned int *offsets, state_t *cur_sol,
+		int negative,
+		int64_t *ret_total,
+		int * fulfill
+);
 
 #endif
