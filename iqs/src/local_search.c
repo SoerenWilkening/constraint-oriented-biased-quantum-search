@@ -29,37 +29,30 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 			}
 
 			int64_t totals[C];
+			int *investigated = calloc(C * size_ful, sizeof(int));
 			memset(totals, 0, C * sizeof(int64_t));
+			int *changed_con = calloc(MINSIZE, sizeof(int));
+			int num_con_changes = 0;
+
 			for (int i = 0; i < k; ++i) {
-				printf("item %d\n", comb[i]);
 				adjusted_constraint_violation(con,comb[i], con->positive_indices, con->num_positive_indices, con->positive_offsets, new_sol,
-											  POSITIVE, totals, fulfilled_con);
-				adjusted_constraint_violation(con,comb[i], con->negative_indices, con->num_negative_indices, con->negative_indices, new_sol,
-				                              NEGATIVE, totals, fulfilled_con);
+											  POSITIVE, totals, fulfilled_con, &changed_con, &num_con_changes, investigated);
+				adjusted_constraint_violation(con,comb[i], con->negative_indices, con->num_negative_indices, con->negative_offsets, new_sol,
+				                              NEGATIVE, totals, fulfilled_con, &changed_con, &num_con_changes, investigated);
 			}
+			free(investigated);
 
 			// compute with new solution
 			// is the new solution feasible ?
 			int64_t total_violation = 0;
-			int64_t total_violation2 = 0;
-			int64_t total_violation3 = 0;
 
-			int feasible = 1;
-			int *changed_con = calloc(128, sizeof(int));
-			int num_con_changes = 0;
 			for (int cnstr = 0; cnstr < C; ++cnstr) {
-				steps[cnstr] = improved_constraint_violation(con, new_sol, cnstr, k, comb, fulfilled_con, &changed_con, &num_con_changes, size_ful);
-				int viol2 = constraint_violation(con, new_sol, cnstr);
-				int64_t viol = remainings[cnstr] + steps[cnstr];
 				// only sum up violations
-				total_violation += viol < 0 ? viol : 0;
-				total_violation2 += viol2 < 0 ? viol2 : 0;
-				total_violation3 += remainings[cnstr] + totals[cnstr] < 0 ? remainings[cnstr] + totals[cnstr] : 0;
-//				printf("\n%lld %lld\n", remainings[cnstr], totals[cnstr]);
-				feasible *= (viol >= 0);
+				total_violation += remainings[cnstr] - totals[cnstr] < 0 ? remainings[cnstr] - totals[cnstr] : 0;
 			}
-			printf("meth1: %lld correct: %lld meth2: %lld\n", total_violation, total_violation2, total_violation3);
-			return 0;
+			int feasible = (total_violation >= 0);
+//			return 0;
+
 			// first try to find a feasible solution, by minimizing the constraints violation
 			if (!(*initial_feasible)) {
 				if (total_violation > *threshold && !feasible) {
@@ -67,14 +60,12 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 
 					// accept changed constraints
 					for (int i = 0; i < num_con_changes; ++i) fulfilled_con[changed_con[i]] = 1 - fulfilled_con[changed_con[i]];
-					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] += steps[cnstr];
+					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
 					free(comb);
 					free(changed_con);
 					return 1;
 				}
 				if (feasible) {
-
-
 					*initial_feasible = feasible;
 					*threshold = objective_value(obj, new_sol);
 
@@ -83,15 +74,17 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 
 					// accept changed constraints
 					for (int i = 0; i < num_con_changes; ++i) fulfilled_con[changed_con[i]] = 1 - fulfilled_con[changed_con[i]];
-					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] += steps[cnstr];
+					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
 					free(comb);
 					free(changed_con);
 					return 2;
 				}
 			} else {
-				int *changes = calloc(128, sizeof(int));
+				int *changes = calloc(MINSIZE, sizeof(int));
 				int num_cahnges = 0;
 				int64_t objective = objective_value_improved(obj, new_sol, k, comb, fulfilled, &changes, &num_cahnges);
+//				int64_t objective = objective_value(obj, new_sol);
+//				printf("%lld %lld %lld\n", *threshold, objective, objective_value(obj, new_sol));
 
 				if (objective < *threshold && feasible) {
 					*threshold = objective;
@@ -100,7 +93,7 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 
 					// accept changed constraints
 					for (int i = 0; i < num_con_changes; ++i) fulfilled_con[changed_con[i]] = 1 - fulfilled_con[changed_con[i]];
-					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] += steps[cnstr];
+					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
 					new_sol->tot_profit = objective;
 					free(comb);
 					free(changes);
@@ -144,39 +137,39 @@ int local_search(state_t *cur_sol,
 
 	int n = cur_sol->vector.bits;
 	int C = con->num_constraints;
-
+	printf("here\n");
+	fflush(stdout);
 	// plot test
-	printf("negative coefficients\n");
-	for (int item = 0; item < n; item++) {
-		for (int cnstr = 0; cnstr < C; cnstr++) {
-			printf("%d: %d-> ", item, cnstr);
-			for (int cls = 0; cls < con->num_negative_indices[item * C + cnstr]; cls++) {
-				printf("%u ", con->negative_indices[con->negative_offsets[item * C + cnstr] + cls]);
-			}
-			printf("\n");
-		}
-	}
-	printf("positive coefficients\n");
-	for (int item = 0; item < n; item++) {
-		for (int cnstr = 0; cnstr < C; cnstr++) {
-			printf("%d: %d-> ", item, cnstr);
-			for (int cls = 0; cls < con->num_positive_indices[item * C + cnstr]; cls++) {
-				printf("%u ", con->positive_indices[con->positive_offsets[item * C + cnstr] + cls]);
-			}
-			printf("\n");
-		}
-	}
+//	printf("negative coefficients\n");
+//	for (int item = 0; item < n; item++) {
+//		for (int cnstr = 0; cnstr < C; cnstr++) {
+//			printf("%d: %d-> ", item, cnstr);
+//			for (int cls = 0; cls < con->num_negative_indices[item * C + cnstr]; cls++) {
+//				printf("%u ", con->negative_indices[con->negative_offsets[item * C + cnstr] + cls]);
+//			}
+//			printf("\n");
+//		}
+//	}
+//	printf("positive coefficients\n");
+//	for (int item = 0; item < n; item++) {
+//		for (int cnstr = 0; cnstr < C; cnstr++) {
+//			printf("%d: %d-> ", item, cnstr);
+//			for (int cls = 0; cls < con->num_positive_indices[item * C + cnstr]; cls++) {
+//				printf("%u ", con->positive_indices[con->positive_offsets[item * C + cnstr] + cls]);
+//			}
+//			printf("\n");
+//		}
+//	}
 
-	int fulfilled[obj->num_clauses[0]]; // storing the fulfilled terms of the objective
-	memset(fulfilled, 0, obj->num_clauses[0] * sizeof(int));
+	int *fulfilled = calloc(obj->num_clauses[0], sizeof(int)); // storing the fulfilled terms of the objective
 
 	int max_constraint_clauses = 0;
 	for (int i = 0; i < C; ++i) if (con->num_clauses[C] > max_constraint_clauses) max_constraint_clauses = con->num_clauses[C];
-	printf("%d %d\n", max_constraint_clauses, C);
+	printf("%d\n", max_constraint_clauses);
+	fflush(stdout);
 
-	int fulfilled_con[C * max_constraint_clauses];
-	memset(fulfilled_con, 0, C * max_constraint_clauses * sizeof(int));
-
+	int *fulfilled_con = calloc(C * max_constraint_clauses, sizeof(int));
+//	memset(fulfilled_con, 0, C * max_constraint_clauses * sizeof(int));
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -186,28 +179,31 @@ int local_search(state_t *cur_sol,
 	state_t *new_sol = init_state(0, arr, n);
 	int break_item = 0;
 	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
-	print_state(cur_sol);
-
-	prepare_constraints(con, cur_sol, fulfilled_con);
-	for (int i = 0; i < C * max_constraint_clauses; ++i)
-		printf("%d %d\n", i, fulfilled_con[i]);
-	printf("\n");
+	free_state(new_sol, 1);
 
 	int64_t remainings[C];
 	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
+	prepare_constraints(con, cur_sol, fulfilled_con);
 
-	free_state(new_sol, 1);
 	int64_t thre = pot_eval;
 	int initial_feasible = eval_constraints(con, cur_sol, n);
-	if (initial_feasible) thre = objective_value(obj, cur_sol);
+	if (initial_feasible) {
+		thre = objective_value(obj, cur_sol);
+		cur_sol->tot_profit = thre;
+		prepare(obj, cur_sol, fulfilled); // prepare for optimized computation of objective value
+	}
+//	print_state(cur_sol);
 	int break_condition = 1;
 	for (int i = 0; i < n; ++i) arr[i] = i;
+	printf("start\n");
 	while (break_condition) {
 		break_condition = generate_combinations_iterative(cur_sol, con, obj, n, distance, &thre, &initial_feasible, fulfilled,
 		                                                  fulfilled_con, max_constraint_clauses, remainings);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
-		printf("%lld %f\n", thre, (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
+		printf(" %lld %f\n", thre, (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 	}
+	free(fulfilled_con);
+	free(fulfilled);
 
 	return 0;
 }

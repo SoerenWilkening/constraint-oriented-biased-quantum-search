@@ -107,8 +107,8 @@ void preprocessing(
 ) {
 	int C = con->num_constraints;
 
-	con->positive_indices = calloc(2 * n * n * n * C * n, sizeof(unsigned int));
-	con->negative_indices = calloc(2 * n * n * n * C * n, sizeof(unsigned int));
+	con->positive_indices = calloc(2 * n * C * n, sizeof(unsigned int));
+	con->negative_indices = calloc(2 * n * C * n, sizeof(unsigned int));
 	con->positive_offsets = malloc(n * C * sizeof(unsigned int));
 	con->negative_offsets = malloc(n * C * sizeof(unsigned int));
 	con->num_positive_indices = malloc(n * C * sizeof(unsigned int));
@@ -334,6 +334,7 @@ int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
 			total += con->factors[clause_index] * assigned;
 		}
 	}
+//	printf("exact = %lld\n", con->rhs[cnstr] - total);
 	return con->rhs[cnstr] - total;
 }
 
@@ -354,7 +355,6 @@ int prepare_constraints(new_constraints_t *con, state_t *sol, int *fulfilled) {
 				fulfilled[clause_index] = 1;
 			}
 			if (con->factors[clause_index] >= 0 && assigned == 1) {
-//				printf("%d\n", clause_index);
 				fulfilled[clause_index] = 1;
 			}
 		}
@@ -370,120 +370,146 @@ int adjusted_constraint_violation(
 		const unsigned int *offsets, state_t *cur_sol,
 		int negative,
 		int64_t *ret_total,
-		int * fulfill
-		) {
+		int *fulfill,
+		int **changes,
+		int *num_changes,
+		int *investigated
+) {
+	int count = *num_changes;
+//	printf("count start = %d\n", count);
 	size_t C = con->num_constraints;
-	int feasible = 1;
 	// check, if assignment does not exceed potentials
 	for (int cnstr = 0; cnstr < C; cnstr++) {
 		int64_t total = 0;
 		size_t clause_offset = first_clause_index(con, cnstr);
 		for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++) {
 			int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
-			size_t clause_index = clause_offset + index;
 
-//			if (fulfill[clause_index]){
-//				printf("%d %zu\n", cnstr, clause_index);
-//				total -= labs(con->factors[clause_index]);
-//			}
-//			else {
+			size_t clause_index = clause_offset + index;
+//			printf("%d %d %d\n", item, clause_index, fulfill[clause_index]);
+
+			if (!investigated[clause_index]) {
 				int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
 				for (int i = 0; i < con->clause_length[clause_index]; i++) {
 					size_t var = con->variables[variable_index(index, i, clause_offset)];
 					assigned *= sw_tstbit(cur_sol->vector, var);
 				}
-				if (negative == POSITIVE) total += labs(con->factors[clause_index]) * (assigned);
-				if (negative == NEGATIVE) total += labs(con->factors[clause_index]) * (1 - assigned);
-//			}
+				if (negative == POSITIVE) {
+					if (assigned == 1 && fulfill[clause_index] == 0) {
+						total += labs(con->factors[clause_index]);
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+						(*changes)[count++] = clause_index;
+					}
+					if (assigned == 0 && fulfill[clause_index] == 1) {
+						total -= labs(con->factors[clause_index]);
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+						(*changes)[count++] = clause_index;
+					}
+				}
+				if (negative == NEGATIVE) {
+					if ((1 - assigned) == 1 && fulfill[clause_index] == 0) {
+						total += labs(con->factors[clause_index]);
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+						(*changes)[count++] = clause_index;
+					}
+					if ((1 - assigned) == 0 && fulfill[clause_index] == 1) {
+						total -= labs(con->factors[clause_index]);
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+						(*changes)[count++] = clause_index;
+					}
+				}
+			}
+			investigated[clause_index] = 1;
 		}
 		ret_total[cnstr] += total;
 	}
+//	printf("count after iteration %d\n", count);
+	*num_changes = count;
 	return 1;
 }
 
 
-int improved_constraint_violation(new_constraints_t *con,
-                                  state_t *sol,
-                                  size_t cnstr,
-                                  int NumChanges,  // how many bits were flipped
-                                  int *ChangedBits,// which bits were flipped
-                                  int *Fulfilled,  // are terms of constraint fulfilled
-                                  int **changes,
-                                  int *num_changes,
-                                  int size) {
-//	for (int cnstr = 0; cnstr < C; cnstr++) {
-	int count = *num_changes;
-	int *investigated = calloc(con->num_constraints * size,
-	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
-
-//	int i = 0;
-	int64_t total = 0;
-	for (int i = 0; i < NumChanges; ++i) {
-		int item = ChangedBits[i];
-		size_t C = con->num_constraints;
-		size_t clause_offset = first_clause_index(con, cnstr);
-
-		// loop for negative coefficients
-		for (int cls = 0; cls < con->num_negative_indices[item * C + cnstr]; cls++) {
-			int index = con->negative_indices[con->negative_offsets[item * C + cnstr] +
-			                                  cls]; // index of the clause of constraint cnstr
-			size_t clause_index = clause_offset + index;
-			if (!investigated[clause_index]) {
-				if (Fulfilled[clause_index]) {
-					total += con->factors[clause_index]; // factor is negative
-					// adjust changes
-					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
-					(*changes)[count++] = clause_index;
-				} else {
-					int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-					for (int i = 0; i < con->clause_length[clause_index]; i++) {
-						size_t var = con->variables[variable_index(index, i, clause_offset)];
-						assigned *= sw_tstbit(sol->vector, var);
-					}
-					// adjust
-					total -= con->factors[clause_index] * (1 - assigned);
-					if (1 - assigned) {
-						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
-						(*changes)[count++] = clause_index;
-					}
-				}
-			}
-			investigated[clause_index] = 1;
-		}
-
-		// loop for positive coefficients
-		for (int cls = 0; cls < con->num_positive_indices[item * C + cnstr]; cls++) {
-			int index = con->positive_indices[con->positive_offsets[item * C + cnstr] +
-			                                  cls]; // index of the clause of constraint cnstr
-			size_t clause_index = clause_offset + index;
-			if (!investigated[clause_index]) {
-				if (Fulfilled[clause_index]) {
-					total -= con->factors[clause_index]; // factor is positive
-					// adjust changes
-					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
-					(*changes)[count++] = clause_index;
-				} else {
-					int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-					for (int i = 0; i < con->clause_length[clause_index]; i++) {
-						size_t var = con->variables[variable_index(index, i, clause_offset)];
-						assigned *= sw_tstbit(sol->vector, var);
-					}
-					// adjust
-					total += con->factors[clause_index] * assigned;
-					if (assigned) {
-						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
-						(*changes)[count++] = clause_index;
-					}
-				}
-			}
-			investigated[clause_index] = 1;
-		}
-	}
-	*num_changes += count;
-//	printf("%lld\n", total);
-	return total;
-}
-
+//int improved_constraint_violation(new_constraints_t *con,
+//                                  state_t *sol,
+//                                  size_t cnstr,
+//                                  int NumChanges,  // how many bits were flipped
+//                                  int *ChangedBits,// which bits were flipped
+//                                  int *Fulfilled,  // are terms of constraint fulfilled
+//                                  int **changes,
+//                                  int *num_changes,
+//                                  int size) {
+////	for (int cnstr = 0; cnstr < C; cnstr++) {
+//	int count = *num_changes;
+//	int *investigated = calloc(con->num_constraints * size,
+//	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
+//
+////	int i = 0;
+//	int64_t total = 0;
+//	for (int i = 0; i < NumChanges; ++i) {
+//		int item = ChangedBits[i];
+//		size_t C = con->num_constraints;
+//		size_t clause_offset = first_clause_index(con, cnstr);
+//
+//		// loop for negative coefficients
+//		for (int cls = 0; cls < con->num_negative_indices[item * C + cnstr]; cls++) {
+//			int index = con->negative_indices[con->negative_offsets[item * C + cnstr] +
+//			                                  cls]; // index of the clause of constraint cnstr
+//			size_t clause_index = clause_offset + index;
+//			if (!investigated[clause_index]) {
+//				if (Fulfilled[clause_index]) {
+//					total += con->factors[clause_index]; // factor is negative
+//					// adjust changes
+//					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+//					(*changes)[count++] = clause_index;
+//				} else {
+//					int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+//					for (int i = 0; i < con->clause_length[clause_index]; i++) {
+//						size_t var = con->variables[variable_index(index, i, clause_offset)];
+//						assigned *= sw_tstbit(sol->vector, var);
+//					}
+//					// adjust
+//					total -= con->factors[clause_index] * (1 - assigned);
+//					if (1 - assigned) {
+//						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+//						(*changes)[count++] = clause_index;
+//					}
+//				}
+//			}
+//			investigated[clause_index] = 1;
+//		}
+//
+//		// loop for positive coefficients
+//		for (int cls = 0; cls < con->num_positive_indices[item * C + cnstr]; cls++) {
+//			int index = con->positive_indices[con->positive_offsets[item * C + cnstr] +
+//			                                  cls]; // index of the clause of constraint cnstr
+//			size_t clause_index = clause_offset + index;
+//			if (!investigated[clause_index]) {
+//				if (Fulfilled[clause_index]) {
+//					total -= con->factors[clause_index]; // factor is positive
+//					// adjust changes
+//					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+//					(*changes)[count++] = clause_index;
+//				} else {
+//					int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+//					for (int i = 0; i < con->clause_length[clause_index]; i++) {
+//						size_t var = con->variables[variable_index(index, i, clause_offset)];
+//						assigned *= sw_tstbit(sol->vector, var);
+//					}
+//					// adjust
+//					total += con->factors[clause_index] * assigned;
+//					if (assigned) {
+//						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+//						(*changes)[count++] = clause_index;
+//					}
+//				}
+//			}
+//			investigated[clause_index] = 1;
+//		}
+//	}
+//	*num_changes += count;
+////	printf("%lld\n", total);
+//	return total;
+//}
 
 int64_t objective_value_improved(new_constraints_t *obj, // objective function
                                  state_t *new,    // new state
@@ -493,7 +519,6 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
                                  int **changes,
                                  int *num_changes
 ) {
-	int Count = 0;
 	int NTerms = obj->num_clauses[0]; // number terms
 	int *investigated = calloc(NTerms,
 	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
@@ -504,7 +529,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 	// go trough negative coefficients
 	for (int i = 0; i < NumChanges; i++) { // go through all changes
 		int item = ChangedBits[i]; // changed item
-//		printf("%d-> ", item);
+//		printf("%d-> %d", item, obj->num_negative_indices[item]);
 		for (int cls = 0; cls < obj->num_negative_indices[item]; cls++) {
 			int assigned = 1;
 			int clause_index = obj->negative_indices[obj->negative_offsets[item] + cls];
@@ -512,28 +537,25 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 			if (!investigated[clause_index]) {
 				// if term was fulfilled: has to be unfulfilled
 				if (Fulfilled[clause_index]) {
+//					printf("%d %d\n", clause_index, Fulfilled[clause_index]);
 					total -= obj->factors[clause_index];
-					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+					if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
 					(*changes)[count++] = clause_index;
 //					Fulfilled[clause_index] = 0;
 				} else {
 					for (int j = 0; j < obj->clause_length[clause_index]; j++) {
 						size_t var = obj->variables[variable_index(clause_index, j, 0)];
 						assigned *= sw_tstbit(new->vector, var);
-//						printf("%d,", var);
 					}
-//					printf("%d ", assigned);
-					total += obj->factors[clause_index] * assigned;
-//					Fulfilled[clause_index] = assigned;
 					if (assigned) {
-						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+						total += obj->factors[clause_index];
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
 						(*changes)[count++] = clause_index;
 					}
 				}
 			}
 			investigated[clause_index] = 1;
 		}
-//		printf("\n");
 	}
 	// go trough positive coefficients
 //	printf("positive coefficients\n");
@@ -545,7 +567,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 			if (!investigated[clause_index]) {
 				// if term was fulfilled: has to be unfulfilled
 				if (Fulfilled[clause_index]) {
-					if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+					if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
 					total -= obj->factors[clause_index];
 					(*changes)[count++] = clause_index;
 				} else {
@@ -555,7 +577,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 					}
 					total += obj->factors[clause_index] * assigned;
 					if (assigned) {
-						if ((count & 127) == 0 && count > 0) *changes = realloc(*changes, (count + 128) * sizeof(int));
+						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
 						(*changes)[count++] = clause_index;
 					}
 //					if (assigned) Fulfilled[clause_index] = 1;
@@ -568,65 +590,65 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 	*num_changes = count;
 	return new->tot_profit + total;
 }
-
-
-int64_t ObjVal(state_t *state, constraint_list_t *obj) {
-	int64_t val = 0;
-	for (int i = 0; i < obj->constraints->num_literals; i++) {
-		lit_t *lit = &obj->constraints->literals[i];
-		// is it a linear expression?
-		if (lit->len_literal == 2) {
-			int ass = sw_tstbit(state->vector, lit->variables[0]);
-			val += lit->factor * ass;
-		} else {
-			int ass1 = sw_tstbit(state->vector, lit->variables[0]);
-			int ass2 = sw_tstbit(state->vector, lit->variables[1]);
-			val += lit->factor * ass1 * ass2;
-		}
-	}
-	return val;
-}
-
-int64_t ChangedObjVal(constraint_list_t *obj, // objective function
-                      state_t *new, // new state
-                      int NumChanges, // how many bits were flipped
-                      int *ChangedBits, // which bits were flipped
-                      int **Indices, // objective term indices involving every item
-                      int *NumIndices, // in how many terms every item occours
-                      int *Fulfilled, // are terms of objective fulfilled
-                      int *ChangedTerms,
-                      int *NumChangedTerms
-) {
-	int Count = 0;
-	int NTerms = obj->constraints[0].num_literals; // number terms
-	int *investigated = calloc(NTerms,
-	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
-	// For every changed bit, change, if the respective term changes and adjust the total profit
-	for (int ChangeIndex = 0; ChangeIndex < NumChanges; ChangeIndex++) {
-		int item = ChangedBits[ChangeIndex];
-		for (int term = 0; term < NumIndices[item]; term++) {
-			int literal = Indices[item][term];
-			lit_t *lit = &obj->constraints[0].literals[literal];
-			if (!investigated[literal]) {
-				int assign = 1;
-				// check every item of respective term
-				for (int lits = 0; lits < lit->len_literal - 1; lits++) {
-					if (!sw_tstbit(new->vector, lit->variables[lits]))
-						assign = 0;
-				}
-				if (Fulfilled[literal] && !assign) {
-					new->tot_profit -= lit->factor;
-				}
-				if (!Fulfilled[literal] && assign) {
-					new->tot_profit += lit->factor;
-				}
-				if (assign != Fulfilled[literal]) ChangedTerms[Count++] = literal;
-			}
-			// to avoid considering the same term multiple times
-			investigated[literal] = 1;
-		}
-	}
-	*NumChangedTerms = Count;
-	free(investigated);
-	return new->tot_profit;
-}
+//
+//
+//int64_t ObjVal(state_t *state, constraint_list_t *obj) {
+//	int64_t val = 0;
+//	for (int i = 0; i < obj->constraints->num_literals; i++) {
+//		lit_t *lit = &obj->constraints->literals[i];
+//		// is it a linear expression?
+//		if (lit->len_literal == 2) {
+//			int ass = sw_tstbit(state->vector, lit->variables[0]);
+//			val += lit->factor * ass;
+//		} else {
+//			int ass1 = sw_tstbit(state->vector, lit->variables[0]);
+//			int ass2 = sw_tstbit(state->vector, lit->variables[1]);
+//			val += lit->factor * ass1 * ass2;
+//		}
+//	}
+//	return val;
+//}
+//
+//int64_t ChangedObjVal(constraint_list_t *obj, // objective function
+//                      state_t *new, // new state
+//                      int NumChanges, // how many bits were flipped
+//                      int *ChangedBits, // which bits were flipped
+//                      int **Indices, // objective term indices involving every item
+//                      int *NumIndices, // in how many terms every item occours
+//                      int *Fulfilled, // are terms of objective fulfilled
+//                      int *ChangedTerms,
+//                      int *NumChangedTerms
+//) {
+//	int Count = 0;
+//	int NTerms = obj->constraints[0].num_literals; // number terms
+//	int *investigated = calloc(NTerms,
+//	                           sizeof(int)); // was the term evaluated already? (important for quadratic functions)
+//	// For every changed bit, change, if the respective term changes and adjust the total profit
+//	for (int ChangeIndex = 0; ChangeIndex < NumChanges; ChangeIndex++) {
+//		int item = ChangedBits[ChangeIndex];
+//		for (int term = 0; term < NumIndices[item]; term++) {
+//			int literal = Indices[item][term];
+//			lit_t *lit = &obj->constraints[0].literals[literal];
+//			if (!investigated[literal]) {
+//				int assign = 1;
+//				// check every item of respective term
+//				for (int lits = 0; lits < lit->len_literal - 1; lits++) {
+//					if (!sw_tstbit(new->vector, lit->variables[lits]))
+//						assign = 0;
+//				}
+//				if (Fulfilled[literal] && !assign) {
+//					new->tot_profit -= lit->factor;
+//				}
+//				if (!Fulfilled[literal] && assign) {
+//					new->tot_profit += lit->factor;
+//				}
+//				if (assign != Fulfilled[literal]) ChangedTerms[Count++] = literal;
+//			}
+//			// to avoid considering the same term multiple times
+//			investigated[literal] = 1;
+//		}
+//	}
+//	*NumChangedTerms = Count;
+//	free(investigated);
+//	return new->tot_profit;
+//}

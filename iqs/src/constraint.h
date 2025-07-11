@@ -97,7 +97,7 @@ int64_t prepare(new_constraints_t *obj, state_t *sol, int *fulfilled);
 
 
 
-
+#define MINSIZE 2048
 
 
 
@@ -191,7 +191,10 @@ int adjusted_constraint_violation(
 		const unsigned int *offsets, state_t *cur_sol,
 		int negative,
 		int64_t *ret_total,
-		int * fulfill
+		int * fulfill,
+		int **changes,
+		int *num_changes,
+		int *investigated
 );
 
 #endif
