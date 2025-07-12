@@ -251,7 +251,7 @@ int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t c
 				assigned = 2;
 				break;
 			}
-			assigned &= sw_tstbit(sol->vector, var);
+			assigned *= sw_tstbit(sol->vector, var);
 		}
 //		printf("assign = %d %lld\n", assigned, con->factors[clause_index]);
 		if (con->factors[clause_index] < 0) {

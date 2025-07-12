@@ -123,10 +123,7 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-//    int break_item = 0;
 	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, break_item);
-//	printf("break_item = %d\n", break_item);
-
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -189,7 +186,7 @@ int ctg(
 			if (callback && feasible && updated && method != ACCEPTMANY) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
 			}
-			printf("%d %d\n", stage, num_accepted);
+//			printf("%d %d\n", stage, num_accepted);
 			if (stage == 3 && method == ACCEPTMANY) {
 			    if (num_accepted == number_states - 1){
 			        int64_t mini = 0;
@@ -244,7 +241,7 @@ int ctg(
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 //	free_state(stored, number_states);
-	print_state(cur_sol);
+//	print_state(cur_sol);
 	free_state(new_sol, 0);
 	return feasible;
 }

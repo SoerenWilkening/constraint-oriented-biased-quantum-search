@@ -171,14 +171,15 @@ int local_search(state_t *cur_sol,
 		cur_sol->tot_profit = thre;
 		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
 	}
+	clock_gettime(CLOCK_MONOTONIC, &t2);
+	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
-//	int counts[] = {0, 0, 0, 0};
 	while (break_condition) {
 		break_condition = search_routine(cur_sol, con, obj, n, distance, &thre, &initial_feasible, &ful,
 		                                 &ful_con, max_constraint_clauses, remainings);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-		if (break_condition == 2 && callback) callback(cur_sol->tot_profit, 0, time, 0);
+		if (break_condition == 2 && callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		printf(" %lld %f\n", thre, time);
 	}
