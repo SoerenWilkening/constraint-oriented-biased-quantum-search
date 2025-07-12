@@ -87,8 +87,6 @@ int bfs(
 	int count[2] = {0, 0};
 	int64_t potentials[C];
 	memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
-//	look_ahead_correct(0, 0, n - 1, &count[0], con, potentials, cur_sol);
-//	look_ahead_correct(0, 1, n - 1, &count[1], con, potentials, cur_sol);
 	printf("counts = %d %d\n", count[0], count[1]);
 
 	free_state(new_sol, 0);
@@ -114,11 +112,12 @@ int ctg(
 	int rounds = 0;
 	double c = 6. / 5;
 
-	int (*search_function)(state_t *, state_t *, int, int, int, new_constraints_t *, new_constraints_t *, int, int);
+	int (*search_function)(state_t *, state_t *, int, int, int, new_constraints_t *, new_constraints_t *, int, int, array_t *);
 
 	clock_t start = clock();
 
 	size_t NTerms = obj->num_clauses[0]; // number terms
+	array_t fulfilled_objective_terms = sw_init(NTerms);
 
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -162,7 +161,6 @@ int ctg(
 	// Start sampling after initial_state_preparation
 	double total_time = preprocess_time;
 	while (m_tot < M && total_time < stopping_time) {
-//	for (int i = 0; i < 20; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
@@ -178,7 +176,7 @@ int ctg(
 		res = search_function(
 				new_sol, cur_sol, j, n, NTerms,
 				con, obj,
-				depth_look_ahead, direction
+				depth_look_ahead, direction, &fulfilled_objective_terms
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -186,7 +184,6 @@ int ctg(
 			if (callback && feasible && updated && method != ACCEPTMANY) {
 				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
 			}
-//			printf("%d %d\n", stage, num_accepted);
 			if (stage == 3 && method == ACCEPTMANY) {
 			    if (num_accepted == number_states - 1){
 			        int64_t mini = 0;
@@ -205,15 +202,12 @@ int ctg(
 			    }
 			    else{
 				    num_accepted++;
-//				    printf("\n%d accepted | ", num_accepted);
-//				    print_state(cur_sol);
 				    cur_sol = &stored[num_accepted];
 				}
 			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-//				    printf("Stage 2\n");
 				    stage = 2;
 				    if (callback) {
 			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
@@ -231,17 +225,16 @@ int ctg(
 		}
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
-//            printf("Stage 3\n");
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = objective_value(obj, cur_sol);
+	        prepare(obj, cur_sol, &fulfilled_objective_terms);
             if (method == ACCEPTMANY) for (int i = 1; i < number_states; ++i) copy_state_inplace(&stored[i], cur_sol);
             updated = 1;
         }
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
-//	free_state(stored, number_states);
-//	print_state(cur_sol);
 	free_state(new_sol, 0);
+	sw_clear(fulfilled_objective_terms);
 	return feasible;
 }

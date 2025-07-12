@@ -257,7 +257,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 //                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
 //                const unsigned int *negative_offsets,
 //                int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead, int direction
+                int depth_look_ahead, int direction, array_t *ful
 ) {
 
 	int64_t potentials[con->num_constraints];
@@ -267,8 +267,8 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
 	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// Store which bit from the previous solution is flipped
-//		int NumChanges = 0;
-//		int *ChangedBits = calloc(n, sizeof(int));
+		int NumChanges = 0;
+		int *ChangedBits = calloc(n, sizeof(int));
 
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
@@ -318,7 +318,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			}
 
 			// was a bit flipped?
-//			if (bit != new_bit) ChangedBits[NumChanges++] = i;
+			if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
 			int all_positive;
 			if (new_bit) {
@@ -335,29 +335,32 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 				                  new_bit, NEGATIVE, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-//		for (int mn = i; mn < n; mn++) ChangedBits[NumChanges++] = mn;
+//		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
 //        printf("%lld %lld\n", potentials[0], potentials[1]);
-		int as1 = 0;
-		if (i == n) as1 = eval_constraints(con, new_sol, n);
+		int as1 = (i == n);
+//		if (i == n) as1 = eval_constraints(con, new_sol, n);
+		if (as1) for (int k = 0; k < con->num_constraints; ++k) as1 &= potentials[k] >= 0;
 
-//		int NumChangedTerms = 0;
-//		int *ChangedTerms = calloc(NTerms, sizeof(int));
+		int NumChangedTerms = 0;
+		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
 		int64_t val = INT64_MAX;
-		if (as1) val = objective_value(obj, new_sol);
+//		if (as1) val = objective_value(obj, new_sol);
+		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
 
 		if (as1 && cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms
 //            for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
+            for (int term = 0; term < NumChangedTerms; term++) sw_flpbit(*ful, ChangedTerms[term]);
 			cur_sol->tot_profit = val;
 			sw_clear(cur_sol->vector);
 			cur_sol->vector = sw_set(new_sol->vector);
 
-//			free(ChangedTerms);
-//			free(ChangedBits);
+			free(ChangedTerms);
+			free(ChangedBits);
 			return 1;
 		}
-//		free(ChangedTerms);
-//		free(ChangedBits);
+		free(ChangedTerms);
+		free(ChangedBits);
 	}
 	return 0;
 }
@@ -365,12 +368,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                     new_constraints_t *con, new_constraints_t *obj,
-//                    const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-//                    const unsigned int *positive_offsets,
-//                    const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-//                    const unsigned int *negative_offsets,
-//                    int **Indices, int *NumIndices, int *Fulfilled,
-                    int depth_look_ahead, int direction
+                    int depth_look_ahead, int direction, array_t *ful
 ) {
 
 	int64_t potentials[con->num_constraints];
@@ -379,7 +377,6 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
 	for (int l = 0; l < 4 * j * j + 1; l++) {
-//	for (int l = 0; l < 1; l++) {
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
@@ -401,12 +398,10 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 
-//			if (!both_infeasible) {
             // look ahead to the left side
             look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
             look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
-//			}
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -464,12 +459,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 new_constraints_t *con, new_constraints_t *obj,
-//                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-//                const unsigned int *positive_offsets,
-//                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-//                const unsigned int *negative_offsets,
-//                int **Indices, int *NumIndices, int *Fulfilled,
-                int depth_look_ahead, int direction
+                int depth_look_ahead, int direction, array_t *ful
 ) {
 
 	int64_t potentials[con->num_constraints];
