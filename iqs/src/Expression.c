@@ -2,6 +2,35 @@
 
 int min_size = 30000;
 
+int len_literal(expression_t *expr , int clause){
+	for (int i = 1; i < MAXCLAUSESIZE; ++i) {
+		if (expr->literals[expr_index(clause, i)] == -1) return i;
+	}
+	return MAXCLAUSESIZE;
+}
+
+int compare_tuples(const void *a, const void *b) {
+	const int64_t *tupleA = (const int64_t *)a;
+	const int64_t *tupleB = (const int64_t *)b;
+
+	for (int i = 1; i < MAXCLAUSESIZE; i++) {
+		int64_t valA = tupleA[i];
+		int64_t valB = tupleB[i];
+
+		if (valA != valB) {
+			// Treat PAD as greater than any real value
+			if (valA == -1) return 1;
+			if (valB == -1) return -1;
+			return (valA < valB) ? -1 : 1;
+		}
+	}
+	return 0;
+}
+
+void sort_expression(expression_t *expr){
+	qsort(expr->literals, expr->expr_size, sizeof(int64_t) * MAXCLAUSESIZE, compare_tuples);
+}
+
 int expr_index(int lit, int ind){
 	return MAXCLAUSESIZE * lit + ind;
 }
@@ -20,11 +49,26 @@ void merge_expression(expression_t *expr){
 			break;
 		}
 	}
+//	sort_expression(expr);
+}
+
+void print_expression(expression_t *expr){
+	for (int cls = 0; cls < expr->expr_size; ++cls) {
+		if (expr->len_literal[cls] != 0) {
+			for (int i = 0; i < len_literal(expr, cls); ++i) {
+//			for (int i = 0; i < expr->len_literal[cls]; ++i) {
+//			for (int i = 0; i < MAXCLAUSESIZE; ++i) {
+				printf("%lld ", expr->literals[expr_index(cls, i)]);
+			}
+			printf("\n");
+		}
+	}
 }
 
 expression_t *init_expression(){
     expression_t *expr = malloc(sizeof(expression_t));
     expr->literals = malloc(MAXCLAUSESIZE * min_size * sizeof(int64_t ));
+	for (int i = 1; i < MAXCLAUSESIZE * min_size; ++i) expr->literals[i] = -1;
     expr->len_literal = malloc(min_size * sizeof(int));
     expr->expr_size = 0;
     return expr;
@@ -39,6 +83,7 @@ void free_expression(expression_t *expr){
 void increase(expression_t *expr){
     if (expr->expr_size % (min_size - 1) == 0 && expr->expr_size > 0){
         expr->literals = realloc(expr->literals, MAXCLAUSESIZE * (expr->expr_size + min_size) * sizeof(int64_t ));
+	    for (int i = MAXCLAUSESIZE * expr->expr_size; i < MAXCLAUSESIZE * (expr->expr_size + min_size); ++i) expr->literals[i] = -1;
         expr->len_literal = realloc(expr->len_literal, (expr->expr_size + min_size) * sizeof(int));
     }
 }

@@ -88,7 +88,7 @@ void print_new_constraint(new_constraints_t *con) {
 
 	int n = 0;
 	int C = con->num_constraints;
-	for (int i = 0; i < con->allocated_variables; ++i) if (con->variables[i] > n) n = con->variables[i];
+	for (int i = 0; i < con->allocated_variables; ++i) if (con->variables[i] + 1 > n) n = con->variables[i] + 1;
 
 	printf("negative coefficients\n");
 	for (int item = 0; item < n; item++) {
@@ -203,8 +203,9 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
 	for (int cls = 0; cls < expr->expr_size; ++cls) {
-		if (expr->len_literal[cls] != 0) {
-			for (int i = 1; i < expr->len_literal[cls]; ++i) {
+		int lenght = expr->len_literal[cls];
+		if (lenght != 0) {
+			for (int i = 1; i < lenght; ++i) {
 				int index = variable_index(clause_counter, i - 1, clause_offset);
 				if (con->allocated_variables <= index) {
 					size_t new_size = index + MINARRAYSIZE;
@@ -220,7 +221,7 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
 				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
 			}
-			con->clause_length[clause_offset + clause_counter] = expr->len_literal[cls] - 1;
+			con->clause_length[clause_offset + clause_counter] = lenght - 1;
 			con->factors[clause_offset + clause_counter] = expr->literals[expr_index(cls, 0)];
 			clause_counter++;
 		}

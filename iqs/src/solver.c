@@ -19,7 +19,7 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
 			int is_closed = 1;
 			for (int i = 0; i < con->clause_length[clause_index]; i++) {
 				size_t var = con->variables[variable_index(index, i, clause_offset)];
-				if (var < item) assigned *= sw_tstbit(cur_sol->vector, var);
+				if (var < item) assigned &= sw_tstbit(cur_sol->vector, var);
 				if (var > item) is_closed = 0;
 			}
 			if (negative == POSITIVE && is_closed || negative == NEGATIVE)

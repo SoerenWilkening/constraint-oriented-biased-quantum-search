@@ -321,8 +321,13 @@ cpdef run_local_search(initial: state_py,
         int distance,
 		int stopping_time,
         int solver,
-        int64_t stop_val):
+        int64_t stop_val,
+        object callback):
 
 	cdef state_t *st = initial.state
+	global python_callback
+	python_callback = callback
 
-	local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, NULL)
+	# python callback to c callback
+	cdef callback_t cb_ptr = <callback_t> my_callback_c
+	local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr)

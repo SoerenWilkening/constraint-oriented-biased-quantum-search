@@ -4,9 +4,13 @@
 
 #include "local_search.h"
 
-int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, new_constraints_t *obj,
-                                    int n, int d, int64_t *threshold, int *initial_feasible, array_t *fulfilled,
-									array_t *fulfilled_con, int size_ful, int64_t *remainings) {
+int prepare_indices(new_constraints_t *con, new_constraints_t *obj, int n, int d) {
+
+}
+
+int search_routine(state_t *new_sol, new_constraints_t *con, new_constraints_t *obj,
+                   int n, int d, int64_t *threshold, int *initial_feasible, array_t *fulfilled,
+                   array_t *fulfilled_con, int size_ful, int64_t *remainings) {
 
 	int C = con->num_constraints;
 	int64_t steps[C];
@@ -18,6 +22,7 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 	for (int k = 1; k <= d; ++k) {
 		// Initialize first combination: [0, 1, ..., k-1]
 		for (int i = 0; i < k; ++i) comb[i] = i;
+
 
 		// perform local search
 		while (1) {
@@ -119,8 +124,7 @@ int generate_combinations_iterative(state_t *new_sol, new_constraints_t *con, ne
 			if (i < 0) break; // All combinations done
 
 			comb[i]++;
-			for (int j = i + 1; j < k; ++j)
-				comb[j] = comb[j - 1] + 1;
+			for (int j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
 		}
 	}
 
@@ -168,11 +172,15 @@ int local_search(state_t *cur_sol,
 		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
 	}
 	int break_condition = 1;
+//	int counts[] = {0, 0, 0, 0};
 	while (break_condition) {
-		break_condition = generate_combinations_iterative(cur_sol, con, obj, n, distance, &thre, &initial_feasible, &ful,
-		                                                  &ful_con, max_constraint_clauses, remainings);
+		break_condition = search_routine(cur_sol, con, obj, n, distance, &thre, &initial_feasible, &ful,
+		                                 &ful_con, max_constraint_clauses, remainings);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
-		printf(" %lld %f\n", thre, (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
+		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+		if (break_condition == 2 && callback) callback(cur_sol->tot_profit, 0, time, 0);
+		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
+		printf(" %lld %f\n", thre, time);
 	}
 	sw_clear(ful_con);
 	sw_clear(ful);
@@ -181,6 +189,19 @@ int local_search(state_t *cur_sol,
 }
 
 
+
+//for (int k = 1; k <= d; ++k) {
+//// Initialize first combination: [0, 1, ..., k-1]
+//	for (int i = 0; i < k; ++i) comb[i] = i;
+//      Generate next combination
+//		int i = k - 1;
+//		while (i >= 0 && comb[i] == n - k + i) i--;
+//		if (i < 0) break; // All combinations done
+//
+//		comb[i]++;
+//		for (int j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
+//	}
+//}
 
 // instance 1000 0
 //-2541824465 0.811937 -2541824465 0.747621 -2541824465 0.733215 -2541824465 0.729911
