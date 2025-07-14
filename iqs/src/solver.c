@@ -204,7 +204,6 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 		// look ahead to the left side
 		look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 		// look ahead to the right side
-//		if (count[1] != 0)
         look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
 
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
@@ -252,11 +251,6 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 
 int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
                 new_constraints_t *con, new_constraints_t *obj,
-//                const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-//                const unsigned int *positive_offsets,
-//                const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-//                const unsigned int *negative_offsets,
-//                int **Indices, int *NumIndices, int *Fulfilled,
                 int depth_look_ahead, int direction, array_t *ful
 ) {
 

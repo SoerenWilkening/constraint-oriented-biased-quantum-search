@@ -9,12 +9,19 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "intarray.h"
 #include "definitions.h"
 #include "Branching.h"
 #include "constraint.h"
 #include "state.h"
 #include "solver.h"
+
+typedef struct {
+	int num_flips;
+	int *flips;
+} move_t;
 
 int local_search(state_t *cur_sol,
                  new_constraints_t *con,

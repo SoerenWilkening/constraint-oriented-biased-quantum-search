@@ -330,4 +330,5 @@ cpdef run_local_search(initial: state_py,
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr)
+	with nogil:
+		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr)

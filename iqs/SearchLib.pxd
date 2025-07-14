@@ -100,4 +100,4 @@ cdef extern from "src/local_search.h":
 	                 int stopping_time,
 	                 int solver,
 	                 int64_t stop_val,
-	                 callback_t callback)
+	                 callback_t callback) nogil

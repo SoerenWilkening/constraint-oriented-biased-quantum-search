@@ -70,6 +70,14 @@ static inline array_t sw_set(array_t B) {
 	return A;
 }
 
+static inline void sw_set_inplace(array_t A, array_t B) {
+	A.n = B.n;
+	for (size_t LOOPINDEX = 0; LOOPINDEX < B.n; ++LOOPINDEX) {
+		A.part[LOOPINDEX] = B.part[LOOPINDEX];
+	}
+}
+
+
 static inline int sw_cmp(array_t A1, array_t A2) {
 	for (size_t i = 0; i < A1.n; ++i) {
 		if (A1.part[i] != A2.part[i]) {

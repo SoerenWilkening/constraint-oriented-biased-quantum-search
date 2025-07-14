@@ -44,6 +44,7 @@ state_t *copy_state(state_t *state){
     copy->prob = state->prob;
     copy->vector = sw_set(state->vector);
     copy->branch = sw_set(state->branch);
+	copy->feasible = state->feasible;
     return copy;
 }
 

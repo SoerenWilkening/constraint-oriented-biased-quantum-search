@@ -7,6 +7,7 @@ typedef struct {
     int64_t tot_profit;
     array_t vector;
     array_t branch;
+	int feasible;
 } state_t;
 
 int min(int a, int b);

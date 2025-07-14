@@ -23,7 +23,7 @@ extensions = [
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "local_search.c"),
 	           os.path.join("iqs", "src", "constraint.c")],
-	          extra_compile_args=["-O3", "-flto"],
+	          extra_compile_args=["-O3", "-flto", "-pthread"],
 	          include_dirs = [os.path.join("iqs", "src")]),
 ]
 
@@ -32,5 +32,5 @@ setup(
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions, language_level=2),
+	ext_modules = cythonize(extensions, language_level=3),
 )
