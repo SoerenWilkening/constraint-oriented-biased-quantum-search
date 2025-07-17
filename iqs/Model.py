@@ -178,7 +178,6 @@ or {self.runtime}s sampling
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
-		set_seed(42)
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
 
@@ -206,6 +205,7 @@ or {self.runtime}s sampling
 			           stop_val, callback, max_delta, reset_delta)
 			return
 
+		t1 = time()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
 		         delayed(run_sampling)(
 			         self.initial_state,
@@ -216,7 +216,8 @@ or {self.runtime}s sampling
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
 		         )
-		print(res[0][0])
+		self.objective_value = min([i[0].objective_value() for i in res])
+		self.runtime = time() - t1
 		return res[0][-1]
 		# t1 = time()
 		# shape = (num_workers, 3 + self.n)

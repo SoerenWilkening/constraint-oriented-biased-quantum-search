@@ -20,7 +20,6 @@ move_t *move_list(int d, int n, int *num_moves) {
 			for (int j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
 		}
 	}
-	printf("count1 %d\n", count);
 	move_t *moves = malloc(count * sizeof(move_t));
 	count = 0;
 	free(comb);
@@ -50,10 +49,6 @@ move_t *move_list(int d, int n, int *num_moves) {
 void free_move_list(move_t *move_list, int num_moves) {
 	for (int i = 0; i < num_moves; ++i) free(move_list[i].flips);
 	free(move_list);
-}
-
-int prepare_indices(new_constraints_t *con, new_constraints_t *obj, int n, int d) {
-
 }
 
 int accept_first_routine(state_t *new_sol, new_constraints_t *con, new_constraints_t *obj,
@@ -177,17 +172,6 @@ int accept_first_routine(state_t *new_sol, new_constraints_t *con, new_constrain
 	free(comb);
 	return 0;
 }
-
-
-typedef struct {
-	state_t *sol;
-	new_constraints_t *con, *obj;
-	int d, size_ful, initial_feasible, start_move, end_move;
-	move_t *moves;
-	array_t *ful, *ful_con;
-	int64_t *remainings;
-	state_t *cur_best;
-} local_search_data_t;
 
 void *explore_neighbourhood(void *args){
 	local_search_data_t *dat = (local_search_data_t *) args;
@@ -388,11 +372,7 @@ int local_search(state_t *cur_sol,
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
-	printf("moves = %d\n", num_moves);
 	while (break_condition) {
-//		break_condition = accept_first_routine(cur_sol, con, obj, n, distance, &thre, &initial_feasible, &ful,
-//		                                       &ful_con, max_constraint_clauses, remainings);
-
 		break_condition = accept_best_routine(cur_sol, con, obj, distance, &initial_feasible,
 											  max_constraint_clauses, moves, num_moves);
 		clock_gettime(CLOCK_MONOTONIC, &t2);

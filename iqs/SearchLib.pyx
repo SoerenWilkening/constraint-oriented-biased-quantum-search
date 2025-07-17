@@ -224,7 +224,7 @@ cpdef run_sampling(
 	# print(max_delta)
 	# with nogil:
 
-	print("M = ", M)
+	# print("M = ", M)
 
 	set_seed(os.getpid())
 	global python_callback

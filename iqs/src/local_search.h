@@ -23,6 +23,20 @@ typedef struct {
 	int *flips;
 } move_t;
 
+typedef struct {
+	state_t *sol;
+	new_constraints_t *con, *obj;
+	int d, size_ful, initial_feasible, start_move, end_move;
+	move_t *moves;
+	array_t *ful, *ful_con;
+	int64_t *remainings;
+	state_t *cur_best;
+} local_search_data_t;
+
+typedef struct {
+
+} tabu_list_t;
+
 int local_search(state_t *cur_sol,
                  new_constraints_t *con,
                  new_constraints_t *obj,
