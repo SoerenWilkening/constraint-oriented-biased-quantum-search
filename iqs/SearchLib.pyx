@@ -143,10 +143,13 @@ cdef class state_py:
 			f.write(f"{i} ")
 		f.close()
 
-	def read(self, bytes name, int n) -> None:
-		value = str(name).split("states_")[1].split(".txt")[0]
-		files = [b"./" + os.path.dirname(name) + b"/" + i for i in os.listdir(b"./" + os.path.dirname(name)) if
-		         "states" in str(i) and value in str(i)]
+	def read(self, str name, int n) -> None:
+		# print(name)
+		directoy = os.path.dirname(name)
+		value = str(name).split("states_")[0].replace(directoy + "/", "")
+		# print(value, directoy)
+		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if value in i]
+		# print(files)
 
 		num_files = len(files)
 		cdef char** f = <char **> calloc(num_files, sizeof(char *))
@@ -186,7 +189,7 @@ def store(states: list[float, tuple[list[int], list[int]]] , where: bytes) -> in
 	file.close()
 	return 0
 
-def read_nodes_wrapper(name: bytes ,n: int) -> int | state_py:
+def read_nodes_wrapper(str name ,n: int) -> int | state_py:
 	if not os.path.exists(name):
 		return 1
 
@@ -220,6 +223,8 @@ cpdef run_sampling(
 
 	# print(max_delta)
 	# with nogil:
+
+	print("M = ", M)
 
 	set_seed(os.getpid())
 	global python_callback

@@ -135,6 +135,7 @@ int ctg(
 	if (solver == SATISFY) search_function = CSearch_sat;
 	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
 	else if (solver == OPTIMIZE && feasible) {
+	    prepare(obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
 	    search_function = CSearch_opt;
 	}

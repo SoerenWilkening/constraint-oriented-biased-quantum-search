@@ -329,7 +329,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 				                  new_bit, NEGATIVE, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-//		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
+		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
 //        printf("%lld %lld\n", potentials[0], potentials[1]);
 		int as1 = (i == n);
 //		if (i == n) as1 = eval_constraints(con, new_sol, n);
@@ -337,9 +337,9 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 		int NumChangedTerms = 0;
 		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
-		int64_t val = INT64_MAX;
-//		if (as1) val = objective_value(obj, new_sol);
-		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
+		int64_t val = cur_sol->tot_profit;
+		if (as1) val = objective_value(obj, new_sol);
+//		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
 
 		if (as1 && cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms

@@ -11,7 +11,7 @@ class StateGenerator:
 
 		self.gur_model = gp.Model()
 		self.gur_model.setParam('OutputFlag', 0)
-		self.file = "states_1.txt"
+		self.file = f"{path}states_1.txt"
 
 
 	def generate_gurobi_model(self):
@@ -56,10 +56,6 @@ class StateGenerator:
 		self.prevtime = 0
 		# only run stategen, if bfs was not executed
 
-		initial = self.model.initial_state.objective_value()
-
-		self.store_counter = 0
-
 		# self.file = (f"{self.path}states_"
 		#              f"{initial}.txt")
 		# if all_feasible: self.file = f"{self.path}states_all_feasible.txt"
@@ -67,12 +63,14 @@ class StateGenerator:
 		if self.bfs is not None:
 			return self.num_bfs
 
-		# if the file already exists just read
-		exists = read_nodes_wrapper(self.file.encode(), self.model.n)
-		# print(len(exists))
+		exists = read_nodes_wrapper(self.file, self.model.n)
 		if exists != 1:
 			self.bfs = exists
-			return self.num_bfs
+			return len(self.bfs)
+
+		self.model.initial_state.get_x()
+		initial = self.model.initial_state.objective_value()
+		self.store_counter = 0
 
 		self.gur_model.setParam('MIPGap', .0)
 		self.gur_model.optimize()
@@ -92,7 +90,7 @@ class StateGenerator:
 			f"{len(self.states)} states "
 		)
 		store(self.states, self.file.encode())
-		self.bfs = read_nodes_wrapper(self.file.encode(), self.model.n)
+		self.bfs = read_nodes_wrapper(self.file, self.model.n)
 		return len(self.states)
 
 	def breadth_first_search(self, threshold, level, assignment, sol, branch, ObjVal):
@@ -138,6 +136,7 @@ class StateGenerator:
 			)
 			self.reltime = 0
 
+
 		x_l0 = self.gur_model.addConstr(self.vars[level] == 1 - sol[level], name = f"x{level}=={1 - sol[level]}")
 		self.gur_model.reset()  # remove all stored data from the model
 		self.gur_model.optimize()  # calculate the optimal solution
@@ -147,7 +146,7 @@ class StateGenerator:
 			# obj = int(round(decimal.Decimal(self.model.ObjVal) * decimal.Decimal(10 ** self.digits)))
 			obj = self.gur_model.ObjVal
 			# if solver == "sat": obj = self.Con.count()
-			if threshold > obj and would_branch:
+			if threshold < obj:
 				self.breadth_first_search(
 					threshold,
 					level + 1,

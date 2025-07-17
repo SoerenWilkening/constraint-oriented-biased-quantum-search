@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <pthread.h>
 #include "definitions.h"
 #include "state.h"
 #include "Expression.h"
@@ -181,7 +182,7 @@ int adjusted_constraint_violation(
 		const unsigned int *offsets, state_t *cur_sol,
 		int negative,
 		int64_t *ret_total,
-		array_t *ful,
+		const array_t *ful,
 //		int * fulfill,
 		int **changes,
 		int *num_changes,

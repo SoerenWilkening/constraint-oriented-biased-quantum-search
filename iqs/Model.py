@@ -168,7 +168,7 @@ or {self.runtime}s sampling
 			self.constraint.process(self.n)
 			self.constraints_compiled = True
 
-	def solve(self, M: int = -1, stopping_time: int = 1e9, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
+	def solve(self, M: int = -1, stopping_time: int = 100, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
 	          results = "min", bfs = False) -> float | None:
 		"""
@@ -178,6 +178,7 @@ or {self.runtime}s sampling
 		:return:
 			returns True if the Algorithm found a satisfying state
 		"""
+		set_seed(42)
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
 
@@ -215,6 +216,7 @@ or {self.runtime}s sampling
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
 		         )
+		print(res[0][0])
 		return res[0][-1]
 		# t1 = time()
 		# shape = (num_workers, 3 + self.n)

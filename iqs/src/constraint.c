@@ -149,20 +149,15 @@ void preprocessing(
 
 		for (int cnstr = 0; cnstr < C; cnstr++) {
 			size_t clause_offset = first_clause_index(con, cnstr);
-//            constraint_t *constr = &con->constraints[cnstr];
-
 			unsigned int npi = 0;
 			unsigned int nni = 0;
 			for (int cls = 0; cls < con->num_clauses[cnstr]; cls++) {
 				size_t clause_index = clause_offset + cls;
-//                int cls_length = constr->literals[cls].len_literal - 2; // index of the last item in the clause
-//                size_t cls_length = con->clause_length[clause_index] - 1; // index of the last item in the clause
 				int64_t factor = con->factors[clause_index];
 				size_t prev_var = -1;
 				for (int k = 0; k < con->clause_length[clause_index]; k++) {
 					size_t var = con->variables[variable_index(cls, k, clause_offset)];
 
-//                    if (item == constr->literals[cls].variables[cls_length]){
 					if (item == var && var != prev_var) {
 						if (factor < 0) {
 							// add index to "negative_indices"
@@ -379,7 +374,7 @@ int adjusted_constraint_violation(
 		const unsigned int *offsets, state_t *cur_sol,
 		int negative,
 		int64_t *ret_total,
-		array_t *ful,
+		const array_t *ful,
 		int **changes,
 		int *num_changes,
 		array_t *inv

@@ -63,7 +63,7 @@ void print_state(state_t *state){
 state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
     state_t *parent;
 
-    int64_t placeholder;
+    int placeholder;
     size_t estimate = 500000;
     parent = calloc(estimate, sizeof(state_t));
 
@@ -74,11 +74,11 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
         if (!file) return NULL;
 
         for (size_t i = 0; i < estimate; ++i) {
-            if (fscanf(file, "%lld ", &placeholder) != 1) {
+            if (fscanf(file, "%d ", &placeholder) != 1) {
                 fclose(file);
                 break;
             }
-//            printf("%d \n", placeholder);
+//            printf("%d\n", placeholder);
             parent[i].tot_profit = placeholder;
             parent[i].vector = sw_init(n);
             parent[i].branch = sw_init(n);
@@ -98,6 +98,7 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
             count++;
         }
     }
+//    printf("count %d\n", count);
     *NumberStatesFinal = count;
     parent = realloc(parent, count * sizeof(state_t));
     return parent;
