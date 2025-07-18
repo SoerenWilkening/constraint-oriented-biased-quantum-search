@@ -5,6 +5,25 @@
 #include "local_search.h"
 
 
+static inline int move_is_tabu(tabu_list_t *tabu_list, int move){
+	if (tabu_list->head == -1) return 0;
+	for (int i = 0; i < tabu_list->max_moves; ++i) {
+		if (move == tabu_list->moves[i]) return 1;
+	}
+	return 0;
+}
+
+static inline void update_state(state_t *cur_best, state_t *cur_best_tabu, state_t *state2, int64_t objective, int feasible, tabu_list_t *tabu, int move){
+	if (move_is_tabu(tabu, move)) {
+		sw_set_inplace(cur_best->vector, state2->vector); // copy assignment to current best
+		cur_best->tot_profit = objective;
+		cur_best->feasible = feasible;
+	}
+	sw_set_inplace(cur_best_tabu->vector, state2->vector); // copy assignment to current best
+	cur_best_tabu->tot_profit = objective;
+	cur_best_tabu->feasible = feasible;
+}
+
 move_t *move_list(int d, int n, int *num_moves) {
 	int count = 0;
 	int *comb = malloc(d * sizeof(int));
@@ -182,6 +201,8 @@ void *explore_neighbourhood(void *args){
 	int bits[dat->d];
 
 	state_t *cur_best = copy_state(dat->sol);
+	state_t *cur_best_tabu = copy_state(dat->sol); // current best tabu move
+
 	state_t *new_sol = copy_state(dat->sol);
 
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
@@ -224,15 +245,12 @@ void *explore_neighbourhood(void *args){
 		// first try to find a feasible solution, by minimizing the constraints violation
 		if (!(dat->initial_feasible)) {
 			if (total_violation > cur_best->tot_profit && !feasible) {
-				sw_set_inplace(cur_best->vector, new_sol->vector); // copy assignment to current best
-				cur_best->tot_profit = total_violation;
-				cur_best->feasible = 0;
+				update_state(cur_best, cur_best_tabu, new_sol, total_violation, 0, dat->tabu_list, mov);
 			}
 			if (feasible) {
 				dat->initial_feasible = feasible;
-				sw_set_inplace(cur_best->vector, new_sol->vector); // copy assignment to current best
-				cur_best->tot_profit = objective_value(dat->obj, new_sol);
-				cur_best->feasible = 1;
+				update_state(cur_best, cur_best_tabu, new_sol, objective_value(dat->obj, new_sol),
+							 1, dat->tabu_list, mov);
 			}
 		} else {
 			int *changes = calloc(MINSIZE, sizeof(int));
@@ -240,9 +258,7 @@ void *explore_neighbourhood(void *args){
 			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
 
 			if (objective < cur_best->tot_profit && feasible) {
-				sw_set_inplace(cur_best->vector, new_sol->vector); // copy assignment to current best
-				cur_best->tot_profit = objective;
-				cur_best->feasible = 1;
+				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
 			}
 			free(changes);
 		}

@@ -24,6 +24,12 @@ typedef struct {
 } move_t;
 
 typedef struct {
+	int max_moves; // how many moves are stored in tabu list
+	int head;      // current not-used slot (overrites previous move)
+	int *moves;    // store index of moves
+} tabu_list_t;
+
+typedef struct {
 	state_t *sol;
 	new_constraints_t *con, *obj;
 	int d, size_ful, initial_feasible, start_move, end_move;
@@ -31,11 +37,12 @@ typedef struct {
 	array_t *ful, *ful_con;
 	int64_t *remainings;
 	state_t *cur_best;
+	tabu_list_t *tabu_list;
 } local_search_data_t;
 
 typedef struct {
 
-} tabu_list_t;
+#define NUMThreads 6
 
 int local_search(state_t *cur_sol,
                  new_constraints_t *con,
