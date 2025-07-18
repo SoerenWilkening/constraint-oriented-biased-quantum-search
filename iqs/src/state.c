@@ -56,7 +56,7 @@ void copy_state_inplace(state_t *dest, state_t *src){
 }
 
 void print_state(state_t *state){
-    printf("%lld %f ", state->tot_profit, state->prob);
+    printf("%lld %f %d ", state->tot_profit, state->prob, state->feasible);
     sw_print(state->vector);
 }
 

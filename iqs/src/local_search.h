@@ -38,9 +38,9 @@ typedef struct {
 	int64_t *remainings;
 	state_t *cur_best;
 	tabu_list_t *tabu_list;
+	int move_index;
+	int tabu_move_index;
 } local_search_data_t;
-
-typedef struct {
 
 #define NUMThreads 6
 
