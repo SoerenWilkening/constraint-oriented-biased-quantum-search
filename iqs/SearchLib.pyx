@@ -124,7 +124,8 @@ cdef class state_py:
 		return self.objval
 
 	def __iter__(self):
-		return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
+		return [sw_tstbit(self.state[0].vector, i)  for i in range(self.state[0].vector.bits)].__iter__()
+		# return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
 
 	def integer_liste(self):
 		step = [[
@@ -327,13 +328,18 @@ cpdef run_local_search(initial: state_py,
 		int stopping_time,
         int solver,
         int64_t stop_val,
-        object callback):
+        object callback,
+        int max_worse_acceptances):
 
-	cdef state_t *st = initial.state
+	new_state: state_py = copy(initial)
+	cdef state_t *st = new_state.state
 	global python_callback
 	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 	with nogil:
-		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr)
+		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances)
+
+	new_state.get_x()
+	return new_state

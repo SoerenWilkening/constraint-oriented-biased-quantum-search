@@ -19,7 +19,7 @@ static inline void update_state(state_t *cur_best, state_t *cur_best_tabu, state
 		cur_best->feasible = feasible;
 		return;
 	}
-	printf("move is tabu\n");
+//	printf("move is tabu\n");
 	sw_set_inplace(cur_best_tabu->vector, state2->vector); // copy assignment to current best
 	cur_best_tabu->tot_profit = objective;
 	cur_best_tabu->feasible = feasible;
@@ -282,11 +282,15 @@ void *explore_neighbourhood(void *args){
 		if (!(dat->initial_feasible)) {
 			if (total_violation < cur_best->tot_profit && !feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, total_violation, 0, dat->tabu_list, mov);
+				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
+				else dat->move_index = mov;
 			}
 			if (feasible) {
 				dat->initial_feasible = feasible;
 				update_state(cur_best, cur_best_tabu, new_sol, objective_value(dat->obj, new_sol),
 							 1, dat->tabu_list, mov);
+				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
+				else dat->move_index = mov;
 			}
 		} else {
 			int *changes = calloc(MINSIZE, sizeof(int));
@@ -295,6 +299,8 @@ void *explore_neighbourhood(void *args){
 
 			if (objective < cur_best->tot_profit && feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
+				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
+				else dat->move_index = mov;
 			}
 			free(changes);
 		}
@@ -350,14 +356,18 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
 	}
+	int accepted_index = -1;
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_join(threads[i], NULL);
-		accept_move(cur_best, data[i].cur_best, global_opt);
+		int acc = accept_move(cur_best, data[i].cur_best, global_opt);
 
 		// tabu aspiration:
 		// - gives feasible solution if others dont
 		// - gives best ever found solution
-		aspiration(cur_best_tabu, global_opt);
+		int acc_tab = aspiration(cur_best_tabu, global_opt);
+		if (acc || acc_tab)
+			accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
+//		printf("%d %d %d %d\n", acc, acc_tab, data[i].move_index, data[i].tabu_move_index);
 
 		free_state(data[i].cur_best, 1);
 	}
@@ -365,12 +375,14 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	int accepted = accept_move(new_sol, cur_best, global_opt);
 	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
 	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
-//	printf("%d %d\n", accepted, accepted_tabu);
+
 	int new_move_index = -1;
+//	printf("move index = %d\n", accepted_index);
 	if (accepted || accepted_tabu){
 		// determine index of move
 		new_move_index = -1;
 	}else{
+		if (*accept_worse_counter == max_worse_acceptances) return 0; // stop the entire search
 		accepted = 1;
 		// no better solution found:
 		// accept best-worse solution
@@ -378,11 +390,10 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		sw_set_inplace(new_sol->vector, cur_best->vector); // copy assignment to current best
 		new_sol->tot_profit = cur_best->tot_profit;
 		new_sol->feasible = cur_best->feasible;
-		if (*accept_worse_counter == max_worse_acceptances) return 0; // stop the entire search
 		*accept_worse_counter += 1;
 	}
 	// add move to tabu list
-	tabu_list->moves[tabu_list->head] = new_move_index;
+	tabu_list->moves[tabu_list->head] = accepted_index;
 	tabu_list->head = (tabu_list->head + 1) % tabu_list->max_moves;
 
 	free_state(cur_best, 1);
@@ -398,7 +409,8 @@ int local_search(state_t *cur_sol,
                  int stopping_time,
                  solver_t solver,
                  int64_t stop_val,
-                 callback_t callback) {
+                 callback_t callback,
+				 int max_worse_acceptances) {
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -450,8 +462,8 @@ int local_search(state_t *cur_sol,
 	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
-	int max_worse_acceptances = 10;
-
+//	int max_worse_acceptances = 10;
+	int counter = 0;
 	while (break_condition) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
 											  max_constraint_clauses, moves, num_moves, &tabu_list,
@@ -459,9 +471,12 @@ int local_search(state_t *cur_sol,
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (break_condition && callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
-		printf("%d %lld %lld %f\n", break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
+		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
+		counter++;
 	}
+
+	accept_move(cur_sol, global_opt, global_opt);
 
 	free_move_list(moves, num_moves);
 	sw_clear(ful_con);
@@ -493,3 +508,47 @@ int local_search(state_t *cur_sol,
 //-2541946861 5.138395 -2541946861 4.790753 -2541946861 4.616239 -2541946861 4.639479
 //-2541959467 5.889666 -2541959467 5.526042 -2541959467 5.307099 -2541959467 5.346986
 //-2541992340 6.551404 -2541992340 6.145888 -2541992340 5.918960 -2541992340 5.951085
+
+
+
+// 0 1 -26269967 -26269967 0.009315
+// 1 1 -26353869 -26353869 0.016631
+// 2 1 -26431388 -26431388 0.024615
+// 3 1 -26499689 -26499689 0.032606
+// 4 1 -26553314 -26553314 0.040163
+// 5 1 -26593090 -26593090 0.048456
+// 6 1 -26625994 -26625994 0.055792
+// 7 1 -26652680 -26652680 0.064570
+// 8 1 -26655435 -26655435 0.071936
+// 9 0 -26655435 -26655435 0.080948
+//
+// 0 1 -26269967 -26269967 0.007325
+// 1 1 -26353869 -26353869 0.013767
+// 2 1 -26431388 -26431388 0.020282
+// 3 1 -26499689 -26499689 0.027365
+// 4 1 -26553314 -26553314 0.033959
+// 5 1 -26593090 -26593090 0.040803
+// 6 1 -26625994 -26625994 0.047269
+// 7 1 -26652680 -26652680 0.053707
+// 8 1 -26655435 -26655435 0.060342
+// 9 1 -26655013 -26655435 0.066759
+// 10 1 -26654403 -26655435 0.073382
+// 11 1 -26668842 -26668842 0.079834
+// 12 1 -26673667 -26673667 0.086498
+// 13 1 -26673826 -26673826 0.093006
+// 14 1 -26677681 -26677681 0.099514
+// 15 1 -26675359 -26677681 0.106219
+// 16 1 -26662099 -26677681 0.112875
+// 17 1 -26661915 -26677681 0.120080
+// 18 1 -26675359 -26677681 0.126743
+// 19 1 -26661692 -26677681 0.133210
+// 20 1 -26677681 -26677681 0.139769
+// 21 1 -26669925 -26677681 0.148015
+// 22 1 -26673826 -26677681 0.154709
+// 23 1 -26667348 -26677681 0.162908
+// 24 1 -26673667 -26677681 0.171586
+// 25 1 -26673826 -26677681 0.180044
+// 26 1 -26677681 -26677681 0.189596
+// 27 1 -26675359 -26677681 0.198696
+// 28 1 -26662099 -26677681 0.208979
+// 29 0 -26662099 -26677681 0.219211

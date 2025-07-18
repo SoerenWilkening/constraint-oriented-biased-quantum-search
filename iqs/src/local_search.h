@@ -51,6 +51,7 @@ int local_search(state_t *cur_sol,
                  int stopping_time,
                  solver_t solver,
                  int64_t stop_val,
-                 callback_t callback);
+                 callback_t callback,
+                 int max_worse_acceptances);
 
 #endif //IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H
