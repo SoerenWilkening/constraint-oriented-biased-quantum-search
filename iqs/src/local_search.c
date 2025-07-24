@@ -367,7 +367,6 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		int acc_tab = aspiration(cur_best_tabu, global_opt);
 		if (acc || acc_tab)
 			accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
-//		printf("%d %d %d %d\n", acc, acc_tab, data[i].move_index, data[i].tabu_move_index);
 
 		free_state(data[i].cur_best, 1);
 	}
@@ -377,7 +376,6 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
 
 	int new_move_index = -1;
-//	printf("move index = %d\n", accepted_index);
 	if (accepted || accepted_tabu){
 		// determine index of move
 		new_move_index = -1;
@@ -419,11 +417,12 @@ int local_search(state_t *cur_sol,
 	int C = con->num_constraints;
 
 	array_t ful = sw_init(obj->num_clauses[0]);
-
 	int max_constraint_clauses = 0;
-	for (int i = 0; i < C; ++i)
-		if (con->num_clauses[C] > max_constraint_clauses)
-			max_constraint_clauses = con->num_clauses[C];
+	for (int i = 0; i < C; ++i){
+		if (con->num_clauses[i] > max_constraint_clauses){
+			max_constraint_clauses = con->num_clauses[i];
+        }
+    }
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
@@ -462,7 +461,6 @@ int local_search(state_t *cur_sol,
 	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
-//	int max_worse_acceptances = 10;
 	int counter = 0;
 	while (break_condition) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
