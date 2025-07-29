@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "intarray.h"
 #include "definitions.h"
 #include "Branching.h"
@@ -40,6 +41,8 @@ typedef struct {
 	tabu_list_t *tabu_list;
 	int move_index;
 	int tabu_move_index;
+	double *progress;
+	int id;
 } local_search_data_t;
 
 #define NUMThreads 6

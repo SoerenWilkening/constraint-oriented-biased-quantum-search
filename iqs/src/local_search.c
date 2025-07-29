@@ -225,6 +225,23 @@ void free_move_list(move_t *move_list, int num_moves) {
 //	return 0;
 //}
 
+typedef struct{
+    double progress[NUMThreads];
+    int stat;
+} dat_t;
+
+void *print_status(void *args){
+    dat_t *progress = (dat_t *)args;
+    while (!progress->stat){
+        printf("\r");
+        for (int i = 0; i < NUMThreads; i++){
+            printf("| %6.1f%% |", progress->progress[i] * 100);
+        }
+        usleep(100000);
+    }
+    return NULL;
+}
+
 void *explore_neighbourhood(void *args){
 	local_search_data_t *dat = (local_search_data_t *) args;
 	int C = dat->con->num_constraints;
@@ -310,6 +327,7 @@ void *explore_neighbourhood(void *args){
 			if (bits[i]) sw_setbit(new_sol->vector, comb[i]);
 			else sw_clrbit(new_sol->vector, comb[i]);
 		}
+		dat->progress[dat->id] += 1. / (dat->end_move - dat->start_move);
 	}
 	free_state(new_sol, 1);
 	dat->cur_best = cur_best;
@@ -336,6 +354,12 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	prepare_constraints(con, new_sol, &ful_con);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
+    dat_t prog_data;
+    memset(prog_data.progress, 0, NUMThreads * sizeof(double));
+    prog_data.stat = 0;
+    pthread_t progress_thread;
+//	pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
+
 	local_search_data_t data[NUMThreads];
 	pthread_t threads[NUMThreads];
 	for (int i = 0; i < NUMThreads; ++i) {
@@ -352,6 +376,8 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].d = d;
 		data[i].start_move = i * num_moves / NUMThreads;
 		data[i].end_move = (i + 1) * num_moves / NUMThreads;
+		data[i].progress = prog_data.progress;
+		data[i].id = i;
 	}
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
@@ -370,6 +396,9 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 
 		free_state(data[i].cur_best, 1);
 	}
+	prog_data.stat = 1;
+	pthread_join(progress_thread, NULL);
+//	printf("\n");
 
 	int accepted = accept_move(new_sol, cur_best, global_opt);
 	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
@@ -483,70 +512,12 @@ int local_search(state_t *cur_sol,
 	return 0;
 }
 
-
-
-//for (int k = 1; k <= d; ++k) {
-//// Initialize first combination: [0, 1, ..., k-1]
-//	for (int i = 0; i < k; ++i) comb[i] = i;
-//      Generate next combination
-//		int i = k - 1;
-//		while (i >= 0 && comb[i] == n - k + i) i--;
-//		if (i < 0) break; // All combinations done
-//
-//		comb[i]++;
-//		for (int j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
-//	}
-//}
-
-// instance 1000 0
-//-2541824465 0.811937 -2541824465 0.747621 -2541824465 0.733215 -2541824465 0.729911
-//-2541840041 1.451326 -2541840041 1.369981 -2541840041 1.331356 -2541840041 1.336487
-//-2541853166 2.256461 -2541853166 2.079619 -2541853166 2.023245 -2541853166 2.021711
-//-2541877731 2.941164 -2541877731 2.717657 -2541877731 2.621373 -2541877731 2.622210
-//-2541946861 5.138395 -2541946861 4.790753 -2541946861 4.616239 -2541946861 4.639479
-//-2541959467 5.889666 -2541959467 5.526042 -2541959467 5.307099 -2541959467 5.346986
-//-2541992340 6.551404 -2541992340 6.145888 -2541992340 5.918960 -2541992340 5.951085
-
-
-
-// 0 1 -26269967 -26269967 0.009315
-// 1 1 -26353869 -26353869 0.016631
-// 2 1 -26431388 -26431388 0.024615
-// 3 1 -26499689 -26499689 0.032606
-// 4 1 -26553314 -26553314 0.040163
-// 5 1 -26593090 -26593090 0.048456
-// 6 1 -26625994 -26625994 0.055792
-// 7 1 -26652680 -26652680 0.064570
-// 8 1 -26655435 -26655435 0.071936
-// 9 0 -26655435 -26655435 0.080948
-//
-// 0 1 -26269967 -26269967 0.007325
-// 1 1 -26353869 -26353869 0.013767
-// 2 1 -26431388 -26431388 0.020282
-// 3 1 -26499689 -26499689 0.027365
-// 4 1 -26553314 -26553314 0.033959
-// 5 1 -26593090 -26593090 0.040803
-// 6 1 -26625994 -26625994 0.047269
-// 7 1 -26652680 -26652680 0.053707
-// 8 1 -26655435 -26655435 0.060342
-// 9 1 -26655013 -26655435 0.066759
-// 10 1 -26654403 -26655435 0.073382
-// 11 1 -26668842 -26668842 0.079834
-// 12 1 -26673667 -26673667 0.086498
-// 13 1 -26673826 -26673826 0.093006
-// 14 1 -26677681 -26677681 0.099514
-// 15 1 -26675359 -26677681 0.106219
-// 16 1 -26662099 -26677681 0.112875
-// 17 1 -26661915 -26677681 0.120080
-// 18 1 -26675359 -26677681 0.126743
-// 19 1 -26661692 -26677681 0.133210
-// 20 1 -26677681 -26677681 0.139769
-// 21 1 -26669925 -26677681 0.148015
-// 22 1 -26673826 -26677681 0.154709
-// 23 1 -26667348 -26677681 0.162908
-// 24 1 -26673667 -26677681 0.171586
-// 25 1 -26673826 -26677681 0.180044
-// 26 1 -26677681 -26677681 0.189596
-// 27 1 -26675359 -26677681 0.198696
-// 28 1 -26662099 -26677681 0.208979
-// 29 0 -26662099 -26677681 0.219211
+//0 1 -2542198072 -2542198072 8.903988
+//1 1 -2542579674 -2542579674 17.791028
+//2 1 -2542926512 -2542926512 26.868167
+//3 1 -2543211143 -2543211143 36.063215
+//4 1 -2543496840 -2543496840 45.250852
+//5 1 -2543753845 -2543753845 54.663699
+//6 1 -2544015603 -2544015603 63.968378
+//7 1 -2544254132 -2544254132 73.318486
+//8 1 -2544480408 -2544480408 82.727587
