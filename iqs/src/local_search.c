@@ -468,7 +468,7 @@ int local_search(state_t *cur_sol,
 											  &worse_acceptance_counter, max_worse_acceptances);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-		if (break_condition && callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
+		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
 		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
