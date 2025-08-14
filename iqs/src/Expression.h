@@ -39,4 +39,6 @@ void multiply_variable(expression_t *expr, int64_t index);
 void add_sense_to_expression(expression_t *expr, int sense);
 void add_rhs_to_expression(expression_t *expr, int64_t rhs);
 
+expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2);
+
 #endif

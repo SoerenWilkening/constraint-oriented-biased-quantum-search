@@ -1,7 +1,7 @@
 #include "constraint.h"
 
 int main(){
-    expression_t *expr = init_expression();
+    expression_t *expr;
 
 	int arr[5];
 	for (int i = 0; i < 5; ++i) arr[i] = 1;
@@ -9,46 +9,25 @@ int main(){
 
 	expression_t *e1 = init_expression();
 	add_variable(e1, 3);
-	multiply_variable(e1, 5);
-	multiply_variable(e1, 7);
-	multiply_variable(e1, 2);
-	add_expression(expr, e1);
-	free_expression(e1);
+	multiply_variable(e1, 6);
+	multiply_constant(e1, 2);
+	add_variable(e1, 1);
 
-	e1 = init_expression();
-	add_variable(e1, 3);
-	multiply_variable(e1, 5);
-	multiply_variable(e1, 7);
-	multiply_variable(e1, 1);
-	add_expression(expr, e1);
-	free_expression(e1);
+	expression_t *e2 = init_expression();
+	add_variable(e2, 3);
+	multiply_constant(e2, 3);
+	add_variable(e2, 4);
 
-	add_expression(expr, e1);
+	print_expression(e1);
+	print_expression(e2);
 
-	for (int i = 5; i >= 0; i--){
-		e1 = init_expression();
-		add_variable(e1, i);
-		multiply_variable(e1, i + 2);
-		add_expression(expr, e1);
-		free_expression(e1);
-
-		e1 = init_expression();
-		add_variable(e1, i);
-		multiply_variable(e1, i + 1);
-		add_expression(expr, e1);
-		free_expression(e1);
-	}
-	multiply_constant(expr, 3);
-	add_sense_to_expression(expr, LOWER);
-	add_rhs_to_expression(expr, 3);
-	print_expression(expr);
-	merge_expression(expr);
+	expr = multiply_expressions(e1, e2);
+	print_expression(e1);
+	print_expression(e2);
 	printf("\n");
+	free_expression(e1);
+	free_expression(e2);
 	print_expression(expr);
-	sort_expression(expr);
-	printf("\n");
-	print_expression(expr);
-
 //	new_constraints_t con = init_new_constraint();
 //	add_expression_to_constraints(&con, expr);
 //	add_expression_to_constraints(&con, expr);

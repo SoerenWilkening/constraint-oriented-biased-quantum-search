@@ -80,14 +80,26 @@ or {self.runtime}s sampling
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 
-	def add_variable(self, index: int = 0, name: str = "x") -> Variable:
+	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> Variable | Expression:
+		if bound > 1:
+			number = int(np.floor(np.log2(bound))) + 1
+			x = self.add_variables(number, name=name)
+			expr = sum(2 ** i * x[list(x.keys())[i]] for i in range(number))
+			self.add_constraint(expr <= bound)
+			return expr
+
 		x = Variable(max(index, self.n), f"{name}{max(index, self.n)})")
 		self.variables[max(index, self.n)] = x
 		self.n += 1
 		return x
 
-	def add_variables(self, n: int = 1, name: str = "x") -> dict:
+	def add_variables(self, n: int = 1, name: str = "x", bound = 1) -> dict:
 		x = {}
+		if bound > 1:
+			for i in range(n):
+				# print(i)
+				x[i] = self.add_variable(self.n, name=name, bound=bound)
+			return x
 		for i in range(n):
 			x[self.n + i] = Variable(self.n + i, f"{name}{self.n + i}")
 			self.variables[self.n + i] = x[self.n + i]
@@ -217,7 +229,9 @@ or {self.runtime}s sampling
                      stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
 		         )
 		self.objective_value = min([i[0].objective_value() for i in res])
+		self.grover_iterations = min([i[1] for i in res])
 		self.runtime = time() - t1
+		self.final_state = res[0][0]
 		return res[0][-1]
 		# t1 = time()
 		# shape = (num_workers, 3 + self.n)

@@ -1,5 +1,5 @@
 from .Constants import *
-import numpy as np
+
 
 class Variable:
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
@@ -91,6 +91,11 @@ cdef class Expression:
 			print()
 		return ""
 
+	def __copy__(self):
+		ne = Expression()
+		ne.add_expr(self)
+		return ne
+
 	def __dealloc__(self):
 		free_expression(self.expr)
 		self.expr = NULL
@@ -98,6 +103,10 @@ cdef class Expression:
 
 	cdef add_expr(self, Expression other):
 		add_expression(<expression_t *> self.expr, <expression_t *> other.expr)
+
+	cdef mul_expr(self, Expression other, Expression ne):
+		new = multiply_expressions(<expression_t *> self.expr, <expression_t *> other.expr)
+		add_expression(ne.expr, new)
 
 	def merge(self):
 		merge_expression(self.expr)
@@ -150,6 +159,10 @@ cdef class Expression:
 		if isinstance(other, Variable):
 			multiply_variable(self.expr, other.index)
 			return self
+		if isinstance(other, Expression):
+			ne = Expression()
+			self.mul_expr(other, ne)
+			return ne
 
 	def __rmul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
@@ -159,6 +172,10 @@ cdef class Expression:
 		if isinstance(other, Variable):
 			multiply_variable(self.expr, other.index)
 			return self
+		if isinstance(other, Expression):
+			ne = Expression()
+			self.mul_expr(other, ne)
+			return ne
 
 	def __le__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
@@ -187,7 +204,7 @@ cdef class Expression:
 
 			add_sense_to_expression(self.expr, LOWER)
 			add_rhs_to_expression(self.expr, -other + potential)
-			self.sense = LOWER # originally GREATER
+			self.sense = LOWER  # originally GREATER
 			self.rhs = -other + potential
 			return self
 

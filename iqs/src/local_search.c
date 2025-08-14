@@ -358,7 +358,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
     memset(prog_data.progress, 0, NUMThreads * sizeof(double));
     prog_data.stat = 0;
     pthread_t progress_thread;
-//	pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
+	pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
 
 	local_search_data_t data[NUMThreads];
 	pthread_t threads[NUMThreads];

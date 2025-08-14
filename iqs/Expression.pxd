@@ -5,6 +5,8 @@ cdef extern from "src/Expression.h":
 		int64_t *literals;
 		int *len_literal;
 		int expr_size;
+		int sense;
+		int64_t rhs;
 
 	expression_t *init_expression();
 	int expr_index(int lit, int ind);
@@ -25,9 +27,12 @@ cdef extern from "src/Expression.h":
 	void add_sense_to_expression(expression_t *expr, int sense);
 	void add_rhs_to_expression(expression_t *expr, int64_t rhs);
 
+	expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2);
+
 cdef class Expression:
 	cdef expression_t *expr
 	cdef int sense
 	cdef int64_t rhs
 	cdef c_liste(self)
 	cdef add_expr(self, Expression other)
+	cdef mul_expr(self, Expression other, Expression ne)

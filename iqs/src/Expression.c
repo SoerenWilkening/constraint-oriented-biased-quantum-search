@@ -171,3 +171,18 @@ void add_rhs_to_expression(expression_t *expr, int64_t rhs){
 }
 
 // maybe no need to implement "multiply_expression"
+expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2){
+	expression_t *new = init_expression();
+	for(int index = 0; index < expr2->expr_size; index++) {
+		expression_t *step = init_expression();
+		add_expression(step, expr1);
+
+		multiply_constant(step, expr2->literals[expr_index(index, 0)]);
+		for (int i = 1; i < len_literal(expr2, index); ++i) {
+			multiply_variable(step, expr2->literals[expr_index(index, i)]);
+		}
+		add_expression(new, step);
+		free_expression(step);
+	}
+	return new;
+}
