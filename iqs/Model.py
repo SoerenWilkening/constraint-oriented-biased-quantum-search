@@ -287,7 +287,7 @@ or {self.runtime}s sampling
 		# except:
 		# 	pass
 
-	def local_search(self, distance = 2, callback = None, stop_time = 100, max_worse_acceptances: int = 10):
+	def local_search(self, distance = 2, callback = None, stop_time = 1 << 8, max_worse_acceptances: int = 10):
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		t1 = time()
 		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)
