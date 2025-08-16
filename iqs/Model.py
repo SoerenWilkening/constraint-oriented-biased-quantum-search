@@ -180,7 +180,7 @@ or {self.runtime}s sampling
 			self.constraint.process(self.n)
 			self.constraints_compiled = True
 
-	def solve(self, M: int = -1, stopping_time: int = 100, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
+	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
 	          results = "min", bfs = False) -> float | None:
 		"""
@@ -287,7 +287,7 @@ or {self.runtime}s sampling
 		# except:
 		# 	pass
 
-	def local_search(self, distance = 2, callback = None, stop_time = 1 << 8, max_worse_acceptances: int = 10):
+	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10):
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		t1 = time()
 		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)

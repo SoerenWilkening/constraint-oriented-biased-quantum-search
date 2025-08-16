@@ -116,14 +116,16 @@ void preprocessing(
 		int n,
 		new_constraints_t *con
 ) {
+
+    int size_steps = 1 << 14;
 	int C = con->num_constraints;
 
-	con->positive_indices = calloc(2 * n * n * C, sizeof(unsigned int));
-	con->negative_indices = calloc(2 * n * n * C, sizeof(unsigned int));
-	con->positive_offsets = malloc(n * C * n * sizeof(unsigned int));
-	con->negative_offsets = malloc(n * C * n * sizeof(unsigned int));
-	con->num_positive_indices = malloc(n * C * n * sizeof(unsigned int));
-	con->num_negative_indices = malloc(n * C * n * sizeof(unsigned int));
+	con->positive_indices = calloc(size_steps, sizeof(unsigned int));
+	con->negative_indices = calloc(size_steps, sizeof(unsigned int));
+	con->positive_offsets = malloc(n * C * sizeof(unsigned int));
+	con->negative_offsets = malloc(n * C * sizeof(unsigned int));
+	con->num_positive_indices = malloc(n * C * sizeof(unsigned int));
+	con->num_negative_indices = malloc(n * C * sizeof(unsigned int));
 	// preprocess the constraints for usage in the sampling routine
 	// go through every item and collect all the constraint indices containing the items
 	// sort indices by positive and negative coefficients
@@ -161,10 +163,14 @@ void preprocessing(
 					if (item == var && var != prev_var) {
 						if (factor < 0) {
 							// add index to "negative_indices"
+							if (counter_negative & (size_steps - 1) )
+							    con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(unsigned int));
 							con->negative_indices[counter_negative++] = cls;
 							nni++;
 						} else {
 							// add index to "positive_indices"
+							if (counter_positive & (size_steps - 1) )
+							    con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(unsigned int));
 							con->positive_indices[counter_positive++] = cls;
 							npi++;
 						}

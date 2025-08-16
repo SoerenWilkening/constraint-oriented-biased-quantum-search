@@ -107,6 +107,7 @@ cdef class Expression:
 	cdef mul_expr(self, Expression other, Expression ne):
 		new = multiply_expressions(<expression_t *> self.expr, <expression_t *> other.expr)
 		add_expression(ne.expr, new)
+		free_expression(new)
 
 	def merge(self):
 		merge_expression(self.expr)
@@ -162,6 +163,7 @@ cdef class Expression:
 		if isinstance(other, Expression):
 			ne = Expression()
 			self.mul_expr(other, ne)
+			del self
 			return ne
 
 	def __rmul__(self, other):
@@ -175,6 +177,7 @@ cdef class Expression:
 		if isinstance(other, Expression):
 			ne = Expression()
 			self.mul_expr(other, ne)
+			del self
 			return ne
 
 	def __le__(self, other):

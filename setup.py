@@ -7,12 +7,15 @@ from setuptools.extension import Extension
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
+# Compiler & linker flags for AddressSanitizer
+compiler_args = ["-O3", "-flto", "-pthread"]
+
 extensions = [
-	Extension("iqs.Constants", ["iqs/Constants.py"]),
-	Extension("iqs.Constants", ["iqs/StateGenerator.py"]),
-	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"]),
+	Extension("iqs.Constants", ["iqs/Constants.py"], extra_compile_args=compiler_args),
+	Extension("iqs.Constants", ["iqs/StateGenerator.py"], extra_compile_args=compiler_args),
+	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"], extra_compile_args=compiler_args),
 	#Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/main.m"], extra_compile_args=["-ObjC"]  ),
-	Extension("iqs.Model", ["iqs/Model.py"]),
+	Extension("iqs.Model", ["iqs/Model.py"], extra_compile_args=compiler_args),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
 			   os.path.join("iqs", "src", "solver.c"),
@@ -22,8 +25,7 @@ extensions = [
 	           os.path.join("iqs", "src", "Expression.c"),
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "local_search.c"),
-	           os.path.join("iqs", "src", "constraint.c")],
-	          extra_compile_args=["-O3", "-flto", "-pthread"],
+	           os.path.join("iqs", "src", "constraint.c")], extra_compile_args=compiler_args,
 	          include_dirs = [os.path.join("iqs", "src")]),
 ]
 

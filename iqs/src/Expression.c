@@ -121,6 +121,8 @@ void add_expression(expression_t *expr1, expression_t *expr2){
 
 void sub_constant(expression_t *expr, int64_t constant){
     increase(expr);
+
+
     expr->literals[expr_index(expr->expr_size, 0)] = -constant;
     expr->len_literal[expr->expr_size] = 1;
     expr->expr_size++;
