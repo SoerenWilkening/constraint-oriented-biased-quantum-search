@@ -38,11 +38,13 @@ typedef struct {
 	array_t *ful, *ful_con;
 	int64_t *remainings;
 	state_t *cur_best;
+	state_t *cur_best_tabu;
 	tabu_list_t *tabu_list;
 	int move_index;
 	int tabu_move_index;
 	double *progress;
 	int id;
+	int *stopping_criterion;
 } local_search_data_t;
 
 #define NUMThreads 6

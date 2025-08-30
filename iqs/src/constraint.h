@@ -73,11 +73,6 @@ static inline size_t variable_index(size_t cls, size_t k, size_t clause_offset) 
 	return first_variable_index(cls, clause_offset) + k;
 }
 
-//inline size_t first_clause_index(new_constraints_t *con, size_t C);
-//
-//inline size_t first_variable_index(size_t cls, size_t clause_offset);
-//
-//inline size_t variable_index(size_t cls, size_t k, size_t clause_offset);
 
 void free_constraints(new_constraints_t *con);
 
@@ -94,75 +89,7 @@ int64_t objective_value(new_constraints_t *obj, state_t *sol);
 
 int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful);
 
-
-
-
-
 #define MINSIZE 2048
-
-
-
-
-
-
-//// OLD IMPLEMENTAIOTN
-//typedef struct{
-////    long double *literal; // in the form of [value, index] (linear) or [value, index1, index2] (quadratic)
-//    int64_t factor;
-//    int *variables;
-//    int len_literal; // 2 for linear, 3 for quadratic expression, ...
-//} lit_t;
-
-//
-//typedef struct {
-//    lit_t *literals;
-//    int num_literals;
-//    int sense;
-//    int64_t rhs;
-//
-//    int first_non_closed;
-//    int64_t rhs_adapted;
-//
-//    int evaluated;
-//} constraint_t;
-//
-//typedef struct {
-//    constraint_t *constraints;
-//    int num_constraints;
-//} constraint_list_t;
-//
-//constraint_list_t init_con_list();
-//
-//constraint_t init_con();
-//lit_t init_literal(int64_t *literal, int len_literal);
-
-//void add_constraint(constraint_list_t *con_list, constraint_t *con);
-//constraint_t *add_constraint(constraint_list_t *con_list);
-//void add_literal(constraint_t *con, int64_t *literal, int len_literal);
-//void add_sense(constraint_t *con, int sense);
-//void add_rhs(constraint_t *con, int64_t rhs);
-//void add_digits(constraint_t *con, int digits);
-//
-//void reset_rhs_adapted(constraint_list_t *con);
-//
-//void print_constraints(constraint_list_t *cons);
-
-//int eval_constraint2(constraint_t *con, state_t *assignment, int assigned, int close);
-//int quantum_feasibility2(constraint_list_t *con, state_t *assignment, int assigned, int close);
-//int count_satisfyed_constraints(constraint_list_t *con, state_t *assignment, int assigned, int close, int allowed_false);
-//
-//int64_t ObjVal(state_t *state, constraint_list_t *obj);
-//
-//int64_t ChangedObjVal(  constraint_list_t *obj, // objective function
-//                            state_t *new, // new state
-//                            int NumChanges, // how many bits were flipped
-//                            int *ChangedBits, // which bits were flipped
-//                            int **Indices, // objective term indices involving every item
-//                            int *NumIndices, // in how many terms every item occours
-//                            int *Fulfilled, // are terms of objective fulfilled
-//                            int *ChangedTerms,
-//                            int *NumChangedTerms
-//                            );
 
 int64_t objective_value_improved(new_constraints_t *obj, // objective function
                                  state_t *new,    // new state

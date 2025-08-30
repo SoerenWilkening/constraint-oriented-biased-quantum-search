@@ -228,64 +228,13 @@ or {self.runtime}s sampling
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
 		         )
+
 		self.objective_value = min([i[0].objective_value() for i in res])
 		self.grover_iterations = min([i[1] for i in res])
 		self.runtime = time() - t1
 		self.final_state = res[0][0]
 		return res[0][-1]
-		# t1 = time()
-		# shape = (num_workers, 3 + self.n)
-		# self.shm = shared_memory.SharedMemory(create = True, size = np.prod(shape) * np.int64().itemsize)
-		# arr = np.ndarray(shape, dtype = np.float64, buffer=self.shm.buf)
-		#
-		# # atexit.register(self.cleanup)
-		#
-		# self.child_pid = []
-		# self.parent_pid = os.getpid()
-		#
-		# file_pid = open("pids", "w")
-		# file_pid.close()
-		#
-		# try:
-		# 	for i in range(num_workers):
-		# 		pid = os.fork()
-		# 		if pid == 0:
-		# 			file_pid = open("pids", "a")
-		# 			file_pid.write(f"{os.getpid()}\n")
-		# 			file_pid.close()
-		# 			self.worker_process(self.shm.name, i, shape, M, stopping_time, depth_look_ahead, stop_val, callback, max_delta, reset_delta)
-		# 			exit(0)  # Terminate child process after work is done
-		# 		else:
-		# 			self.child_pid.append(pid)
-		#
-		# 	for _ in range(num_workers):
-		# 		os.wait()
-		# except KeyboardInterrupt:
-		# 	self.kill_children()
-		# 	try:
-		# 		self.shm.close()
-		# 		self.shm.unlink()
-		# 	except:
-		# 		pass
-		# 	sys.exit(1)
-		#
-		# self.runtime = time() - t1 # stores classical runtime of all the complete execution
-		# if results == "min":
-		# 	self.objective_value =  min(i[0] for i in arr)
-		# 	index = [i[0] for i in arr].index(self.objective_value)
-		# 	self.grover_iterations = min(list(i[1] for i in arr if i[0] == self.objective_value))
-		# 	self.feasible = max(i[2] for i in arr)
-		# 	# print(arr)
-		# 	self.final_state = [int(arr[index, counter]) for counter in range(3, 3 + self.n)]
-		# else:
-		# 	self.objective_value = np.mean([i[0] for i in arr])
-		# 	self.grover_iterations = np.mean([i[1] for i in arr])
-		# 	self.feasible = np.mean(i[2] for i in arr)
-		# try:
-		# 	self.shm.close()
-		# 	self.shm.unlink()
-		# except:
-		# 	pass
+
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10):
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)

@@ -237,7 +237,7 @@ void *print_status(void *args){
         for (int i = 0; i < NUMThreads; i++){
             printf("| %6.1f%% |", progress->progress[i] * 100);
         }
-        usleep(100000);
+        usleep(1000000);
     }
     return NULL;
 }
@@ -258,6 +258,9 @@ void *explore_neighbourhood(void *args){
 	state_t *new_sol = copy_state(dat->sol);
 
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
+		// stop, if first better solution was found
+//		if (*dat->stopping_criterion) break;
+
 		int *comb = dat->moves[mov].flips;
 		int k = dat->moves[mov].num_flips;
 		// flip bits
@@ -301,6 +304,7 @@ void *explore_neighbourhood(void *args){
 				update_state(cur_best, cur_best_tabu, new_sol, total_violation, 0, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
+//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 			if (feasible) {
 				dat->initial_feasible = feasible;
@@ -308,6 +312,7 @@ void *explore_neighbourhood(void *args){
 							 1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
+//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 		} else {
 			int *changes = calloc(MINSIZE, sizeof(int));
@@ -318,9 +323,13 @@ void *explore_neighbourhood(void *args){
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
+//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 			free(changes);
 		}
+
+		// if cur_best is better than sol: stop all threads
+//		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = 1;
 
 		// unflip bits
 		for (int i = 0; i < k; ++i) {
@@ -331,6 +340,7 @@ void *explore_neighbourhood(void *args){
 	}
 	free_state(new_sol, 1);
 	dat->cur_best = cur_best;
+	dat->cur_best_tabu = cur_best_tabu;
 	return NULL;
 }
 
@@ -362,6 +372,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 
 	local_search_data_t data[NUMThreads];
 	pthread_t threads[NUMThreads];
+	int stop_at_first = 0;
 	for (int i = 0; i < NUMThreads; ++i) {
 		data[i].con = con;
 		data[i].obj = obj;
@@ -370,6 +381,8 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].initial_feasible = *initial_feasible;
 		data[i].ful_con = &ful_con;
 		data[i].ful = &ful;
+		data[i].cur_best = NULL;
+		data[i].cur_best_tabu = NULL;
 		data[i].tabu_list = tabu_list;
 		data[i].sol = new_sol;
 		data[i].size_ful = size_ful;
@@ -378,6 +391,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].end_move = (i + 1) * num_moves / NUMThreads;
 		data[i].progress = prog_data.progress;
 		data[i].id = i;
+		data[i].stopping_criterion = &stop_at_first;
 	}
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
@@ -385,16 +399,23 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	int accepted_index = -1;
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_join(threads[i], NULL);
-		int acc = accept_move(cur_best, data[i].cur_best, global_opt);
-
-		// tabu aspiration:
-		// - gives feasible solution if others dont
-		// - gives best ever found solution
-		int acc_tab = aspiration(cur_best_tabu, global_opt);
-		if (acc || acc_tab)
-			accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
-
-		free_state(data[i].cur_best, 1);
+		int acc = 0;
+		int acc_tab = 0;
+		if (data[i].cur_best != NULL) {
+//			print_state(data[i].cur_best);
+//			printf("\n");
+			acc = accept_move(cur_best, data[i].cur_best, global_opt);
+			free_state(data[i].cur_best, 1);
+		}
+		if (data[i].cur_best != NULL) {
+			// tabu aspiration:
+			// - gives feasible solution if others dont
+			// - gives best ever found solution
+			acc_tab = aspiration(data[i].cur_best_tabu, global_opt);
+			if (acc_tab) acc = accept_move(cur_best, data[i].cur_best_tabu, global_opt);
+			free_state(data[i].cur_best_tabu, 1);
+		}
+		if (acc || acc_tab) accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
 	}
 	prog_data.stat = 1;
 	pthread_join(progress_thread, NULL);
@@ -492,13 +513,14 @@ int local_search(state_t *cur_sol,
 	int worse_acceptance_counter = 0;
 	int counter = 0;
 	while (break_condition) {
+//	for (int i = 0; i < 10; ++i) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
 											  max_constraint_clauses, moves, num_moves, &tabu_list,
 											  &worse_acceptance_counter, max_worse_acceptances);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
-//		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
+//		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
+		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
 	}
@@ -511,13 +533,3 @@ int local_search(state_t *cur_sol,
 
 	return 0;
 }
-
-//0 1 -2542198072 -2542198072 8.903988
-//1 1 -2542579674 -2542579674 17.791028
-//2 1 -2542926512 -2542926512 26.868167
-//3 1 -2543211143 -2543211143 36.063215
-//4 1 -2543496840 -2543496840 45.250852
-//5 1 -2543753845 -2543753845 54.663699
-//6 1 -2544015603 -2544015603 63.968378
-//7 1 -2544254132 -2544254132 73.318486
-//8 1 -2544480408 -2544480408 82.727587

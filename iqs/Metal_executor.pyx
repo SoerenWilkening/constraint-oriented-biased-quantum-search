@@ -12,7 +12,7 @@ cdef extern from "src/main.h":
 
 	ctypedef struct gpu_info_t:
 		id device
-		id commandQueue
+		id queue
 		id pipelineState
 		id cur_val_Buffer
 		id cur_array_Buffer

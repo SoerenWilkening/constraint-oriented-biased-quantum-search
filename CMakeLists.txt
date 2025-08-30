@@ -22,4 +22,16 @@ add_executable(improved_quantum_search
         iqs/src/solver.h
         iqs/src/local_search.c
         iqs/src/local_search.h
+        iqs/src/main.m
+)
+
+
+add_executable(metal_test
+        iqs/src/metal_files/exec_metal.m
+        iqs/src/metal_files/exec_metal.h
+        iqs/src/metal_files/obj-c_header.h
+)
+target_link_libraries(metal_test
+        "-framework Metal"
+        "-framework Foundation"
 )
