@@ -2,13 +2,13 @@
 # import sys
 import os
 from time import time
-
 import numpy as np
 
 # from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression
 from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search
+from .Metal_executor import Executor
 from copy import copy
 from warnings import warn
 
@@ -16,6 +16,7 @@ from multiprocessing import shared_memory
 import signal
 import sys
 from .StateGenerator import StateGenerator
+# from .Metal_executor import Executor
 from joblib import Parallel, delayed
 
 class Model:
@@ -237,8 +238,10 @@ or {self.runtime}s sampling
 
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10):
-		if not self.initial_state: self.manual_initial(0, [0] * self.n)
-		t1 = time()
-		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)
-		self.runtime = time() - t1
-		self.objective_value = self.final_state.objective_value()
+		ex = Executor()
+		ex.gpu_local_search(self.n, self.objective)
+		# if not self.initial_state: self.manual_initial(0, [0] * self.n)
+		# t1 = time()
+		# self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)
+		# self.runtime = time() - t1
+		# self.objective_value = self.final_state.objective_value()

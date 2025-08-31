@@ -1,310 +1,43 @@
-from libc.stdint cimport uint32_t
-from libc.stdlib cimport calloc
-from time import time
-
-from .Constants import *
+from .SearchLib cimport new_constraints_t, new_constraint
 
 cdef extern from "objc/objc.h":
 	ctypedef void * id
 
-cdef extern from "src/main.h":
+cdef extern from "src/metal_files/exec_metal.h":
 	ctypedef void (*callback_t)(int, size_t, double)
 
 	ctypedef struct gpu_info_t:
-		id device
-		id queue
-		id pipelineState
-		id cur_val_Buffer
-		id cur_array_Buffer
-		id new_val_Buffer
-		id arrays_Buffer
-		id reps_Buffer
-		id bias_Buffer
-		id objective_Buffer
-		id constraint_Buffer
-		id seed_Buffer
+		id device;
+		id queue;
+		id library;
+		id kernelFunction;
+		id pipelineState;
+		id pointer;
 
-	gpu_info_t *init_buffers(int *constraint, int c_terms,
-	                         int *objective, int o_terms,
-	                         double bias, uint32_t globalSeed,
-	                         int num_integers,
-	                         char *shader);
+		id state;  #    stores state metadata
+		id state_data;  # stores state data
 
-	int gpu_qmax_search_c(int n, int M,
-	                      int *constraint, int c_terms,
-	                      int *objective, int o_terms,
-	                      int cur, uint32_t *arr,
-	                      gpu_info_t *info,
-	                      callback_t callback,
-	                      int *total_applications, int stop_val);
+		id move_length;
+		id move_offset;
+		id move_entries;
 
-# Python-compatible C wrapper
-cdef void my_callback_obj_c(int a, size_t b, double c):
-	if python_callback_2 is not None:
-		python_callback_2(a, b, c)
+		id first_move;
+		id last_move;
 
-# python function to store the callback
-cdef object python_callback_2 = None
+	int exec_gpu(int n, new_constraints_t *obj);
 
 cdef class Executor:
 	cdef gpu_info_t *info
-	cdef int * obj_c
-	cdef int * con_c
-	cdef int o_terms_c
-	cdef int c_terms_c
-	# cdef char *shader
 
-	def __cinit__(self, n: int, bias: float, gloabalSeed: int,
-	              constraint: list[int],
-	              objective: list[int],
-	              C, con, obj, solver):
-		self.obj_c = <int *> calloc(len(objective), sizeof(int))
-		for i in range(len(objective)): self.obj_c[i] = <int> objective[i]
-
-		self.con_c = <int *> calloc(len(constraint), sizeof(int))
-		for i in range(len(constraint)): self.con_c[i] = <int> constraint[i]
-
-		self.o_terms_c = len(objective)
-		self.c_terms_c = len(constraint)
-
-		if solver == OPTIMIZE:
-			shader = self.generate_itl_metal(n, C, con, obj)
-		else:
-			shader = self.generate_sat_metal(n, C, con)
-
-		self.info = init_buffers(self.con_c, len(constraint), self.obj_c, len(objective),
-		                         bias, gloabalSeed, n // 32 + 1, shader.encode("utf-8"))
-
-	def __init__(self, n: int, bias: float, gloabalSeed: int,
-	             constraint: list[int],
-	             objective: list[int],
-	             C, con, obj, solver):
+	def __cinit__(self, ):
 		pass
 
-	def gpu_qmax_search(self, n: int, M: int,
-	                    cur: int, arr: list[int],
-	                    object callback, int stop_val = -1):
+	def __init__(self):
+		pass
 
-		cdef uint32_t * arr_c = <uint32_t *> calloc(len(arr), sizeof(uint32_t))
-		for i in range(len(arr)):
-			arr_c[i] = <uint32_t> arr[i]
+	cdef exec(self, n, new_constraint obj):
+		exec_gpu(n, &obj.con)
 
-		global python_callback_2
-		python_callback_2 = callback
-
-		cdef callback_t cb_ptr = <callback_t> my_callback_obj_c
-
-		cdef int oracle_applications = 0
-
-		t1 = time()
-		res = gpu_qmax_search_c(n, M,
-		                  self.con_c, self.c_terms_c,
-		                  self.obj_c, self.o_terms_c,
-		                  cur, arr_c, self.info, cb_ptr, &oracle_applications, stop_val)
-
-		# for i in range(n // 32 + 1):
-		# 	print(arr_c[i])
-
-		return res, oracle_applications, time() - t1
-
-	def generate_itl_metal(self, n, C, constraints, obj, sense = ">"):
-		num_integers = int(n / 32) + 1
-		metal_file = f"""
-kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Current objective value
-                       const device uint *cur_array [[ buffer(1) ]],    // Current array
-                       device int *new_val [[ buffer(2) ]],             // New objective value
-                       device uint *array [[ buffer(3) ]],              // New array (only stored if good new objective)
-                       const device int *num_reps [[ buffer(4) ]],          // Number of samples per thread
-                       const device float *bias [[ buffer(5) ]],        // bias
-                       const device int *objective [[ buffer(6) ]],
-                       const device int *constraint [[ buffer(7) ]],
-                       device uint32_t *additional_seed [[ buffer(8) ]], // add to thread id
-                       uint id [[ thread_position_in_grid ]]            // Thread ID
-) {{
-    int cur = cur_val[0];
-    bool sum = 0;
-	int obj = 0;
-
-    uint x[{num_integers}];    // copy of old assignment
-    for (int i = 0; i < {num_integers}; i++) x[i] = cur_array[i];
-    uint y[{num_integers}];    // new assignment
-    int P[{C}];    // potentials
-
-    bool b_plus;    // booleans
-    bool b_minus;   // booleans
-
-    bool update = 1;
-
-    uint step;
-    uint branch;
-
-    uint32_t seed = additional_seed[id] + id; // Each thread gets a unique seed
-
-    float probs[2] = {{ (1. + bias[0]) / (bias[0] + 2), 1. / (bias[0] + 2) }};
-
-	for(int reps=0; reps < num_reps[id]; reps++){{
-		for (int i = 0; i < {num_integers}; i++) y[i] = 0;
-		obj = 0;
-		"""
-		for i in range(C):
-			metal_file += f"""
-		P[{i}] = {int(constraints[i][-1])};"""
-
-		metal_file += f"""
-		for(int item = 0; item < {n}; item++){{
-			// new_val[id] = P[1];
-			b_plus = 1;
-			b_minus = 1;
-			for (int con = 0; con < {C}; con++){{
-				if (constraint[con * {n} + item] >= 0) b_plus = b_plus && (P[con] >= constraint[con * {n} + item]);
-				else b_minus = b_minus && (P[con] >= - constraint[con * {n} + item]);
-			}}
-			seed ^= seed << 13;
-			seed ^= seed >> 17;
-			seed ^= seed << 5;
-			branch =  (uint) (( ((float)(seed % 123456)) / 123455) > probs[(x[item / 32] & (1 << (item % 32))) != 0]);
-
-			step = uint(b_plus && b_minus && branch || !b_minus);
-			y[item / 32] |= (step << (item % 32));
-
-			for (int con = 0; con < {C}; con++){{
-				if (constraint[con * {n} + item] >= 0) P[con] -= int(step) * constraint[con * {n} + item];
-				else P[con] += (1 - int(step)) * constraint[con * {n} + item];
-			}}
-		}}"""
-
-		# sum the objective value
-		if len(obj[0][:-1][0]) == 2:
-			metal_file += f"""
-		for(int i = 0; i < {n}; i++){{ obj += objective[i] * int((y[i / 32] & (1 << (i % 32))) != 0); }}
-		"""
-		if len(obj[0][:-1][0]) == 3:
-			metal_file += f"""
-		for(int i = 0; i < {n}; i++){{
-			for(int j = i; j < {n}; j++){{
-				obj += objective[i * {n} + j] * int((y[i / 32] & (1 << (i % 32))) != 0) * int((y[j / 32] & (1 << (j % 32))) != 0);
-			}}
-		}}
-		"""
-
-		metal_file += f"""
-		sum = 1;
-		for (int i = 0; i < {C}; i++) {{ sum = sum && (P[i] >= 0); }}
-		bool up = ((obj {sense} cur) && update && sum);
-		for (int i = 0; i < {num_integers}; i++) x[i] = int(up) * y[i] + int(!up) * x[i];
-
-		cur = int(up) * obj + int(!up) * cur;
-		update = update && (!up); // if !(obj {sense} cur) or !su^m we still have to update
-	}}
-	for (int i = 0; i < {num_integers}; i++){{
-		array[id * {num_integers} + i] = x[i];
-	}}
-	additional_seed[id] = seed;
-	new_val[id] = cur;
-}}"""
-		return metal_file
-	def generate_sat_metal(self, n, C, constraints):
-		# print(constraints)
-		"""
-		arrays are stored in bits rather in bytes:
-		slightly slower, but gpu programming requires more compact data
-		:param n:
-		:param C:
-		:param constraints:
-		:param lp_factor:
-		:param lp_opt:
-		:param new:
-		:return:
-		"""
-		num_integers = int(n / 32) + 1
-
-		metal_file = f"""
-kernel void add_arrays(const device int *cur_val [[ buffer(0) ]],       // Current objective value
-                       const device uint *cur_array [[ buffer(1) ]],    // Current array
-                       device int *new_val [[ buffer(2) ]],             // New objective value
-                       device uint *array [[ buffer(3) ]],              // New array (only stored if good new objective)
-                       const device int *num_reps [[ buffer(4) ]],      // Number of samples per thread
-                       const device float *bias [[ buffer(5) ]],        // bias
-                       const device int *objective [[ buffer(6) ]],
-                       const device int *constraint [[ buffer(7) ]],
-                       device long *additional_seed [[ buffer(8) ]], // add to thread id
-                       uint id [[ thread_position_in_grid ]]            // Thread ID
-) {{
-    int cur = cur_val[0];
-    int sum = 0;
-
-    uint x[{num_integers}];    // copy of old assignment
-    for (int i = 0; i < {num_integers}; i++) x[i] = cur_array[i];
-    uint y[{num_integers}];    // new assignment
-    char P[{C}];    // potentials
-
-    bool b_plus;    // booleans
-    bool b_minus;   // booleans
-
-    bool update = 1;
-
-    char step;
-    char branch;
-
-    uint seed = additional_seed[id]; // Each thread gets a unique seed
-
-    float probs[2] = {{ (1. + bias[0]) / (bias[0] + 2), 1. / (bias[0] + 2) }};
-
-	for(int reps=0; reps < num_reps[id]; reps++){{
-		for (int i = 0; i < {num_integers}; i++) y[i] = 0;
-	"""
-		for i in range(C):
-			metal_file += f"""
-		P[{i}] = {int(constraints[i][-1])};"""
-
-		for item in range(n):
-			metal_file += f"""
-		b_plus = 1;
-		b_minus = 1;"""
-			S_plus = [constraints.index(i) for i in constraints if [1.0, item] in i]
-			S_minus = [constraints.index(i) for i in constraints if [-1.0, item] in i]
-
-			# counter = 0
-			for s in S_plus:
-				metal_file += f"""
-		b_plus = b_plus && (P[{s}] >= 1);"""
-			# counter += 1
-			for s in S_minus:
-				metal_file += f"""
-		b_minus = b_minus && (P[{s}] >= 1);"""
-		# counter += 1
-
-			metal_file += f"""
-		seed ^= seed << 21;
-		seed ^= seed >> 35;
-		seed ^= seed << 4;
-		branch =  (char) (( float(seed % 123456) / 123455) > probs[(x[{int(item / 32)}] & (1 << {item % 32}) ) != 0]);
-
-		step = char(b_plus && b_minus && branch || !b_minus);
-		// step = char(branch);
-		y[{int(item / 32)}] |= (step << {item % 32});
-	"""
-			for s in S_plus:
-				metal_file += f"""
-		P[{s}] -= step;"""
-
-			for s in S_minus:
-				metal_file += f"""
-		P[{s}] -= 1 - step;"""
-
-		metal_file += f"""
-		sum = 0;
-		for (int i = 0; i < {C}; i++) {{ sum += int(P[i] >= 0); }}
-		for (int i = 0; i < {num_integers}; i++) x[i] = int(sum > cur && update) * y[i] + int(sum <= cur || !update) * x[i];
-
-		cur = int(sum > cur && update) * sum + int(sum <= cur || !update) * cur;
-		update = update && (sum <= cur);
-	}}
-	for (int i = 0; i < {num_integers}; i++){{
-		array[id * {num_integers} + i] = x[i];
-	}}
-	additional_seed[id] = seed;
-	new_val[id] = cur;
-}}"""
-		# print(metal_file)
-		return metal_file
+	def gpu_local_search(self, n,  obj: new_constraint):
+		self.exec(n, obj)
+		return 0

@@ -14,7 +14,7 @@ extensions = [
 	Extension("iqs.Constants", ["iqs/Constants.py"], extra_compile_args=compiler_args),
 	Extension("iqs.Constants", ["iqs/StateGenerator.py"], extra_compile_args=compiler_args),
 	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"], extra_compile_args=compiler_args),
-	#Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/main.m"], extra_compile_args=["-ObjC"]  ),
+	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/metal_files/exec_metal.m"], extra_compile_args=["-ObjC"]  ),
 	Extension("iqs.Model", ["iqs/Model.py"], extra_compile_args=compiler_args),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
@@ -25,8 +25,10 @@ extensions = [
 	           os.path.join("iqs", "src", "Expression.c"),
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "local_search.c"),
-	           os.path.join("iqs", "src", "constraint.c")], extra_compile_args=compiler_args,
-	          include_dirs = [os.path.join("iqs", "src")]),
+	           os.path.join("iqs", "src", "constraint.c"),
+	           ],
+	          extra_compile_args=compiler_args,
+	          include_dirs = [os.path.join("iqs", "src"), os.path.join("iqs", "src", "metal_files")]),
 ]
 
 setup(

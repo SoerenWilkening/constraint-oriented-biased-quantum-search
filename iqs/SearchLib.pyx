@@ -8,9 +8,6 @@ def set_seed(unsigned int seed):
 	srand(seed)
 
 cdef class new_constraint:
-	cdef new_constraints_t con;
-	cdef int num_constraints;
-
 	def __cinit__(self):
 		self.con = init_new_constraint()
 		self.num_constraints = 0
@@ -31,12 +28,12 @@ cdef class new_constraint:
 	def __len__(self):
 		return self.num_constraints
 
-	def process(self, int n):
-		preprocessing(n, &self.con)
-
-	cdef add(self, expr: Expression):
+	cdef void add(self, Expression expr):
 		self.num_constraints += 1
 		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)
+
+	def process(self, int n):
+		preprocessing(n, &self.con)
 
 	def add_expression(self, expr: Expression):
 		self.add(expr)
@@ -202,7 +199,7 @@ def read_nodes_wrapper(str name ,n: int) -> int | state_py:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int64_t a, size_t b, double c, double d) with gil:
+cdef void my_callback_c(int64_t a, size_t b, double c, double d) noexcept:
 	if python_callback is not None:
 		python_callback(a, b, c, d)
 

@@ -28,13 +28,16 @@
 #define MINARRAYSIZE 50000
 
 typedef struct{
-	size_t num_constraints; // number of constraints
-    size_t *num_clauses;    // how many clauses per constraint
-    size_t *clause_offset; // offset, to correctly locate factor and length_clause given C and c
+	uint32_t num_constraints; // number of constraints
+    uint32_t *num_clauses;    // how many clauses per constraint
+    uint32_t *clause_offset; // offset, to correctly locate factor and length_clause given C and c
     int64_t *factors;       // store the factor of a clause
-	size_t *clause_length;  // how many variables per clause
-	size_t *variable_offset;// where is the first index of the variables of a clause given constraint C
-	size_t *variables;      //
+	uint32_t *clause_length;  // how many variables per clause
+	uint32_t *variable_offset;// where is the first index of the variables of a clause given constraint C
+	uint32_t *variables;      //
+
+	int total_clauses;
+	int total_variables;
 
     int allocated_factors;
 	int allocated_variables;

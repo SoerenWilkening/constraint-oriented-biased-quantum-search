@@ -32,17 +32,20 @@ cdef extern from "src/SearchLib.h":
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M)
-	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback, int *break_item) nogil
-	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
+	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
+	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
+	        int *break_item) nogil
+	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
+	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:
-		size_t num_constraints; # number of constraints
-		size_t *num_clauses; # how many clauses per constraint
-		size_t *clause_offset; # offset, to correctly locate factor and length_clause given C and c
-		int64_t *factors; # store the factor of a clause
-		size_t * clause_length; # how many variables per clause
-		size_t *variable_offset; # where is the first index of the variables of a clause given constraint C
+		size_t num_constraints;  # number of constraints
+		size_t *num_clauses;  # how many clauses per constraint
+		size_t *clause_offset;  # offset, to correctly locate factor and length_clause given C and c
+		int64_t *factors;  # store the factor of a clause
+		size_t * clause_length;  # how many variables per clause
+		size_t *variable_offset;  # where is the first index of the variables of a clause given constraint C
 		size_t * variables;
 		int * sense;
 		int64_t *rhs;
@@ -53,7 +56,6 @@ cdef extern from "src/constraint.h":
 		unsigned int *negative_offsets;
 		unsigned int *num_positive_indices;
 		unsigned int *num_negative_indices;
-
 
 	new_constraints_t init_new_constraint();
 
@@ -74,7 +76,7 @@ cdef extern from "src/constraint.h":
 	# old implementation, get rid of in the future
 	int true
 	int false
-	# int undetermined
+# int undetermined
 
 # Extern C written functions to set parameters for the biasing strategy
 #
@@ -102,3 +104,8 @@ cdef extern from "src/local_search.h":
 	                 int64_t stop_val,
 	                 callback_t callback,
 	                 int max_worse_acceptances) nogil
+
+cdef class new_constraint:
+	cdef new_constraints_t con;
+	cdef int num_constraints;
+	cdef void add(self, Expression expr)

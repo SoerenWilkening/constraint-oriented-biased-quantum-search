@@ -5,14 +5,17 @@ new_constraints_t init_new_constraint() {
 	new_constraints_t con;
 
 	con.num_constraints = 0;
-	con.num_clauses = calloc(1, sizeof(size_t));
-	con.clause_offset = calloc(1, sizeof(size_t));
 	con.factors = calloc(MINARRAYSIZE, sizeof(int64_t));
-	con.clause_length = calloc(MINARRAYSIZE, sizeof(size_t));
-	con.variable_offset = calloc(MINARRAYSIZE, sizeof(size_t));
-	con.variables = calloc(MINARRAYSIZE, sizeof(size_t));
+	con.num_clauses = calloc(1, sizeof(uint32_t));
+	con.clause_offset = calloc(1, sizeof(uint32_t));
+	con.clause_length = calloc(MINARRAYSIZE, sizeof(uint32_t));
+	con.variable_offset = calloc(MINARRAYSIZE, sizeof(uint32_t));
+	con.variables = calloc(MINARRAYSIZE, sizeof(uint32_t));
 	con.sense = calloc(1, sizeof(int));
 	con.rhs = calloc(1, sizeof(int64_t));
+
+	con.total_clauses = 0;
+	con.total_variables = 0;
 
 	con.allocated_factors = MINARRAYSIZE;
 	con.allocated_variables = MINARRAYSIZE;
@@ -38,13 +41,13 @@ new_constraints_t copy_new_constraint(new_constraints_t *con) {
 	memcpy(new_con.sense, con->sense, con->num_constraints * sizeof(int));
 
 	new_con.num_clauses = realloc(new_con.num_clauses, con->num_constraints * sizeof(int64_t));
-	memcpy(new_con.num_clauses, con->num_clauses, con->num_constraints * sizeof(size_t));
+	memcpy(new_con.num_clauses, con->num_clauses, con->num_constraints * sizeof(uint32_t));
 
-	memcpy(new_con.clause_offset, con->clause_offset, con->num_constraints * sizeof(size_t));
+	memcpy(new_con.clause_offset, con->clause_offset, con->num_constraints * sizeof(uint32_t));
 	memcpy(new_con.factors, con->factors, MINARRAYSIZE * sizeof(int64_t));
-	memcpy(new_con.clause_length, con->clause_length, MINARRAYSIZE * sizeof(size_t));
-	memcpy(new_con.variable_offset, con->variable_offset, MINARRAYSIZE * sizeof(size_t));
-	memcpy(new_con.variables, con->variables, MINARRAYSIZE * sizeof(size_t));
+	memcpy(new_con.clause_length, con->clause_length, MINARRAYSIZE * sizeof(uint32_t));
+	memcpy(new_con.variable_offset, con->variable_offset, MINARRAYSIZE * sizeof(uint32_t));
+	memcpy(new_con.variables, con->variables, MINARRAYSIZE * sizeof(uint32_t));
 
 
 	return new_con;
@@ -192,9 +195,9 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	con->num_constraints++;
 	if (con->num_constraints > 1) {
-		con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(size_t));
-		con->clause_offset = realloc(con->clause_offset, con->num_constraints * sizeof(size_t));
-		con->sense = realloc(con->sense, con->num_constraints * sizeof(int));
+		con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(uint32_t));
+		con->clause_offset = realloc(con->clause_offset, con->num_constraints * sizeof(uint32_t));
+		con->sense = realloc(con->sense, con->num_constraints * sizeof(uint32_t));
 		con->rhs = realloc(con->rhs, con->num_constraints * sizeof(int64_t));
 	}
 
@@ -210,21 +213,23 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 				int index = variable_index(clause_counter, i - 1, clause_offset);
 				if (con->allocated_variables <= index) {
 					size_t new_size = index + MINARRAYSIZE;
-					con->variables = realloc(con->variables, new_size * sizeof(size_t));
+					con->variables = realloc(con->variables, new_size * sizeof(uint32_t));
 					con->allocated_variables = index + MINARRAYSIZE;
 				}
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
+			con->total_variables += MAXCLAUSESIZE - 1;
 
 			if (con->allocated_factors <= clause_offset + clause_counter) {
 				con->clause_length = realloc(con->clause_length,
-				                             (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
-				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(size_t));
+				                             (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
+				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
 				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
 			}
 			con->clause_length[clause_offset + clause_counter] = lenght - 1;
 			con->factors[clause_offset + clause_counter] = expr->literals[expr_index(cls, 0)];
 			clause_counter++;
+			con->total_clauses++;
 		}
 	}
 

@@ -2,15 +2,11 @@
 #define METAL_FUNCTIONS_H
 
 typedef struct {
-	unsigned int n;
-	unsigned int bits;
-	device uint32_t *part;
-} array_32_t;
-
-typedef struct {
-	int32_t tot_profit;
-	array_32_t vector;
-	int feasible;
+	int   tot_profit;
+	uint  feasible;
+	uint  n;
+	uint  bits;
+	uint  x_offset;
 } state_32_t;
 
 typedef struct{
