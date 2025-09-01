@@ -15,6 +15,7 @@ typedef struct {
 
 	id <MTLBuffer> state;   //    stores state metadata
 	id <MTLBuffer> state_data; // stores state data
+	id <MTLBuffer> num_integers; // stores state data
 
 	id <MTLBuffer> move_length;
 	id <MTLBuffer> move_offset;
@@ -30,6 +31,15 @@ typedef struct {
 	id <MTLBuffer> clause_length;
 	id <MTLBuffer> variable_offset;
 	id <MTLBuffer> variables;
+
+	id <MTLBuffer> con_factors;
+	id <MTLBuffer> con_num_constraints;
+	id <MTLBuffer> con_num_clauses;
+	id <MTLBuffer> con_clause_offset;
+	id <MTLBuffer> con_clause_length;
+	id <MTLBuffer> con_variable_offset;
+	id <MTLBuffer> con_variables;
+	id <MTLBuffer> rhs;
 } gpu_info_t;
 
 
@@ -47,6 +57,6 @@ typedef struct {
 	uint32_t x_offset;
 } state_32_t;
 
-int exec_gpu(int n, new_constraints_t *obj);
+int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con);
 
 #endif

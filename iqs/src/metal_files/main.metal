@@ -37,6 +37,11 @@ static inline void flip_bit(device state_32_t *state,
 	state_data[state[state_index].x_offset + index] ^= mask;
 }
 
+static inline uint first_clause_index(const device uint *con_clause_offset, size_t C) {
+	uint c = (C != 0);
+	return c * con_clause_offset[C - 1];
+}
+
 static inline uint first_variable_index(uint cls, uint clause_offset) {
 	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
 	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
@@ -46,7 +51,8 @@ static inline uint variable_index(uint cls, uint k, uint clause_offset) {
 	return first_variable_index(cls, clause_offset) + k;
 }
 
-static inline int objective_value(const device int *obj_factors,
+static inline int objective_value(
+                    const device int *obj_factors,
                     const device uint *obj_num_constraints,
                     const device uint *obj_num_clauses,
                     const device uint *obj_clause_offset,
@@ -73,6 +79,40 @@ static inline int objective_value(const device int *obj_factors,
 }
 
 
+static inline int constraint_violation(
+                    const device int *con_factors,
+                    const device uint *con_num_constraints,
+                    const device uint *con_num_clauses,
+                    const device uint *con_clause_offset,
+                    const device uint *con_clause_length,
+                    const device uint *con_variable_offset,
+                    const device uint *con_variables,
+                    const device int *rhs,
+                    const device state_32_t *state,
+                    uint state_index,
+                    const device uint *state_data,
+                    uint cnstr
+                    ) {
+	int total = 0;
+	uint clause_offset = first_clause_index(con_clause_offset, cnstr);
+	for (uint cl = 0; cl < con_num_clauses[cnstr]; ++cl) {
+		uint clause_index = clause_offset + cl;
+
+		// check, if every item of a clause is assigned
+		uint assigned = 1;
+		for (uint k = 0; k < con_clause_length[clause_index]; ++k) {
+			uint var = con_variables[variable_index(cl, k, clause_offset)];
+			assigned &= get_bit(state, state_index, state_data, var);
+		}
+		int sign = -2 * (con_factors[clause_index] < 0) + 1;
+		int ass = (sign < 0) * (1 - int(assigned)) + (sign >= 0) * int(assigned);
+		total += sign * con_factors[clause_index] * ass;
+	}
+	return rhs[cnstr] - total;
+	//return total;
+}
+
+
 
 
 kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to store new assignment in
@@ -89,6 +129,14 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
                        const device uint *obj_clause_length [[ buffer(11) ]],
                        const device uint *obj_variable_offset [[ buffer(12) ]],
                        const device uint *obj_variables [[ buffer(13) ]],
+                       const device int *con_factors [[ buffer(14) ]],
+                       const device uint *con_num_constraints [[ buffer(15) ]],
+                       const device uint *con_num_clauses [[ buffer(16) ]],
+                       const device uint *con_clause_offset [[ buffer(17) ]],
+                       const device uint *con_clause_length [[ buffer(18) ]],
+                       const device uint *con_variable_offset [[ buffer(19) ]],
+                       const device uint *con_variables [[ buffer(20) ]],
+                       const device int *rhs [[ buffer(21) ]],
                        uint id [[ thread_position_in_grid ]]            // Thread ID
 ) {
 	uint seed = id + 1;
@@ -100,8 +148,26 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
 		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_data, move_entries[move_offset[index] + i]);
 
 		// do the computation
-
-        state[id].tot_profit = objective_value(
+		int total_violation = 0;
+		for (int cnstr = 0; cnstr < con_num_constraints[0]; cnstr++){
+            int violation = constraint_violation(
+                con_factors,
+                con_num_constraints,
+                con_num_clauses,
+                con_clause_offset,
+                con_clause_length,
+                con_variable_offset,
+                con_variables,
+                rhs,
+                state,
+                id,
+                state_data,
+                cnstr
+            );
+            total_violation -= (violation < 0) * violation; // add all violations
+        }
+        uint feasible = (total_violation <= 0);
+        uint objective = objective_value(
             obj_factors,
             obj_num_constraints,
             obj_num_clauses,
@@ -113,6 +179,8 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
             id,
             state_data
         );
+
+        state[id].tot_profit = feasible * objective + (!feasible) * total_violation;
 
 		// unflip bits
 		//for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_data, move_entries[move_offset[index] + i]);

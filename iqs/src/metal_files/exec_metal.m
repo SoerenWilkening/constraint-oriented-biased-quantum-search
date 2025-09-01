@@ -51,7 +51,7 @@ move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
 	return move;
 }
 
-gpu_info_t inti_info(int n, int k, new_constraints_t *obj){
+gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *con){
 	gpu_info_t info;
 
 	info.device = MTLCreateSystemDefaultDevice();
@@ -69,9 +69,9 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj){
 	info.pipelineState = [info.device newComputePipelineStateWithFunction:info.kernelFunction error:&error];
 
 
-	int number_integers = n / 32 + 1;
+	int32_t number_integers[1] = {n / 32 + 1};
 	state_32_t state[size];
-	for (int i = 0; i < size; ++i) state[i].x_offset = number_integers * i;
+	for (int i = 0; i < size; ++i) state[i].x_offset = number_integers[0] * i;
 
 	int num_moves = 0;
 	int num_entries = 0;
@@ -92,7 +92,8 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj){
 	}
 
 	info.state = [info.device newBufferWithBytes:state length:size * sizeof(state_32_t) options:MTLResourceStorageModeShared];
-	info.state_data = [info.device newBufferWithLength:number_integers * size * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	// requires only a single copy of the state data
+	info.state_data = [info.device newBufferWithLength:size * number_integers[0] * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.move_length = [info.device newBufferWithBytes:move.length length:num_moves * sizeof(uint16_t) options:MTLResourceStorageModeShared];
 	info.move_offset = [info.device newBufferWithBytes:move.offset length:num_moves * sizeof(uint16_t) options:MTLResourceStorageModeShared];
@@ -110,12 +111,31 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj){
 	info.num_constraints  = [info.device newBufferWithBytes:num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.num_clauses = [info.device newBufferWithBytes:obj->num_clauses length:obj->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.clause_offset = [info.device newBufferWithBytes:factors length:obj->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.clause_offset = [info.device newBufferWithBytes:obj->clause_offset length:obj->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.clause_length = [info.device newBufferWithBytes:obj->clause_length length:obj->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.variable_offset = [info.device newBufferWithBytes:obj->variable_offset length:obj->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.variables = [info.device newBufferWithBytes:obj->variables length:obj->total_variables * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
+	// do the same for the constraints
+	int32_t con_factors[con->total_clauses];
+	for (int i = 0; i < con->total_clauses; ++i) con_factors[i] = (int32_t) con->factors[i];
+	info.con_factors = [info.device newBufferWithBytes:con_factors length:con->total_clauses * sizeof(int32_t) options:MTLResourceStorageModeShared];
+
+	uint32_t con_num_constraints[1] = {con->num_constraints};
+	info.con_num_constraints  = [info.device newBufferWithBytes:con_num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+
+	info.con_num_clauses = [info.device newBufferWithBytes:con->num_clauses length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_clause_offset = [info.device newBufferWithBytes:con->clause_offset length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+
+	info.con_clause_length = [info.device newBufferWithBytes:con->clause_length length:con->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_variable_offset = [info.device newBufferWithBytes:con->variable_offset length:con->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_variables = [info.device newBufferWithBytes:con->variables length:con->total_variables * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+
+	int32_t rhs[con->num_constraints];
+	for (int i = 0; i < con->num_constraints; ++i) rhs[i] = (int32_t) con->rhs[i];
+	printf("%d %ld\n", con->num_constraints, con->rhs[0]);
+	info.rhs = [info.device newBufferWithBytes:rhs length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	free(move.offset);
 	free(move.length);
@@ -163,6 +183,15 @@ void run_kernel(gpu_info_t *info){
 	[compute_encoder setBuffer:info->variable_offset offset:0 atIndex:12];
 	[compute_encoder setBuffer:info->variables offset:0 atIndex:13];
 
+	[compute_encoder setBuffer:info->con_factors offset:0 atIndex:14];
+	[compute_encoder setBuffer:info->con_num_constraints offset:0 atIndex:15];
+	[compute_encoder setBuffer:info->con_num_clauses offset:0 atIndex:16];
+	[compute_encoder setBuffer:info->con_clause_offset offset:0 atIndex:17];
+	[compute_encoder setBuffer:info->con_clause_length offset:0 atIndex:18];
+	[compute_encoder setBuffer:info->con_variable_offset offset:0 atIndex:19];
+	[compute_encoder setBuffer:info->con_variables offset:0 atIndex:20];
+	[compute_encoder setBuffer:info->rhs offset:0 atIndex:21];
+
 	MTLSize grid_size = MTLSizeMake(size, 1, 1);
 	NSUInteger group_size = info->pipelineState.maxTotalThreadsPerThreadgroup;
 	group_size = group_size > size ? size : group_size;
@@ -178,9 +207,9 @@ void run_kernel(gpu_info_t *info){
 	[commandBuffer release];
 }
 
-int exec_gpu(int n, new_constraints_t *obj){
+int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con){
 	int num_integers = n / 32 + 1;
-	gpu_info_t info = inti_info(n , 3, obj);
+	gpu_info_t info = inti_info(n , 3, obj, con);
 
 	printf("%lld\n", obj->factors[0]);
 
@@ -189,12 +218,12 @@ int exec_gpu(int n, new_constraints_t *obj){
  	uint32_t *state_data = (uint32_t *) [info.state_data contents];
  	for (int i = 0; i < size; ++i) {
  		printf("%d %d ", i, state[i].tot_profit);
- 		for (int k = 0; k < num_integers; ++k) {
- 			for (int j = 0; j < 32; ++j) {
- 				printf("%u", ((1 << j) & state_data[state[i].x_offset + k + j / 32]) != 0);
- 			}
- 			printf(" ");
- 		}
+// 		for (int k = 0; k < num_integers; ++k) {
+// 			for (int j = 0; j < 32; ++j) {
+// 				printf("%u", ((1 << j) & state_data[state[i].x_offset + k + j / 32]) != 0);
+// 			}
+// 			printf(" ");
+// 		}
  		printf("\n");
  	}
 	return 0;
