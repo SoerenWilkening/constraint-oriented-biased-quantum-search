@@ -1,10 +1,20 @@
 #include <stdio.h>
 #include "exec_metal.h"
+
 #define size  1024
+
+static inline void flip_bit(
+		uint *state_data,
+		uint bit
+){
+	uint index = bit >> 5;
+	uint mask = (1 << (bit - (index << 5)) );
+	state_data[index] ^= mask;
+}
 
 move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
 	int count = 0;
-	int16_t *comb = malloc(d * sizeof(int16_t));
+	int32_t *comb = malloc(d * sizeof(int16_t));
 	for (int k = 1; k <= d; ++k) {
 		// Initialize first combination: [0, 1, ..., k-1]
 		for (int i = 0; i < k; ++i) comb[i] = i;
@@ -19,18 +29,18 @@ move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
 		}
 	}
 	move_gpu_t move;
-	move.moves = malloc(*total_count * sizeof(int16_t));
-	move.length = malloc(*num_moves * sizeof(int16_t));
-	move.offset = malloc(*num_moves * sizeof(int16_t));
+	move.moves = malloc(*total_count * sizeof(int32_t));
+	move.length = malloc(*num_moves * sizeof(int32_t));
+	move.offset = malloc(*num_moves * sizeof(int32_t));
 	count = 0;
 	int index = 0;
-	int16_t offset = 0;
+	int32_t offset = 0;
 	free(comb);
-	comb = malloc(d * sizeof(int16_t));
+	comb = malloc(d * sizeof(int32_t));
 
-	for (int16_t k = 1; k <= d; ++k) {
+	for (int32_t k = 1; k <= d; ++k) {
 		// Initialize first combination: [0, 1, ..., k-1]
-		for (int16_t i = 0; i < k; ++i) comb[i] = i;
+		for (int32_t i = 0; i < k; ++i) comb[i] = i;
 		while (1) {
 			move.length[index] = k;
 			move.offset[index] = offset;
@@ -51,7 +61,7 @@ move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
 	return move;
 }
 
-gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *con){
+gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *con) {
 	gpu_info_t info;
 
 	info.device = MTLCreateSystemDefaultDevice();
@@ -75,90 +85,115 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 
 	int num_moves = 0;
 	int num_entries = 0;
-	move_gpu_t move = move_list(k, n, &num_entries, &num_moves);
+	info.move = move_list(k, n, &num_entries, &num_moves);
 
-	uint16_t moves_per_thread = num_moves / size;
-	uint leftover  = num_moves % size;        // leftover items to distribute
-	uint16_t first_index[size];
-	uint16_t last_index[size];
+	uint32_t moves_per_thread = num_moves / size;
+	uint32_t leftover = num_moves % size;        // leftover items to distribute
+	uint32_t first_index[size];
+	uint32_t last_index[size];
 	for (int16_t i = 0; i < size; ++i) {
 		if (i < leftover) {
 			first_index[i] = i * (moves_per_thread + 1);
-			last_index[i]   = first_index[i] + (moves_per_thread + 1);
+			last_index[i] = first_index[i] + (moves_per_thread + 1);
 		} else {
 			first_index[i] = i * moves_per_thread + leftover;
-			last_index[i]   = first_index[i] + moves_per_thread;
+			last_index[i] = first_index[i] + moves_per_thread;
 		}
 	}
 
-	info.state = [info.device newBufferWithBytes:state length:size * sizeof(state_32_t) options:MTLResourceStorageModeShared];
+	info.state = [info.device newBufferWithBytes:state length:size *
+	                                                          sizeof(state_32_t) options:MTLResourceStorageModeShared];
 	// requires only a single copy of the state data
-	info.state_data = [info.device newBufferWithLength:size * number_integers[0] * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.state_data = [info.device newBufferWithLength:number_integers[0] *
+	                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.num_integers = [info.device newBufferWithBytes:number_integers length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.move_length = [info.device newBufferWithBytes:move.length length:num_moves * sizeof(uint16_t) options:MTLResourceStorageModeShared];
-	info.move_offset = [info.device newBufferWithBytes:move.offset length:num_moves * sizeof(uint16_t) options:MTLResourceStorageModeShared];
-	info.move_entries = [info.device newBufferWithBytes:move.moves length:num_entries * sizeof(uint16_t) options:MTLResourceStorageModeShared];
+	info.move_length = [info.device newBufferWithBytes:info.move.length length:num_moves *
+	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.move_offset = [info.device newBufferWithBytes:info.move.offset length:num_moves *
+	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.move_entries = [info.device newBufferWithBytes:info.move.moves length:num_entries *
+	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.first_move = [info.device newBufferWithBytes:first_index length:size * sizeof(uint16_t) options:MTLResourceStorageModeShared];
-	info.last_move = [info.device newBufferWithBytes:last_index length:size * sizeof(uint16_t) options:MTLResourceStorageModeShared];
+	info.first_move = [info.device newBufferWithBytes:first_index length:size *
+	                                                                     sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.last_move = [info.device newBufferWithBytes:last_index length:size *
+	                                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	// create 32 bit factors
 	int32_t factors[obj->total_clauses];
 	for (int i = 0; i < obj->total_clauses; ++i) factors[i] = (int32_t) obj->factors[i];
-	info.factors = [info.device newBufferWithBytes:factors length:obj->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.factors = [info.device newBufferWithBytes:factors length:obj->total_clauses *
+	                                                              sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	uint32_t num_constraints[1] = {obj->num_constraints};
-	info.num_constraints  = [info.device newBufferWithBytes:num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.num_constraints = [info.device newBufferWithBytes:num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.num_clauses = [info.device newBufferWithBytes:obj->num_clauses length:obj->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.clause_offset = [info.device newBufferWithBytes:obj->clause_offset length:obj->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.num_clauses = [info.device newBufferWithBytes:obj->num_clauses length:obj->num_constraints *
+	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.clause_offset = [info.device newBufferWithBytes:obj->clause_offset length:obj->num_constraints *
+	                                                                               sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.clause_length = [info.device newBufferWithBytes:obj->clause_length length:obj->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.variable_offset = [info.device newBufferWithBytes:obj->variable_offset length:obj->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.variables = [info.device newBufferWithBytes:obj->variables length:obj->total_variables * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.clause_length = [info.device newBufferWithBytes:obj->clause_length length:obj->total_clauses *
+	                                                                               sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.variable_offset = [info.device newBufferWithBytes:obj->variable_offset length:obj->total_clauses *
+	                                                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.variables = [info.device newBufferWithBytes:obj->variables length:obj->total_variables *
+	                                                                       sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	// do the same for the constraints
 	int32_t con_factors[con->total_clauses];
 	for (int i = 0; i < con->total_clauses; ++i) con_factors[i] = (int32_t) con->factors[i];
-	info.con_factors = [info.device newBufferWithBytes:con_factors length:con->total_clauses * sizeof(int32_t) options:MTLResourceStorageModeShared];
+	info.con_factors = [info.device newBufferWithBytes:con_factors length:con->total_clauses *
+	                                                                      sizeof(int32_t) options:MTLResourceStorageModeShared];
 
 	uint32_t con_num_constraints[1] = {con->num_constraints};
-	info.con_num_constraints  = [info.device newBufferWithBytes:con_num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_num_constraints = [info.device newBufferWithBytes:con_num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.con_num_clauses = [info.device newBufferWithBytes:con->num_clauses length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.con_clause_offset = [info.device newBufferWithBytes:con->clause_offset length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_num_clauses = [info.device newBufferWithBytes:con->num_clauses length:con->num_constraints *
+	                                                                               sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_clause_offset = [info.device newBufferWithBytes:con->clause_offset length:con->num_constraints *
+	                                                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.con_clause_length = [info.device newBufferWithBytes:con->clause_length length:con->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.con_variable_offset = [info.device newBufferWithBytes:con->variable_offset length:con->total_clauses * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.con_variables = [info.device newBufferWithBytes:con->variables length:con->total_variables * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_clause_length = [info.device newBufferWithBytes:con->clause_length length:con->total_clauses *
+	                                                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_variable_offset = [info.device newBufferWithBytes:con->variable_offset length:con->total_clauses *
+	                                                                                       sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.con_variables = [info.device newBufferWithBytes:con->variables length:con->total_variables *
+	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	int32_t rhs[con->num_constraints];
 	for (int i = 0; i < con->num_constraints; ++i) rhs[i] = (int32_t) con->rhs[i];
 	printf("%d %ld\n", con->num_constraints, con->rhs[0]);
-	info.rhs = [info.device newBufferWithBytes:rhs length:con->num_constraints * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.rhs = [info.device newBufferWithBytes:rhs length:con->num_constraints *
+	                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	free(move.offset);
-	free(move.length);
-	free(move.moves);
+	info.accepted_move = [info.device newBufferWithLength:size * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+
+//	free(move.offset);
+//	free(move.length);
+//	free(move.moves);
 
 	return info;
 }
 
-void reset_buffer(id <MTLBuffer> buffer){
+void reset_buffer(id <MTLBuffer> buffer) {
 	int *content = (int *) [buffer contents];
 	int items = (int) [buffer length] / sizeof(int);
 	for (int i = 0; i < items; ++i) content[i] = 0;
 	[buffer didModifyRange:NSMakeRange(0, items * sizeof(int))];
 }
 
-void print_buffer(id <MTLBuffer> buffer){
+void print_buffer(id <MTLBuffer> buffer) {
 	int *content = (int *) [buffer contents];
 	int items = (int) [buffer length] / sizeof(int);
-	for (int i = 0; i < items; ++i) printf("%4d " ,content[i]);
+	for (int i = 0; i < items; ++i) printf("%4d ", content[i]);
 	printf("\n");
 }
 
-void run_kernel(gpu_info_t *info){
+void run_kernel(gpu_info_t *info) {
+
+	CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
 
 	id <MTLCommandBuffer> commandBuffer = [info->queue commandBuffer];
 
@@ -167,30 +202,35 @@ void run_kernel(gpu_info_t *info){
 
 	[compute_encoder setBuffer:info->state offset:0 atIndex:0];
 	[compute_encoder setBuffer:info->state_data offset:0 atIndex:1];
+	[compute_encoder setBuffer:info->num_integers offset:0 atIndex:2];
 
-	[compute_encoder setBuffer:info->move_length offset:0 atIndex:2];
-	[compute_encoder setBuffer:info->move_offset offset:0 atIndex:3];
-	[compute_encoder setBuffer:info->move_entries offset:0 atIndex:4];
+	[compute_encoder setBuffer:info->move_length offset:0 atIndex:3];
+	[compute_encoder setBuffer:info->move_offset offset:0 atIndex:4];
+	[compute_encoder setBuffer:info->move_entries offset:0 atIndex:5];
 
-	[compute_encoder setBuffer:info->first_move offset:0 atIndex:5];
-	[compute_encoder setBuffer:info->last_move offset:0 atIndex:6];
+	[compute_encoder setBuffer:info->first_move offset:0 atIndex:6];
+	[compute_encoder setBuffer:info->last_move offset:0 atIndex:7];
 
-	[compute_encoder setBuffer:info->factors offset:0 atIndex:7];
-	[compute_encoder setBuffer:info->num_constraints offset:0 atIndex:8];
-	[compute_encoder setBuffer:info->num_clauses offset:0 atIndex:9];
-	[compute_encoder setBuffer:info->clause_offset offset:0 atIndex:10];
-	[compute_encoder setBuffer:info->clause_length offset:0 atIndex:11];
-	[compute_encoder setBuffer:info->variable_offset offset:0 atIndex:12];
-	[compute_encoder setBuffer:info->variables offset:0 atIndex:13];
+	[compute_encoder setBuffer:info->factors offset:0 atIndex:8];
+	[compute_encoder setBuffer:info->num_constraints offset:0 atIndex:9];
+	[compute_encoder setBuffer:info->num_clauses offset:0 atIndex:10];
+	[compute_encoder setBuffer:info->clause_offset offset:0 atIndex:11];
+	[compute_encoder setBuffer:info->clause_length offset:0 atIndex:12];
+	[compute_encoder setBuffer:info->variable_offset offset:0 atIndex:13];
+	[compute_encoder setBuffer:info->variables offset:0 atIndex:14];
 
-	[compute_encoder setBuffer:info->con_factors offset:0 atIndex:14];
-	[compute_encoder setBuffer:info->con_num_constraints offset:0 atIndex:15];
-	[compute_encoder setBuffer:info->con_num_clauses offset:0 atIndex:16];
-	[compute_encoder setBuffer:info->con_clause_offset offset:0 atIndex:17];
-	[compute_encoder setBuffer:info->con_clause_length offset:0 atIndex:18];
-	[compute_encoder setBuffer:info->con_variable_offset offset:0 atIndex:19];
-	[compute_encoder setBuffer:info->con_variables offset:0 atIndex:20];
-	[compute_encoder setBuffer:info->rhs offset:0 atIndex:21];
+	[compute_encoder setBuffer:info->con_factors offset:0 atIndex:15];
+	[compute_encoder setBuffer:info->con_num_constraints offset:0 atIndex:16];
+	[compute_encoder setBuffer:info->con_num_clauses offset:0 atIndex:17];
+	[compute_encoder setBuffer:info->con_clause_offset offset:0 atIndex:18];
+	[compute_encoder setBuffer:info->con_clause_length offset:0 atIndex:19];
+	[compute_encoder setBuffer:info->con_variable_offset offset:0 atIndex:20];
+	[compute_encoder setBuffer:info->con_variables offset:0 atIndex:21];
+	[compute_encoder setBuffer:info->rhs offset:0 atIndex:22];
+
+	[compute_encoder setBuffer:info->accepted_move offset:0 atIndex:23];
+	CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
+	printf("time to compute encode %f\n", end - start);
 
 	MTLSize grid_size = MTLSizeMake(size, 1, 1);
 	NSUInteger group_size = info->pipelineState.maxTotalThreadsPerThreadgroup;
@@ -207,30 +247,51 @@ void run_kernel(gpu_info_t *info){
 	[commandBuffer release];
 }
 
-int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con){
+int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 	int num_integers = n / 32 + 1;
-	gpu_info_t info = inti_info(n , 3, obj, con);
+	CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
 
-	printf("%lld\n", obj->factors[0]);
+	gpu_info_t info = inti_info(n, 2, obj, con);
 
- 	run_kernel(&info);
- 	state_32_t *state = (state_32_t *) [info.state contents];
- 	uint32_t *state_data = (uint32_t *) [info.state_data contents];
- 	for (int i = 0; i < size; ++i) {
- 		printf("%d %d ", i, state[i].tot_profit);
-// 		for (int k = 0; k < num_integers; ++k) {
-// 			for (int j = 0; j < 32; ++j) {
-// 				printf("%u", ((1 << j) & state_data[state[i].x_offset + k + j / 32]) != 0);
-// 			}
-// 			printf(" ");
-// 		}
- 		printf("\n");
- 	}
+	for (int reps = 0; reps < 10; ++reps) {
+		run_kernel(&info);
+		state_32_t *state = (state_32_t *) [info.state contents];
+		uint32_t *state_data = (uint32_t *) [info.state_data contents];
+		uint32_t *accepted_move = (uint32_t *) [info.accepted_move contents];
+
+		int index = 0;
+		CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
+		printf("%f\n", (end - start));
+		int32_t initial = INT32_MAX;
+		uint tot_feasible = 0;
+		for (int i = 0; i < size; ++i) {
+			uint accept = (!tot_feasible & state[i].feasible) |
+			              ((tot_feasible & state[i].feasible | !tot_feasible & !state[i].feasible) &
+			               (state[i].tot_profit < initial));
+			if (accept) {
+				initial = state[i].tot_profit;
+				tot_feasible |= state[i].feasible;
+				index = i;
+			}
+		}
+		end = CFAbsoluteTimeGetCurrent();
+		printf("%d %d %d %d %f\n", reps, state[index].tot_profit, state[index].feasible, accepted_move[index], (end - start));
+		uint move_index = accepted_move[index];
+		for (int i = 0; i < info.move.length[move_index]; ++i) {
+			flip_bit(state_data, info.move.moves[info.move.offset[move_index] + i]);
+//			printf("%d ", info.move.moves[info.move.offset[move_index] + i]);
+		}
+		[info.state_data didModifyRange:NSMakeRange(0, num_integers * sizeof(int))];
+	}
+//	state_data = (uint32_t *) [info.state_data contents];
+//	for (int i = 0; i < num_integers; ++i) {
+//		for (int j = 0; j < 32; ++j) {
+//			printf("%d", (state_data[i] & (1 << j)) != 0 );
+//		}
+//		printf(" ");
+//	}
+//	printf("\n");
+
+
 	return 0;
 }
-
-// int main(){
-// 	exec_gpu();
-//
-// 	return 0;
-// }

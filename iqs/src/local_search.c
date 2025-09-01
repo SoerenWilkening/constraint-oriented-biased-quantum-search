@@ -478,7 +478,7 @@ int local_search(state_t *cur_sol,
 
 	state_t *new_sol = copy_state(cur_sol);
 	int break_item = 0;
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
+//	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
 	free_state(new_sol, 1);
 
 	int64_t remainings[C];

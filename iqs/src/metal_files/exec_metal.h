@@ -6,6 +6,15 @@
 #include "../constraint.h"
 
 typedef struct {
+	int32_t *length;
+	int32_t *moves;
+	int32_t *offset;
+} move_gpu_t;
+
+
+typedef struct {
+	move_gpu_t move;
+
 	id <MTLDevice> device;
 	id <MTLCommandQueue> queue;
 	id <MTLLibrary> library;
@@ -40,14 +49,9 @@ typedef struct {
 	id <MTLBuffer> con_variable_offset;
 	id <MTLBuffer> con_variables;
 	id <MTLBuffer> rhs;
+
+	id <MTLBuffer> accepted_move;
 } gpu_info_t;
-
-
-typedef struct {
-	int16_t *length;
-	int16_t *moves;
-	int16_t *offset;
-} move_gpu_t;
 
 typedef struct {
 	int32_t  tot_profit;

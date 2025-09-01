@@ -1,6 +1,7 @@
 #include "/Users/sorenwilkening/Desktop/improved_quantum_search/iqs/src/metal_files/metal_functions.h"
 
 #define MAXCLAUSESIZE 5 // maximum 4 variables in clause -> maybe overkill
+#define MAXINTEGER 10
 
 static inline uint rand(uint seed){
 	seed ^= seed << 21;
@@ -11,30 +12,30 @@ static inline uint rand(uint seed){
 
 static inline void set_bit( device state_32_t *state,
 					 uint state_index,
-					 device uint *state_data,
+					 uint state_data[MAXINTEGER],
 					 uint bit){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
-	state_data[state[state_index].x_offset + index] |= mask;
+	state_data[index] |= mask;
 }
 
 static inline uint get_bit(const device state_32_t *state,
 					uint state_index,
-					const device uint *state_data,
+					const uint state_data[MAXINTEGER],
 					uint bit){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
-	return (state_data[state[state_index].x_offset + index] & mask) != 0;;
+	return (state_data[index] & mask) != 0;
 }
 
 static inline void flip_bit(device state_32_t *state,
 							uint state_index,
-							device uint *state_data,
+							uint state_data[MAXINTEGER],
 							uint bit
 							){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
-	state_data[state[state_index].x_offset + index] ^= mask;
+	state_data[index] ^= mask;
 }
 
 static inline uint first_clause_index(const device uint *con_clause_offset, size_t C) {
@@ -61,7 +62,7 @@ static inline int objective_value(
                     const device uint *obj_variables,
                     const device state_32_t *state,
                     uint state_index,
-                    const device uint *state_data
+                    const uint state_data[MAXINTEGER]
                     ) {
 	// compute objective value of given solution
 	int total = 0;
@@ -90,7 +91,7 @@ static inline int constraint_violation(
                     const device int *rhs,
                     const device state_32_t *state,
                     uint state_index,
-                    const device uint *state_data,
+                    const uint state_data[MAXINTEGER],
                     uint cnstr
                     ) {
 	int total = 0;
@@ -117,35 +118,43 @@ static inline int constraint_violation(
 
 kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to store new assignment in
                        device uint *state_data [[ buffer(1) ]],  //
-                       const device ushort *move_length [[ buffer(2) ]],  //
-                       const device ushort *move_offset [[ buffer(3) ]],  //
-                       const device ushort *move_entries [[ buffer(4) ]],  //
-                       const device ushort *first_index [[ buffer(5) ]],  //
-                       const device ushort *last_index [[ buffer(6) ]],  //
-                       const device int *obj_factors [[ buffer(7) ]],
-                       const device uint *obj_num_constraints [[ buffer(8) ]],
-                       const device uint *obj_num_clauses [[ buffer(9) ]],
-                       const device uint *obj_clause_offset [[ buffer(10) ]],
-                       const device uint *obj_clause_length [[ buffer(11) ]],
-                       const device uint *obj_variable_offset [[ buffer(12) ]],
-                       const device uint *obj_variables [[ buffer(13) ]],
-                       const device int *con_factors [[ buffer(14) ]],
-                       const device uint *con_num_constraints [[ buffer(15) ]],
-                       const device uint *con_num_clauses [[ buffer(16) ]],
-                       const device uint *con_clause_offset [[ buffer(17) ]],
-                       const device uint *con_clause_length [[ buffer(18) ]],
-                       const device uint *con_variable_offset [[ buffer(19) ]],
-                       const device uint *con_variables [[ buffer(20) ]],
-                       const device int *rhs [[ buffer(21) ]],
+                       const device uint *num_integers [[ buffer(2) ]],  //
+                       const device uint *move_length [[ buffer(3) ]],  //
+                       const device uint *move_offset [[ buffer(4) ]],  //
+                       const device uint *move_entries [[ buffer(5) ]],  //
+                       const device uint *first_index [[ buffer(6) ]],  //
+                       const device uint *last_index [[ buffer(7) ]],  //
+                       const device int *obj_factors [[ buffer(8) ]],
+                       const device uint *obj_num_constraints [[ buffer(9) ]],
+                       const device uint *obj_num_clauses [[ buffer(10) ]],
+                       const device uint *obj_clause_offset [[ buffer(11) ]],
+                       const device uint *obj_clause_length [[ buffer(12) ]],
+                       const device uint *obj_variable_offset [[ buffer(13) ]],
+                       const device uint *obj_variables [[ buffer(14) ]],
+                       const device int *con_factors [[ buffer(15) ]],
+                       const device uint *con_num_constraints [[ buffer(16) ]],
+                       const device uint *con_num_clauses [[ buffer(17) ]],
+                       const device uint *con_clause_offset [[ buffer(18) ]],
+                       const device uint *con_clause_length [[ buffer(19) ]],
+                       const device uint *con_variable_offset [[ buffer(20) ]],
+                       const device uint *con_variables [[ buffer(21) ]],
+                       const device int *rhs [[ buffer(22) ]],
+                       device uint *accepted_move [[ buffer(23) ]],
                        uint id [[ thread_position_in_grid ]]            // Thread ID
 ) {
 	uint seed = id + 1;
 
+    uint state_copy[MAXINTEGER];
+    for (int i = 0; i < num_integers[0]; i++) state_copy[i] = state_data[i];
 
-	//for (ushort index = first_index[id]; index < last_index[id]; index++){
-	for (ushort index = first_index[id]; index < first_index[id] + 1; index++){
+    int initial = INT_MAX;
+    int tot_feasible = 0;
+
+	for (uint index = first_index[id]; index < last_index[id]; index++){
+	// for (uint index = first_index[id]; index < first_index[id] + 1; index++){
+
 		// flip bits
-		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_data, move_entries[move_offset[index] + i]);
+		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_copy, move_entries[move_offset[index] + i]);
 
 		// do the computation
 		int total_violation = 0;
@@ -161,7 +170,7 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
                 rhs,
                 state,
                 id,
-                state_data,
+                state_copy,
                 cnstr
             );
             total_violation -= (violation < 0) * violation; // add all violations
@@ -177,14 +186,27 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
             obj_variables,
             state,
             id,
-            state_data
+            state_copy
         );
 
-        state[id].tot_profit = feasible * objective + (!feasible) * total_violation;
+        // if feasible: use objective value, otherwise constraint violation
+		int obj = feasible * objective + (!feasible) * total_violation;
+
+		// accept if:
+		//  1) !tot_feasible & feasible -> obj doesnt matter
+		//  2) (tot_feasible & feasible | !tot_feasible & !feasible) & (obj < initial)
+		int accept = (!tot_feasible & feasible) | ((tot_feasible & feasible | !tot_feasible & !feasible) & (obj < initial));
+		initial = (accept) * obj + (!accept) * initial;
+
+		accepted_move[id] = (accept) * index + (!accept) * accepted_move[id];
+
+        tot_feasible |= feasible;
 
 		// unflip bits
-		//for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_data, move_entries[move_offset[index] + i]);
+		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_copy, move_entries[move_offset[index] + i]);
 	}
+    state[id].tot_profit = initial;
+    state[id].feasible = tot_feasible;
 }
 
 // 0: [-23 0 0 ]
