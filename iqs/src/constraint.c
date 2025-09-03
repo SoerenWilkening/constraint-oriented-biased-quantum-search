@@ -129,6 +129,10 @@ void preprocessing(
 	con->negative_offsets = malloc(n * C * sizeof(uint32_t));
 	con->num_positive_indices = malloc(n * C * sizeof(uint32_t));
 	con->num_negative_indices = malloc(n * C * sizeof(uint32_t));
+
+	con->positive_array_length = 0;
+	con->negative_array_length = 0;
+	con->array_length = n * C;
 	// preprocess the constraints for usage in the sampling routine
 	// go through every item and collect all the constraint indices containing the items
 	// sort indices by positive and negative coefficients
@@ -170,12 +174,14 @@ void preprocessing(
 							    con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
 							con->negative_indices[counter_negative++] = cls;
 							nni++;
+							con->negative_array_length++;
 						} else {
 							// add index to "positive_indices"
 							if (counter_positive & (size_steps - 1) )
 							    con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
 							con->positive_indices[counter_positive++] = cls;
 							npi++;
+							con->positive_array_length++;
 						}
 					}
 					prev_var = var;
@@ -187,6 +193,8 @@ void preprocessing(
 			con->positive_offsets[item * C + cnstr] = counter_positive - npi;
 		}
 	}
+	con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
+	con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
 }
 
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {

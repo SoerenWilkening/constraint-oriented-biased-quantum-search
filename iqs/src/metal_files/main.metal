@@ -1,7 +1,7 @@
 #include "/Users/sorenwilkening/Desktop/improved_quantum_search/iqs/src/metal_files/metal_functions.h"
 
 #define MAXCLAUSESIZE 5 // maximum 4 variables in clause -> maybe overkill
-#define MAXINTEGER 10
+#define MAXINTEGER 32
 
 static inline uint rand(uint seed){
 	seed ^= seed << 21;
@@ -138,6 +138,12 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
                        const device uint *con_variables [[ buffer(20) ]],
                        const device int *rhs [[ buffer(21) ]],
                        device uint *accepted_move [[ buffer(22) ]],
+                       const device uint *obj_positive_indices [[ buffer(23) ]],
+                       const device uint *obj_negative_indices [[ buffer(24) ]],
+                       const device uint *obj_positive_offsets [[ buffer(25) ]],
+                       const device uint *obj_negative_offsets [[ buffer(26) ]],
+                       const device uint *obj_num_positive_indices [[ buffer(27) ]],
+                       const device uint *obj_num_negative_indices [[ buffer(28) ]],
                        uint id [[ thread_position_in_grid ]]            // Thread ID
 ) {
 	uint seed = id + 1;

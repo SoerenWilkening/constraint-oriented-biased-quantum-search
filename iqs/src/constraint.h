@@ -52,6 +52,9 @@ typedef struct{
 	uint32_t *negative_offsets;
 	uint32_t *num_positive_indices;
 	uint32_t *num_negative_indices;
+	uint32_t positive_array_length;
+	uint32_t negative_array_length;
+	uint32_t array_length;
 } new_constraints_t;
 
 

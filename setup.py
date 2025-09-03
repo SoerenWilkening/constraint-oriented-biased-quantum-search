@@ -11,14 +11,16 @@ os.chdir(script_dir)
 compiler_args = ["-O3", "-flto", "-pthread"]
 
 extensions = [
-	Extension("iqs.Constants", ["iqs/Constants.py"], extra_compile_args=compiler_args),
-	Extension("iqs.Constants", ["iqs/StateGenerator.py"], extra_compile_args=compiler_args),
-	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"], extra_compile_args=compiler_args),
-	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/metal_files/exec_metal.m"], extra_compile_args=["-ObjC"]  ),
-	Extension("iqs.Model", ["iqs/Model.py"], extra_compile_args=compiler_args),
+	Extension("iqs.Constants", ["iqs/Constants.py"], extra_compile_args = compiler_args),
+	Extension("iqs.StateGenerator", ["iqs/StateGenerator.py"], extra_compile_args = compiler_args),
+	Extension("iqs.Expression", ["iqs/Expression.pyx", "iqs/src/Expression.c"], extra_compile_args = compiler_args),
+	Extension("iqs.Metal_executor", ["iqs/Metal_executor.pyx", "iqs/src/metal_files/exec_metal.m"],
+	          extra_compile_args = compiler_args + ["-ObjC"],
+	          include_dirs = [os.path.join("iqs", "src", "metal_files")]),
+	Extension("iqs.Model", ["iqs/Model.py"], extra_compile_args = compiler_args),
 	Extension("iqs.SearchLib",
 	          ["iqs/SearchLib.pyx",
-			   os.path.join("iqs", "src", "solver.c"),
+	           os.path.join("iqs", "src", "solver.c"),
 	           os.path.join("iqs", "src", "SearchLib.c"),
 	           os.path.join("iqs", "src", "Branching.c"),
 	           os.path.join("iqs", "src", "intarray.c"),
@@ -27,8 +29,8 @@ extensions = [
 	           os.path.join("iqs", "src", "local_search.c"),
 	           os.path.join("iqs", "src", "constraint.c"),
 	           ],
-	          extra_compile_args=compiler_args,
-	          include_dirs = [os.path.join("iqs", "src"), os.path.join("iqs", "src", "metal_files")]),
+	          extra_compile_args = compiler_args,
+	          include_dirs = [os.path.join("iqs", "src")]),
 ]
 
 setup(
@@ -36,5 +38,5 @@ setup(
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions, language_level=3),
+	ext_modules = cythonize(extensions, language_level = 3),
 )

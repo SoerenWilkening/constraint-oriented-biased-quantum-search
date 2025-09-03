@@ -101,6 +101,8 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 		}
 	}
 
+	printf("lengths = %d %d %d\n", obj->positive_array_length, obj->negative_array_length, obj->array_length);
+
 	info.state = [info.device newBufferWithBytes:state length:size *
 	                                                          sizeof(state_32_t) options:MTLResourceStorageModeShared];
 	// requires only a single copy of the state data
@@ -161,15 +163,17 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 
 	int32_t rhs[con->num_constraints];
 	for (int i = 0; i < con->num_constraints; ++i) rhs[i] = (int32_t) con->rhs[i];
-	printf("%d %ld\n", con->num_constraints, con->rhs[0]);
 	info.rhs = [info.device newBufferWithBytes:rhs length:con->num_constraints *
 	                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.accepted_move = [info.device newBufferWithLength:size * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-//	free(move.offset);
-//	free(move.length);
-//	free(move.moves);
+	info.obj_positive_indices = [info.device newBufferWithBytes:obj->positive_indices length:obj->positive_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_negative_indices = [info.device newBufferWithBytes:obj->negative_indices length:obj->negative_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_positive_offsets = [info.device newBufferWithBytes:obj->positive_offsets length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_negative_offsets = [info.device newBufferWithBytes:obj->negative_offsets length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_num_positive_indices = [info.device newBufferWithBytes:obj->num_positive_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_num_negative_indices = [info.device newBufferWithBytes:obj->num_negative_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	return info;
 }
@@ -225,6 +229,13 @@ void run_kernel(gpu_info_t *info) {
 	[compute_encoder setBuffer:info->rhs offset:0 atIndex:21];
 
 	[compute_encoder setBuffer:info->accepted_move offset:0 atIndex:22];
+
+	[compute_encoder setBuffer:info->obj_positive_indices offset:0 atIndex:23];
+	[compute_encoder setBuffer:info->obj_negative_indices offset:0 atIndex:24];
+	[compute_encoder setBuffer:info->obj_positive_offsets offset:0 atIndex:25];
+	[compute_encoder setBuffer:info->obj_negative_offsets offset:0 atIndex:26];
+	[compute_encoder setBuffer:info->obj_num_positive_indices offset:0 atIndex:27];
+	[compute_encoder setBuffer:info->obj_num_negative_indices offset:0 atIndex:28];
 	CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
 	printf("time to compute encode %f\n", end - start);
 
@@ -249,7 +260,7 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 
 	gpu_info_t info = inti_info(n, 2, obj, con);
 
-	for (int reps = 0; reps < 10; ++reps) {
+	for (int reps = 0; reps < 1; ++reps) {
 		run_kernel(&info);
 		state_32_t *state = (state_32_t *) [info.state contents];
 		uint32_t *state_data = (uint32_t *) [info.state_data contents];
