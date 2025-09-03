@@ -126,9 +126,6 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 	info.factors = [info.device newBufferWithBytes:factors length:obj->total_clauses *
 	                                                              sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	uint32_t num_constraints[1] = {obj->num_constraints};
-	info.num_constraints = [info.device newBufferWithBytes:num_constraints length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-
 	info.num_clauses = [info.device newBufferWithBytes:obj->num_clauses length:obj->num_constraints *
 	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.clause_offset = [info.device newBufferWithBytes:obj->clause_offset length:obj->num_constraints *
@@ -212,23 +209,22 @@ void run_kernel(gpu_info_t *info) {
 	[compute_encoder setBuffer:info->last_move offset:0 atIndex:7];
 
 	[compute_encoder setBuffer:info->factors offset:0 atIndex:8];
-	[compute_encoder setBuffer:info->num_constraints offset:0 atIndex:9];
-	[compute_encoder setBuffer:info->num_clauses offset:0 atIndex:10];
-	[compute_encoder setBuffer:info->clause_offset offset:0 atIndex:11];
-	[compute_encoder setBuffer:info->clause_length offset:0 atIndex:12];
-	[compute_encoder setBuffer:info->variable_offset offset:0 atIndex:13];
-	[compute_encoder setBuffer:info->variables offset:0 atIndex:14];
+	[compute_encoder setBuffer:info->num_clauses offset:0 atIndex:9];
+	[compute_encoder setBuffer:info->clause_offset offset:0 atIndex:10];
+	[compute_encoder setBuffer:info->clause_length offset:0 atIndex:11];
+	[compute_encoder setBuffer:info->variable_offset offset:0 atIndex:12];
+	[compute_encoder setBuffer:info->variables offset:0 atIndex:13];
 
-	[compute_encoder setBuffer:info->con_factors offset:0 atIndex:15];
-	[compute_encoder setBuffer:info->con_num_constraints offset:0 atIndex:16];
-	[compute_encoder setBuffer:info->con_num_clauses offset:0 atIndex:17];
-	[compute_encoder setBuffer:info->con_clause_offset offset:0 atIndex:18];
-	[compute_encoder setBuffer:info->con_clause_length offset:0 atIndex:19];
-	[compute_encoder setBuffer:info->con_variable_offset offset:0 atIndex:20];
-	[compute_encoder setBuffer:info->con_variables offset:0 atIndex:21];
-	[compute_encoder setBuffer:info->rhs offset:0 atIndex:22];
+	[compute_encoder setBuffer:info->con_factors offset:0 atIndex:14];
+	[compute_encoder setBuffer:info->con_num_constraints offset:0 atIndex:15];
+	[compute_encoder setBuffer:info->con_num_clauses offset:0 atIndex:16];
+	[compute_encoder setBuffer:info->con_clause_offset offset:0 atIndex:17];
+	[compute_encoder setBuffer:info->con_clause_length offset:0 atIndex:18];
+	[compute_encoder setBuffer:info->con_variable_offset offset:0 atIndex:19];
+	[compute_encoder setBuffer:info->con_variables offset:0 atIndex:20];
+	[compute_encoder setBuffer:info->rhs offset:0 atIndex:21];
 
-	[compute_encoder setBuffer:info->accepted_move offset:0 atIndex:23];
+	[compute_encoder setBuffer:info->accepted_move offset:0 atIndex:22];
 	CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
 	printf("time to compute encode %f\n", end - start);
 

@@ -245,3 +245,4 @@ or {self.runtime}s sampling
 		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
+#

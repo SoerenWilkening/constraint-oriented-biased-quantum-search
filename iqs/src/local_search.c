@@ -277,6 +277,9 @@ void *explore_neighbourhood(void *args){
 		int num_con_changes = 0;
 
 		for (int i = 0; i < k; ++i) {
+//			for (int j = 0; j < C; ++j) {
+//				totals[j] = constraint_violation(dat->con, new_sol, j);
+//			}
 			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
 			                              dat->con->positive_offsets, new_sol,
 			                              POSITIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
@@ -293,6 +296,7 @@ void *explore_neighbourhood(void *args){
 
 		for (int cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
+//			total_violation -= totals[cnstr] < 0 ? totals[cnstr] : 0;
 			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
 		}
 //		printf("%lld\n", total_violation);
@@ -318,6 +322,7 @@ void *explore_neighbourhood(void *args){
 			int *changes = calloc(MINSIZE, sizeof(int));
 			int num_cahnges = 0;
 			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
+//			int64_t objective = objective_value(dat->obj, new_sol);
 
 			if (objective < cur_best->tot_profit && feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);

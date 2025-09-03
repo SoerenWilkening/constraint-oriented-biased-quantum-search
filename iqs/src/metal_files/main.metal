@@ -54,7 +54,6 @@ static inline uint variable_index(uint cls, uint k, uint clause_offset) {
 
 static inline int objective_value(
                     const device int *obj_factors,
-                    const device uint *obj_num_constraints,
                     const device uint *obj_num_clauses,
                     const device uint *obj_clause_offset,
                     const device uint *obj_clause_length,
@@ -125,21 +124,20 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
                        const device uint *first_index [[ buffer(6) ]],  //
                        const device uint *last_index [[ buffer(7) ]],  //
                        const device int *obj_factors [[ buffer(8) ]],
-                       const device uint *obj_num_constraints [[ buffer(9) ]],
-                       const device uint *obj_num_clauses [[ buffer(10) ]],
-                       const device uint *obj_clause_offset [[ buffer(11) ]],
-                       const device uint *obj_clause_length [[ buffer(12) ]],
-                       const device uint *obj_variable_offset [[ buffer(13) ]],
-                       const device uint *obj_variables [[ buffer(14) ]],
-                       const device int *con_factors [[ buffer(15) ]],
-                       const device uint *con_num_constraints [[ buffer(16) ]],
-                       const device uint *con_num_clauses [[ buffer(17) ]],
-                       const device uint *con_clause_offset [[ buffer(18) ]],
-                       const device uint *con_clause_length [[ buffer(19) ]],
-                       const device uint *con_variable_offset [[ buffer(20) ]],
-                       const device uint *con_variables [[ buffer(21) ]],
-                       const device int *rhs [[ buffer(22) ]],
-                       device uint *accepted_move [[ buffer(23) ]],
+                       const device uint *obj_num_clauses [[ buffer(9) ]],
+                       const device uint *obj_clause_offset [[ buffer(10) ]],
+                       const device uint *obj_clause_length [[ buffer(11) ]],
+                       const device uint *obj_variable_offset [[ buffer(12) ]],
+                       const device uint *obj_variables [[ buffer(13) ]],
+                       const device int *con_factors [[ buffer(14) ]],
+                       const device uint *con_num_constraints [[ buffer(15) ]],
+                       const device uint *con_num_clauses [[ buffer(16) ]],
+                       const device uint *con_clause_offset [[ buffer(17) ]],
+                       const device uint *con_clause_length [[ buffer(18) ]],
+                       const device uint *con_variable_offset [[ buffer(19) ]],
+                       const device uint *con_variables [[ buffer(20) ]],
+                       const device int *rhs [[ buffer(21) ]],
+                       device uint *accepted_move [[ buffer(22) ]],
                        uint id [[ thread_position_in_grid ]]            // Thread ID
 ) {
 	uint seed = id + 1;
@@ -178,7 +176,6 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
         uint feasible = (total_violation <= 0);
         uint objective = objective_value(
             obj_factors,
-            obj_num_constraints,
             obj_num_clauses,
             obj_clause_offset,
             obj_clause_length,

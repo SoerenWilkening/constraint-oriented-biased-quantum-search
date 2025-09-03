@@ -34,12 +34,18 @@ typedef struct {
 	id <MTLBuffer> last_move;
 
 	id <MTLBuffer> factors;
-	id <MTLBuffer> num_constraints;
 	id <MTLBuffer> num_clauses;
 	id <MTLBuffer> clause_offset;
 	id <MTLBuffer> clause_length;
 	id <MTLBuffer> variable_offset;
 	id <MTLBuffer> variables;
+
+	id <MTLBuffer> obj_positive_indices;
+	id <MTLBuffer> obj_negative_indices;
+	id <MTLBuffer> obj_positive_offsets;
+	id <MTLBuffer> obj_negative_offsets;
+	id <MTLBuffer> obj_num_positive_indices;
+	id <MTLBuffer> obj_num_negative_indices;
 
 	id <MTLBuffer> con_factors;
 	id <MTLBuffer> con_num_constraints;
@@ -50,11 +56,18 @@ typedef struct {
 	id <MTLBuffer> con_variables;
 	id <MTLBuffer> rhs;
 
+	id <MTLBuffer> con_positive_indices;
+	id <MTLBuffer> con_negative_indices;
+	id <MTLBuffer> con_positive_offsets;
+	id <MTLBuffer> con_negative_offsets;
+	id <MTLBuffer> con_num_positive_indices;
+	id <MTLBuffer> con_num_negative_indices;
+
 	id <MTLBuffer> accepted_move;
 } gpu_info_t;
 
 typedef struct {
-	int32_t  tot_profit;
+	int32_t tot_profit;
 	uint32_t feasible;
 	uint32_t n;
 	uint32_t bits;

@@ -46,12 +46,12 @@ typedef struct{
 	int64_t *rhs;
 
 	// faster access for sampling routine
-	unsigned int *positive_indices;
-	unsigned int *negative_indices;
-	unsigned int *positive_offsets;
-	unsigned int *negative_offsets;
-	unsigned int *num_positive_indices;
-	unsigned int *num_negative_indices;
+	uint32_t *positive_indices;
+	uint32_t *negative_indices;
+	uint32_t *positive_offsets;
+	uint32_t *negative_offsets;
+	uint32_t *num_positive_indices;
+	uint32_t *num_negative_indices;
 } new_constraints_t;
 
 
