@@ -81,7 +81,10 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 
 	int32_t number_integers[1] = {n / 32 + 1};
 	state_32_t state[size];
-	for (int i = 0; i < size; ++i) state[i].x_offset = number_integers[0] * i;
+	for (int i = 0; i < size; ++i) {
+		state[i].tot_profit = 0;
+		state[i].x_offset = number_integers[0] * i;
+	}
 
 	int num_moves = 0;
 	int num_entries = 0;
@@ -106,8 +109,7 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 	info.state = [info.device newBufferWithBytes:state length:size *
 	                                                          sizeof(state_32_t) options:MTLResourceStorageModeShared];
 	// requires only a single copy of the state data
-	info.state_data = [info.device newBufferWithLength:number_integers[0] *
-	                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.state_data = [info.device newBufferWithLength:number_integers[0] * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.num_integers = [info.device newBufferWithBytes:number_integers length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.move_length = [info.device newBufferWithBytes:info.move.length length:num_moves *
@@ -175,6 +177,10 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 	info.obj_num_positive_indices = [info.device newBufferWithBytes:obj->num_positive_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.obj_num_negative_indices = [info.device newBufferWithBytes:obj->num_negative_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
+//	for (int i = 0; i < obj->array_length; ++i) {
+//		printf("%d\n", obj->num_negative_indices[i]);
+//	}
+
 	return info;
 }
 
@@ -237,7 +243,7 @@ void run_kernel(gpu_info_t *info) {
 	[compute_encoder setBuffer:info->obj_num_positive_indices offset:0 atIndex:27];
 	[compute_encoder setBuffer:info->obj_num_negative_indices offset:0 atIndex:28];
 	CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
-	printf("time to compute encode %f\n", end - start);
+//	printf("time to compute encode %f\n", end - start);
 
 	MTLSize grid_size = MTLSizeMake(size, 1, 1);
 	NSUInteger group_size = info->pipelineState.maxTotalThreadsPerThreadgroup;
@@ -260,7 +266,7 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 
 	gpu_info_t info = inti_info(n, 2, obj, con);
 
-	for (int reps = 0; reps < 1; ++reps) {
+	for (int reps = 0; reps < 10; ++reps) {
 		run_kernel(&info);
 		state_32_t *state = (state_32_t *) [info.state contents];
 		uint32_t *state_data = (uint32_t *) [info.state_data contents];
@@ -268,10 +274,11 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 
 		int index = 0;
 		CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
-		printf("%f\n", (end - start));
+//		printf("%f\n", (end - start));
 		int32_t initial = INT32_MAX;
 		uint tot_feasible = 0;
 		for (int i = 0; i < size; ++i) {
+//			printf("%d %d\n", i, state[i].tot_profit);
 			uint accept = (!tot_feasible & state[i].feasible) |
 			              ((tot_feasible & state[i].feasible | !tot_feasible & !state[i].feasible) &
 			               (state[i].tot_profit < initial));
@@ -288,16 +295,12 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 			flip_bit(state_data, info.move.moves[info.move.offset[move_index] + i]);
 //			printf("%d ", info.move.moves[info.move.offset[move_index] + i]);
 		}
-		[info.state_data didModifyRange:NSMakeRange(0, num_integers * sizeof(int))];
+		state[0].tot_profit = state[index].tot_profit;
+		[info.state didModifyRange:NSMakeRange(0, sizeof(state_32_t))];
+		[info.state_data didModifyRange:NSMakeRange(0, num_integers * sizeof(int32_t))];
+
+//		printf("\n");
 	}
-//	state_data = (uint32_t *) [info.state_data contents];
-//	for (int i = 0; i < num_integers; ++i) {
-//		for (int j = 0; j < 32; ++j) {
-//			printf("%d", (state_data[i] & (1 << j)) != 0 );
-//		}
-//		printf(" ");
-//	}
-//	printf("\n");
 
 
 	return 0;

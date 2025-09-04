@@ -10,27 +10,24 @@ static inline uint rand(uint seed){
 	return seed;
 }
 
-static inline void set_bit( device state_32_t *state,
-					 uint state_index,
-					 uint state_data[MAXINTEGER],
+static inline void set_bit(
+					 uint state_data[],
 					 uint bit){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
 	state_data[index] |= mask;
 }
 
-static inline uint get_bit(const device state_32_t *state,
-					uint state_index,
-					const uint state_data[MAXINTEGER],
+static inline uint get_bit(
+					const uint state_data[],
 					uint bit){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
 	return (state_data[index] & mask) != 0;
 }
 
-static inline void flip_bit(device state_32_t *state,
-							uint state_index,
-							uint state_data[MAXINTEGER],
+static inline void flip_bit(
+							uint state_data[],
 							uint bit
 							){
 	uint index = bit >> 5;
@@ -59,8 +56,6 @@ static inline int objective_value(
                     const device uint *obj_clause_length,
                     const device uint *obj_variable_offset,
                     const device uint *obj_variables,
-                    const device state_32_t *state,
-                    uint state_index,
                     const uint state_data[MAXINTEGER]
                     ) {
 	// compute objective value of given solution
@@ -71,11 +66,82 @@ static inline int objective_value(
 	    uint assigned = 1;
 	    for (uint k = 0; k < obj_clause_length[cl]; ++k) {
 	    	uint var = obj_variables[variable_index(cl, k, 0)];
-	    	assigned &= get_bit(state, state_index, state_data, var);
+	    	assigned &= get_bit(state_data, var);
 	    }
         total += obj_factors[cl] * assigned;
 	}
     return total;
+}
+
+#define OVERLAPS 5
+
+static inline uint var_in_array(const device uint *changes, uint length, uint var){
+    uint is_contained = 0;
+    for(int i = 0; i < length; i++){
+        is_contained |= (changes[i] == var);
+    }
+    return is_contained;
+}
+
+static inline int objective_value_improved(
+                    const device int *obj_factors,
+                    const device uint *obj_num_clauses,
+                    const device uint *obj_clause_offset,
+                    const device uint *obj_clause_length,
+                    const device uint *obj_variable_offset,
+                    const device uint *obj_variables,
+                    const uint old_state_data[MAXINTEGER],
+                    const uint new_state_data[MAXINTEGER],
+                    const device uint *obj_indices,
+                    const device uint *obj_offsets,
+                    const device uint *obj_num_indices,
+                    uint num_changes,
+                    const device uint *changes
+                    ) {
+
+    int total = 0;
+
+    // compute only the adjusted value
+    for(uint i = 0; i < num_changes; i++){
+        uint item = changes[i];
+        for (uint cls = 0; cls < obj_num_indices[item]; cls++){
+            uint old_assigned = 1;
+            uint new_assigned = 1;
+            uint clause_index = obj_indices[obj_offsets[item] + cls];
+            //uint already_investigated = get_bit(assigned, clause_index);
+            uint already_investigated = 0;
+
+            // compute if term was satisfied or is satisfied now
+            for (uint j = 0; j < obj_clause_length[clause_index]; j++){
+                uint var = obj_variables[variable_index(clause_index, j, 0)];
+                old_assigned &= get_bit(old_state_data, var);
+                new_assigned &= get_bit(new_state_data, var);
+
+                //
+                already_investigated |= var_in_array(changes, num_changes, var) & (var != item) & (i > 0);
+            }
+            uint subtract = old_assigned & !new_assigned;
+            uint add = (!old_assigned) & new_assigned;
+            total += obj_factors[clause_index] * int(add - subtract) * int(!already_investigated);
+            // total += obj_factors[clause_index] * int(add) * int(!already_investigated);
+            // set_bit(assigned, clause_index);
+        }
+    }
+    return total;
+
+	// // compute objective value of given solution
+	// int total = 0;
+	// for (uint cl = 0; cl < obj_num_clauses[0]; ++cl) {
+//
+	// 	// check, if every item of a clause is assigned
+	//     uint assigned = 1;
+	//     for (uint k = 0; k < obj_clause_length[cl]; ++k) {
+	//     	uint var = obj_variables[variable_index(cl, k, 0)];
+	//     	assigned &= get_bit(state_data, var);
+	//     }
+    //     total += obj_factors[cl] * assigned;
+	// }
+    // return total;
 }
 
 
@@ -88,8 +154,6 @@ static inline int constraint_violation(
                     const device uint *con_variable_offset,
                     const device uint *con_variables,
                     const device int *rhs,
-                    const device state_32_t *state,
-                    uint state_index,
                     const uint state_data[MAXINTEGER],
                     uint cnstr
                     ) {
@@ -102,7 +166,7 @@ static inline int constraint_violation(
 		uint assigned = 1;
 		for (uint k = 0; k < con_clause_length[clause_index]; ++k) {
 			uint var = con_variables[variable_index(cl, k, clause_offset)];
-			assigned &= get_bit(state, state_index, state_data, var);
+			assigned &= get_bit(state_data, var);
 		}
 		int sign = -2 * (con_factors[clause_index] < 0) + 1;
 		int ass = (sign < 0) * (1 - int(assigned)) + (sign >= 0) * int(assigned);
@@ -149,16 +213,18 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
 	uint seed = id + 1;
 
     uint state_copy[MAXINTEGER];
-    for (int i = 0; i < num_integers[0]; i++) state_copy[i] = state_data[i];
+    uint state_copy_unadjusted[MAXINTEGER];
+    for (uint i = 0; i < num_integers[0]; i++) state_copy[i] = state_data[i];
+    for (uint i = 0; i < num_integers[0]; i++) state_copy_unadjusted[i] = state_data[i];
 
     int initial = INT_MAX;
     int tot_feasible = 0;
 
 	for (uint index = first_index[id]; index < last_index[id]; index++){
-	// for (uint index = first_index[id]; index < first_index[id] + 1; index++){
+	//for (uint index = first_index[id]; index < first_index[id] + 1; index++){
 
 		// flip bits
-		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_copy, move_entries[move_offset[index] + i]);
+		for (uint i = 0; i < move_length[index]; i++) flip_bit(state_copy, move_entries[move_offset[index] + i]);
 
 		// do the computation
 		int total_violation = 0;
@@ -172,25 +238,52 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
                 con_variable_offset,
                 con_variables,
                 rhs,
-                state,
-                id,
                 state_copy,
                 cnstr
             );
             total_violation -= (violation < 0) * violation; // add all violations
         }
         uint feasible = (total_violation <= 0);
-        uint objective = objective_value(
-            obj_factors,
-            obj_num_clauses,
-            obj_clause_offset,
-            obj_clause_length,
-            obj_variable_offset,
-            obj_variables,
-            state,
-            id,
-            state_copy
-        );
+        int objective = state[0].tot_profit;
+        objective += objective_value_improved(
+                                         obj_factors,
+                                         obj_num_clauses,
+                                         obj_clause_offset,
+                                         obj_clause_length,
+                                         obj_variable_offset,
+                                         obj_variables,
+                                         state_copy_unadjusted,
+                                         state_copy,
+                                         obj_positive_indices,
+                                         obj_positive_offsets,
+                                         obj_num_positive_indices,
+                                         move_length[index],
+                                         &move_entries[move_offset[index]]
+                                         );
+        objective += objective_value_improved(
+                                         obj_factors,
+                                         obj_num_clauses,
+                                         obj_clause_offset,
+                                         obj_clause_length,
+                                         obj_variable_offset,
+                                         obj_variables,
+                                         state_copy_unadjusted,
+                                         state_copy,
+                                         obj_negative_indices,
+                                         obj_negative_offsets,
+                                         obj_num_negative_indices,
+                                         move_length[index],
+                                         &move_entries[move_offset[index]]
+                                         );
+        // int objective = objective_value(
+        //     obj_factors,
+        //     obj_num_clauses,
+        //     obj_clause_offset,
+        //     obj_clause_length,
+        //     obj_variable_offset,
+        //     obj_variables,
+        //     state_copy
+        // );
 
         // if feasible: use objective value, otherwise constraint violation
 		int obj = feasible * objective + (!feasible) * total_violation;
@@ -206,16 +299,19 @@ kernel void add_arrays(device state_32_t *state [[ buffer(0) ]], // states to st
         tot_feasible |= feasible;
 
 		// unflip bits
-		for (int i = 0; i < move_length[index]; i++) flip_bit(state, id, state_copy, move_entries[move_offset[index] + i]);
+		for (uint i = 0; i < move_length[index]; i++) flip_bit(state_copy, move_entries[move_offset[index] + i]);
 	}
     state[id].tot_profit = initial;
     state[id].feasible = tot_feasible;
 }
 
-// 0: [-23 0 0 ]
-// 1: [-46 1 0 ]
-// 2: [-92 2 0 ]
-// 3: [-184 3 0 ]
-// 4: [-46 0 1 ]
-// 5: [-92 1 1 ]
-// 6: [-184 2 1 ]
+// 0 -23
+// 1 -92
+// 2 -368
+// 3 -1472
+// 4 -60
+// 5 -240
+// 6 -960
+// 7 -3840
+// 8 -97
+// 9 -388
