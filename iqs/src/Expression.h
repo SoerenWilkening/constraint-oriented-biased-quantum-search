@@ -12,14 +12,14 @@
 typedef struct{
     int64_t *literals;
     int *len_literal;
-    int expr_size;
+    size_t expr_size;
 	int sense;
 	int64_t rhs;
 } expression_t;
 
 int len_literal(expression_t *expr , int clause);
 expression_t *init_expression();
-int expr_index(int lit, int ind);
+size_t expr_index(size_t lit, int ind);
 void free_expression(expression_t *expr);
 void print_expression(expression_t *expr);
 void sort_expression(expression_t *expr);

@@ -89,8 +89,8 @@ void print_new_constraint(new_constraints_t *con) {
 		printf("%lld\n", con->rhs[cnstr]);
 	}
 
-	int n = 0;
-	int C = con->num_constraints;
+	size_t n = 0;
+	size_t C = con->num_constraints;
 	for (int i = 0; i < con->allocated_variables; ++i) if (con->variables[i] + 1 > n) n = con->variables[i] + 1;
 
 	printf("negative coefficients\n");
@@ -200,7 +200,6 @@ void preprocessing(
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	// always occupy MAXClAUSELENGTH - 1 for variables
-
 	con->num_constraints++;
 	if (con->num_constraints > 1) {
 		con->num_clauses = realloc(con->num_clauses, con->num_constraints * sizeof(uint32_t));
@@ -209,16 +208,15 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 		con->rhs = realloc(con->rhs, con->num_constraints * sizeof(int64_t));
 	}
 
-	int clause_counter = 0;
-
+	size_t clause_counter = 0;
 
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
-	for (int cls = 0; cls < expr->expr_size; ++cls) {
+	for (size_t cls = 0; cls < expr->expr_size; ++cls) {
 		int lenght = expr->len_literal[cls];
 		if (lenght != 0) {
 			for (int i = 1; i < lenght; ++i) {
-				int index = variable_index(clause_counter, i - 1, clause_offset);
+				size_t index = variable_index(clause_counter, i - 1, clause_offset);
 				if (con->allocated_variables <= index) {
 					size_t new_size = index + MINARRAYSIZE;
 					con->variables = realloc(con->variables, new_size * sizeof(uint32_t));
@@ -227,11 +225,10 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
 			con->total_variables += MAXCLAUSESIZE - 1;
-
 			if (con->allocated_factors <= clause_offset + clause_counter) {
 				con->clause_length = realloc(con->clause_length,
 				                             (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
-				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
+				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint64_t));
 				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
 			}
 			con->clause_length[clause_offset + clause_counter] = lenght - 1;
@@ -240,7 +237,6 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 			con->total_clauses++;
 		}
 	}
-
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;
@@ -267,14 +263,12 @@ int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t c
 			}
 			assigned *= sw_tstbit(sol->vector, var);
 		}
-//		printf("assign = %d %lld\n", assigned, con->factors[clause_index]);
 		if (con->factors[clause_index] < 0) {
 			total -= con->factors[clause_index] * (1 - assigned) * (assigned != 2);
 		} else {
 			total += con->factors[clause_index] * assigned * (assigned != 2);
 		}
 	}
-//	printf(" con = %zu total = %lld, %lld\n", cnstr, total, con->rhs[cnstr]);
 	if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
 	if (con->sense[cnstr] == EQUAL) {
 		if (max_item == sol->vector.bits && total != con->rhs[cnstr]) return 0;

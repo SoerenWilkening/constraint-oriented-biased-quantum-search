@@ -6,10 +6,53 @@
 static inline void flip_bit(
 		uint *state_data,
 		uint bit
-){
+) {
+	uint index = bit >> 5;
+	uint mask = (1 << (bit - (index << 5)));
+	state_data[index] ^= mask;
+}
+
+static inline uint get_bit_32(
+		const uint *state_data,
+		uint bit){
 	uint index = bit >> 5;
 	uint mask = (1 << (bit - (index << 5)) );
-	state_data[index] ^= mask;
+	return (state_data[index] & mask) != 0;
+}
+
+static inline uint first_clause_index_32(const uint32_t *con_clause_offset, size_t C) {
+	uint c = (C != 0);
+	return c * con_clause_offset[C - 1];
+}
+
+static inline int32_t constraint_violation_32_bit(
+		const int32_t *con_factors,
+		const uint32_t *con_num_constraints,
+		const uint32_t *con_num_clauses,
+		const uint32_t *con_clause_offset,
+		const uint32_t *con_clause_length,
+		const uint32_t *con_variable_offset,
+		const uint32_t *con_variables,
+		const int32_t *rhs,
+		const uint32_t *state_data,
+		uint32_t cnstr
+) {
+	int total = 0;
+	uint clause_offset = first_clause_index_32(con_clause_offset, cnstr);
+	for (uint cl = 0; cl < con_num_clauses[cnstr]; ++cl) {
+		uint clause_index = clause_offset + cl;
+
+		// check, if every item of a clause is assigned
+		uint assigned = 1;
+		for (uint k = 0; k < con_clause_length[clause_index]; ++k) {
+			uint var = con_variables[variable_index(cl, k, clause_offset)];
+			assigned &= get_bit_32(state_data, var);
+		}
+		int sign = -2 * (con_factors[clause_index] < 0) + 1;
+		int ass = (sign < 0) * (1 - assigned) +(sign >= 0) * assigned;
+		total += sign * con_factors[clause_index] * ass;
+	}
+	return rhs[cnstr] - total;
 }
 
 move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
@@ -61,6 +104,27 @@ move_gpu_t move_list(int d, int n, int *total_count, int *num_moves) {
 	return move;
 }
 
+id <MTLTexture> Make1DTextureFromBuffer(id <MTLBuffer> buffer,
+                                        NSUInteger count,
+                                        MTLPixelFormat format,
+                                        NSUInteger elementSize) {
+	if (count == 0) {
+		return nil; // nothing to make
+	}
+	const NSUInteger maxWidth = 16384; // Metal 2D texture limit
+
+	// Choose width and height
+	NSUInteger width = (count < maxWidth) ? count : maxWidth;
+	NSUInteger height = (count + width - 1) / width; // ceil(count / width)
+
+	MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];
+	desc.usage = MTLTextureUsageShaderRead;
+	NSUInteger rowBytes = width * elementSize;
+	NSUInteger alignedRowBytes = ((rowBytes + 255) / 256) * 256;
+	id <MTLTexture> tex = [buffer newTextureWithDescriptor:desc offset:0 bytesPerRow:alignedRowBytes];
+	return tex;
+}
+
 gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *con) {
 	gpu_info_t info;
 
@@ -83,6 +147,7 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 	state_32_t state[size];
 	for (int i = 0; i < size; ++i) {
 		state[i].tot_profit = 0;
+		state[i].feasible = 0;
 		state[i].x_offset = number_integers[0] * i;
 	}
 
@@ -109,15 +174,16 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 	info.state = [info.device newBufferWithBytes:state length:size *
 	                                                          sizeof(state_32_t) options:MTLResourceStorageModeShared];
 	// requires only a single copy of the state data
-	info.state_data = [info.device newBufferWithLength:number_integers[0] * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.state_data = [info.device newBufferWithLength:number_integers[0] *
+	                                                   sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.num_integers = [info.device newBufferWithBytes:number_integers length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.move_length = [info.device newBufferWithBytes:info.move.length length:num_moves *
-	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.move_offset = [info.device newBufferWithBytes:info.move.offset length:num_moves *
-	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
 	info.move_entries = [info.device newBufferWithBytes:info.move.moves length:num_entries *
-	                                                                      sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	                                                                           sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
 	info.first_move = [info.device newBufferWithBytes:first_index length:size *
 	                                                                     sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -170,16 +236,55 @@ gpu_info_t inti_info(int n, int k, new_constraints_t *obj, new_constraints_t *co
 
 	info.accepted_move = [info.device newBufferWithLength:size * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 
-	info.obj_positive_indices = [info.device newBufferWithBytes:obj->positive_indices length:obj->positive_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.obj_negative_indices = [info.device newBufferWithBytes:obj->negative_indices length:obj->negative_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.obj_positive_offsets = [info.device newBufferWithBytes:obj->positive_offsets length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.obj_negative_offsets = [info.device newBufferWithBytes:obj->negative_offsets length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.obj_num_positive_indices = [info.device newBufferWithBytes:obj->num_positive_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-	info.obj_num_negative_indices = [info.device newBufferWithBytes:obj->num_negative_indices length:obj->array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	uint32_t state_data[number_integers[0]];
+	memset(state_data, 0, number_integers[0] * sizeof(uint32_t));
+	int32_t cur_violation[con->num_constraints];
+	for (int i = 0; i < con->num_constraints; ++i) {
+		cur_violation[i] = con->rhs[i];
+	}
 
-//	for (int i = 0; i < obj->array_length; ++i) {
-//		printf("%d\n", obj->num_negative_indices[i]);
-//	}
+	info.cur_violation = [info.device newBufferWithBytes:cur_violation length:con->num_constraints * sizeof(int32_t) options:MTLResourceStorageModeShared];
+
+	info.obj_positive_indices = [info.device   newBufferWithBytes:obj->positive_indices length:
+			obj->positive_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_negative_indices = [info.device   newBufferWithBytes:obj->negative_indices length:
+			obj->negative_array_length * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_positive_offsets = [info.device newBufferWithBytes:obj->positive_offsets length:obj->array_length *
+	                                                                                         sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_negative_offsets = [info.device newBufferWithBytes:obj->negative_offsets length:obj->array_length *
+	                                                                                         sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_num_positive_indices = [info.device newBufferWithBytes:obj->num_positive_indices length:obj->array_length *
+	                                                                                                 sizeof(uint32_t) options:MTLResourceStorageModeShared];
+	info.obj_num_negative_indices = [info.device newBufferWithBytes:obj->num_negative_indices length:obj->array_length *
+	                                                                                                 sizeof(uint32_t) options:MTLResourceStorageModeShared];
+
+	id <MTLBuffer> con_positive_indices = [info.device newBufferWithBytes:con->positive_indices length:
+			con->positive_array_length * sizeof(uint32_t)         options:MTLResourceStorageModeShared];
+	id <MTLBuffer> con_negative_indices = [info.device newBufferWithBytes:con->negative_indices length:
+			con->negative_array_length * sizeof(uint32_t)         options:MTLResourceStorageModeShared];
+	id <MTLBuffer> con_positive_offsets = [info.device newBufferWithBytes:con->positive_offsets length:
+			con->array_length * sizeof(uint32_t)                  options:MTLResourceStorageModeShared];
+	id <MTLBuffer> con_negative_offsets = [info.device newBufferWithBytes:con->negative_offsets length:
+			con->array_length * sizeof(uint32_t)                  options:MTLResourceStorageModeShared];
+	id <MTLBuffer> con_num_positive_indices = [info.device newBufferWithBytes:con->num_positive_indices length:
+			con->array_length * sizeof(uint32_t)                      options:MTLResourceStorageModeShared];
+	id <MTLBuffer> con_num_negative_indices = [info.device newBufferWithBytes:con->num_negative_indices length:
+			con->array_length * sizeof(uint32_t)                      options:MTLResourceStorageModeShared];
+	info.con_positive_indices = Make1DTextureFromBuffer(con_positive_indices, con->positive_array_length,
+	                                                    MTLPixelFormatR32Uint, sizeof(int32_t));
+	info.con_negative_indices = Make1DTextureFromBuffer(con_negative_indices, con->negative_array_length,
+	                                                    MTLPixelFormatR32Uint, sizeof(int32_t));
+	info.con_positive_offsets = Make1DTextureFromBuffer(con_positive_offsets, con->array_length, MTLPixelFormatR32Uint,
+	                                                    sizeof(int32_t));
+	info.con_negative_offsets = Make1DTextureFromBuffer(con_negative_offsets, con->array_length, MTLPixelFormatR32Uint,
+	                                                    sizeof(int32_t));
+	info.con_num_positive_indices = Make1DTextureFromBuffer(con_num_positive_indices, con->array_length,
+	                                                        MTLPixelFormatR32Uint, sizeof(int32_t));
+	info.con_num_negative_indices = Make1DTextureFromBuffer(con_num_negative_indices, con->array_length,
+	                                                        MTLPixelFormatR32Uint, sizeof(int32_t));
+
+
+	printf("%d\n", con->num_positive_indices[10]);
 
 	return info;
 }
@@ -242,6 +347,16 @@ void run_kernel(gpu_info_t *info) {
 	[compute_encoder setBuffer:info->obj_negative_offsets offset:0 atIndex:26];
 	[compute_encoder setBuffer:info->obj_num_positive_indices offset:0 atIndex:27];
 	[compute_encoder setBuffer:info->obj_num_negative_indices offset:0 atIndex:28];
+
+	[compute_encoder setTexture:info->con_positive_indices atIndex:0];
+	[compute_encoder setTexture:info->con_negative_indices atIndex:1];
+	[compute_encoder setTexture:info->con_positive_offsets atIndex:2];
+	[compute_encoder setTexture:info->con_negative_offsets atIndex:3];
+	[compute_encoder setTexture:info->con_num_positive_indices atIndex:4];
+	[compute_encoder setTexture:info->con_num_negative_indices atIndex:5];
+
+	[compute_encoder setBuffer:info->cur_violation offset:0 atIndex:29];
+
 	CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
 //	printf("time to compute encode %f\n", end - start);
 
@@ -262,10 +377,10 @@ void run_kernel(gpu_info_t *info) {
 
 int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 	int num_integers = n / 32 + 1;
+	int k = 2;
+	gpu_info_t info = inti_info(n, k, obj, con);
+
 	CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
-
-	gpu_info_t info = inti_info(n, 2, obj, con);
-
 	for (int reps = 0; reps < 10; ++reps) {
 		run_kernel(&info);
 		state_32_t *state = (state_32_t *) [info.state contents];
@@ -274,7 +389,7 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 
 		int index = 0;
 		CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
-//		printf("%f\n", (end - start));
+//		printf("%f ", (end - start));
 		int32_t initial = INT32_MAX;
 		uint tot_feasible = 0;
 		for (int i = 0; i < size; ++i) {
@@ -289,12 +404,30 @@ int exec_gpu(int n, new_constraints_t *obj, new_constraints_t *con) {
 			}
 		}
 		end = CFAbsoluteTimeGetCurrent();
-		printf("%d %d %d %d %f\n", reps, state[index].tot_profit, state[index].feasible, accepted_move[index], (end - start));
+		printf("%d %d %d %f\n", reps, state[index].tot_profit, state[index].feasible, (end - start));
 		uint move_index = accepted_move[index];
 		for (int i = 0; i < info.move.length[move_index]; ++i) {
 			flip_bit(state_data, info.move.moves[info.move.offset[move_index] + i]);
-//			printf("%d ", info.move.moves[info.move.offset[move_index] + i]);
 		}
+		int32_t *fac = (int32_t *) [info.con_factors contents];
+		int32_t *rhs = (int32_t *) [info.rhs contents];
+		int32_t *cur_violation = (int32_t *) [info.cur_violation contents];
+		for (int i = 0; i < con->num_constraints; ++i) {
+			cur_violation[i] = constraint_violation_32_bit(
+						fac,
+						&con->num_constraints,
+						con->num_clauses,
+						con->clause_offset,
+						con->clause_length,
+						con->variable_offset,
+						con->variables,
+						rhs,
+						state_data,
+						i
+					);
+		}
+		[info.cur_violation didModifyRange:NSMakeRange(0, con->num_constraints * sizeof(state_32_t))];
+
 		state[0].tot_profit = state[index].tot_profit;
 		[info.state didModifyRange:NSMakeRange(0, sizeof(state_32_t))];
 		[info.state_data didModifyRange:NSMakeRange(0, num_integers * sizeof(int32_t))];

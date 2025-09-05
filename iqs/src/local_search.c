@@ -27,33 +27,43 @@ static inline void update_state(state_t *cur_best, state_t *cur_best_tabu, state
 
 static inline int aspiration(state_t *new_sol, state_t *global_opt){
 	// for tabu moves: if better than global opt: accept
-	int accepted = 0;
-	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
-	if (new_sol->feasible && !global_opt->feasible) accepted = 1;
-	if (new_sol->feasible && global_opt->feasible && greater_objective) accepted = 1;
-	if (!new_sol->feasible && !global_opt->feasible && greater_objective) accepted = 1;
-	if (!accepted) return 0;
-
-	sw_set_inplace(global_opt->vector, new_sol->vector); // copy assignment to current best
-	global_opt->tot_profit = new_sol->tot_profit;
-	global_opt->feasible = new_sol->feasible;
-	return 1;
+//	int accepted = 0;
+//	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
+//	if (new_sol->feasible && !global_opt->feasible) accepted = 1;
+//	if (new_sol->feasible && global_opt->feasible && greater_objective) accepted = 1;
+//	if (!new_sol->feasible && !global_opt->feasible && greater_objective) accepted = 1;
+//	if (!accepted) return 0;
+//
+//	sw_set_inplace(global_opt->vector, new_sol->vector); // copy assignment to current best
+//	global_opt->tot_profit = new_sol->tot_profit;
+//	global_opt->feasible = new_sol->feasible;
+	return 0;
 }
 
-static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *gloabal_opt){
+static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *global_opt){
 	int accepted = 0;
 	int greater_objective = new_sol->tot_profit > cur_sol->tot_profit;
 	if (!new_sol->feasible && cur_sol->feasible) accepted = 1;
 	if (new_sol->feasible && cur_sol->feasible && greater_objective) accepted = 1;
 	if (!new_sol->feasible && !cur_sol->feasible && greater_objective) accepted = 1;
-//	printf("greater = %d %d\n", greater_objective, accepted);
 	if (!accepted) return 0;
+
 	sw_set_inplace(new_sol->vector, cur_sol->vector); // copy assignment to current best
 	new_sol->tot_profit = cur_sol->tot_profit;
 	new_sol->feasible = cur_sol->feasible;
 
-	aspiration(new_sol, gloabal_opt);
-	return 1;
+    int acc_glob = 0;
+	greater_objective = global_opt->tot_profit > cur_sol->tot_profit;
+	if (!global_opt->feasible && cur_sol->feasible) acc_glob = 1;
+	if (global_opt->feasible && cur_sol->feasible && greater_objective) acc_glob = 1;
+	if (!global_opt->feasible && !cur_sol->feasible && greater_objective) acc_glob = 1;
+    if (!acc_glob) return accepted;
+
+    sw_set_inplace(global_opt->vector, cur_sol->vector); // copy assignment to current best
+	global_opt->tot_profit = cur_sol->tot_profit;
+	global_opt->feasible = cur_sol->feasible;
+
+	return accepted;
 }
 
 
@@ -103,132 +113,12 @@ void free_move_list(move_t *move_list, int num_moves) {
 	free(move_list);
 }
 
-//int accept_first_routine(state_t *new_sol, new_constraints_t *con, new_constraints_t *obj,
-//                         int n, int d, int64_t *threshold, int *initial_feasible, array_t *fulfilled,
-//                         array_t *fulfilled_con, int size_ful, int64_t *remainings) {
-//
-//	int C = con->num_constraints;
-//	int64_t steps[C];
-//	memset(steps, 0, C * sizeof(int64_t));
-//
-//	int *comb = malloc(d * sizeof(int));
-//	int bits[d];
-//
-//	for (int k = 1; k <= d; ++k) {
-//		// Initialize first combination: [0, 1, ..., k-1]
-//		for (int i = 0; i < k; ++i) comb[i] = i;
-//
-//
-//		// perform local search
-//		while (1) {
-//			// flip bits
-//			for (int i = 0; i < k; ++i) {
-//				bits[i] = sw_tstbit(new_sol->vector, comb[i]);// current bit
-//				if (bits[i]) sw_clrbit(new_sol->vector, comb[i]);
-//				else sw_setbit(new_sol->vector, comb[i]);
-//			}
-//
-//			int64_t totals[C];
-//			array_t inv = sw_init(C * size_ful);
-//			memset(totals, 0, C * sizeof(int64_t));
-//			int *changed_con = calloc(MINSIZE, sizeof(int));
-//			int num_con_changes = 0;
-//
-//			for (int i = 0; i < k; ++i) {
-//				adjusted_constraint_violation(con, comb[i], con->positive_indices, con->num_positive_indices,
-//				                              con->positive_offsets, new_sol,
-//				                              POSITIVE, totals, fulfilled_con, &changed_con, &num_con_changes, &inv);
-//				adjusted_constraint_violation(con, comb[i], con->negative_indices, con->num_negative_indices,
-//				                              con->negative_offsets, new_sol,
-//				                              NEGATIVE, totals, fulfilled_con, &changed_con, &num_con_changes, &inv);
-//			}
-//			sw_clear(inv);
-//
-//			// compute with new solution
-//			// is the new solution feasible ?
-//			int64_t total_violation = 0;
-//
-//			for (int cnstr = 0; cnstr < C; ++cnstr) {
-//				// only sum up violations
-//				total_violation += remainings[cnstr] - totals[cnstr] < 0 ? remainings[cnstr] - totals[cnstr] : 0;
-//			}
-//			int feasible = (total_violation >= 0);
-//
-//			// first try to find a feasible solution, by minimizing the constraints violation
-//			if (!(*initial_feasible)) {
-//				if (total_violation > *threshold && !feasible) {
-//					*threshold = total_violation;
-//
-//					// accept changed constraints
-//					for (int i = 0; i < num_con_changes; ++i) {
-//						sw_flpbit(*fulfilled_con, changed_con[i]);
-//					}
-//					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
-//					free(comb);
-//					free(changed_con);
-//					return 1;
-//				}
-//				if (feasible) {
-//					*initial_feasible = feasible;
-//					*threshold = objective_value(obj, new_sol);
-//
-//					prepare(obj, new_sol, fulfilled); // prepare for optimized computation of objective value
-//					new_sol->tot_profit = *threshold;
-//
-//					// accept changed constraints
-//					for (int i = 0; i < num_con_changes; ++i) sw_flpbit(*fulfilled_con, changed_con[i]);
-//					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
-//					free(comb);
-//					free(changed_con);
-//					return 2;
-//				}
-//			} else {
-//				int *changes = calloc(MINSIZE, sizeof(int));
-//				int num_cahnges = 0;
-//				int64_t objective = objective_value_improved(obj, new_sol, k, comb, fulfilled, &changes, &num_cahnges);
-//
-//				if (objective < *threshold && feasible) {
-//					*threshold = objective;
-//					// apply changes to objective
-//					for (int i = 0; i < num_cahnges; ++i) sw_flpbit(*fulfilled, changes[i]);
-//
-//					// accept changed constraints
-//					for (int i = 0; i < num_con_changes; ++i) sw_flpbit(*fulfilled_con, changed_con[i]);
-//					for (int cnstr = 0; cnstr < C; ++cnstr) remainings[cnstr] -= totals[cnstr];
-//					new_sol->tot_profit = objective;
-//					free(comb);
-//					free(changes);
-//					free(changed_con);
-//					return 2;
-//				}
-//				free(changes);
-//			}
-//			free(changed_con);
-//
-//			// unflip bits
-//			for (int i = 0; i < k; ++i) {
-//				if (bits[i]) sw_setbit(new_sol->vector, comb[i]);
-//				else sw_clrbit(new_sol->vector, comb[i]);
-//			}
-//
-//			// Generate next combination
-//			int i = k - 1;
-//			while (i >= 0 && comb[i] == n - k + i) i--;
-//			if (i < 0) break; // All combinations done
-//
-//			comb[i]++;
-//			for (int j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
-//		}
-//	}
-//
-//	free(comb);
-//	return 0;
-//}
 
 typedef struct{
     double progress[NUMThreads];
     int stat;
 } dat_t;
+
 
 void *print_status(void *args){
     dat_t *progress = (dat_t *)args;
@@ -259,7 +149,7 @@ void *explore_neighbourhood(void *args){
 
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
 		// stop, if first better solution was found
-//		if (*dat->stopping_criterion) break;
+		if (*dat->stopping_criterion) break;
 
 		int *comb = dat->moves[mov].flips;
 		int k = dat->moves[mov].num_flips;
@@ -277,9 +167,6 @@ void *explore_neighbourhood(void *args){
 		int num_con_changes = 0;
 
 		for (int i = 0; i < k; ++i) {
-//			for (int j = 0; j < C; ++j) {
-//				totals[j] = constraint_violation(dat->con, new_sol, j);
-//			}
 			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
 			                              dat->con->positive_offsets, new_sol,
 			                              POSITIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
@@ -296,10 +183,8 @@ void *explore_neighbourhood(void *args){
 
 		for (int cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
-//			total_violation -= totals[cnstr] < 0 ? totals[cnstr] : 0;
 			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
 		}
-//		printf("%lld\n", total_violation);
 		int feasible = (total_violation == 0);
 
 		// first try to find a feasible solution, by minimizing the constraints violation
@@ -322,7 +207,6 @@ void *explore_neighbourhood(void *args){
 			int *changes = calloc(MINSIZE, sizeof(int));
 			int num_cahnges = 0;
 			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
-//			int64_t objective = objective_value(dat->obj, new_sol);
 
 			if (objective < cur_best->tot_profit && feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
@@ -334,14 +218,14 @@ void *explore_neighbourhood(void *args){
 		}
 
 		// if cur_best is better than sol: stop all threads
-//		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = 1;
+		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = 1;
 
 		// unflip bits
 		for (int i = 0; i < k; ++i) {
 			if (bits[i]) sw_setbit(new_sol->vector, comb[i]);
 			else sw_clrbit(new_sol->vector, comb[i]);
 		}
-		dat->progress[dat->id] += 1. / (dat->end_move - dat->start_move);
+		// dat->progress[dat->id] += 1. / (dat->end_move - dat->start_move);
 	}
 	free_state(new_sol, 1);
 	dat->cur_best = cur_best;
@@ -370,11 +254,10 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
     dat_t prog_data;
-    memset(prog_data.progress, 0, NUMThreads * sizeof(double));
-    prog_data.stat = 0;
-    pthread_t progress_thread;
-	pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
-
+    // memset(prog_data.progress, 0, NUMThreads * sizeof(double));
+    // prog_data.stat = 0;
+    // pthread_t progress_thread;
+	// pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
 	local_search_data_t data[NUMThreads];
 	pthread_t threads[NUMThreads];
 	int stop_at_first = 0;
@@ -407,8 +290,6 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		int acc = 0;
 		int acc_tab = 0;
 		if (data[i].cur_best != NULL) {
-//			print_state(data[i].cur_best);
-//			printf("\n");
 			acc = accept_move(cur_best, data[i].cur_best, global_opt);
 			free_state(data[i].cur_best, 1);
 		}
@@ -422,9 +303,8 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		}
 		if (acc || acc_tab) accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
 	}
-	prog_data.stat = 1;
-	pthread_join(progress_thread, NULL);
-//	printf("\n");
+	//prog_data.stat = 1;
+	//pthread_join(progress_thread, NULL);
 
 	int accepted = accept_move(new_sol, cur_best, global_opt);
 	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
@@ -483,7 +363,7 @@ int local_search(state_t *cur_sol,
 
 	state_t *new_sol = copy_state(cur_sol);
 	int break_item = 0;
-//	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
 	free_state(new_sol, 1);
 
 	int64_t remainings[C];
@@ -517,6 +397,7 @@ int local_search(state_t *cur_sol,
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
 	int counter = 0;
+	printf("moves = %d\n", num_moves);
 	while (break_condition) {
 //	for (int i = 0; i < 10; ++i) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
@@ -524,7 +405,7 @@ int local_search(state_t *cur_sol,
 											  &worse_acceptance_counter, max_worse_acceptances);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-//		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
+		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
 		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;

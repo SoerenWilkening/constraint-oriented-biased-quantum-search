@@ -39,8 +39,8 @@ typedef struct{
 	int total_clauses;
 	int total_variables;
 
-    int allocated_factors;
-	int allocated_variables;
+    size_t allocated_factors;
+	size_t allocated_variables;
 
 	int *sense;
 	int64_t *rhs;

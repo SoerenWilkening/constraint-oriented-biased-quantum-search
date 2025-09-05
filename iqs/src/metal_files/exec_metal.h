@@ -56,14 +56,15 @@ typedef struct {
 	id <MTLBuffer> con_variables;
 	id <MTLBuffer> rhs;
 
-	id <MTLBuffer> con_positive_indices;
-	id <MTLBuffer> con_negative_indices;
-	id <MTLBuffer> con_positive_offsets;
-	id <MTLBuffer> con_negative_offsets;
-	id <MTLBuffer> con_num_positive_indices;
-	id <MTLBuffer> con_num_negative_indices;
+	id <MTLTexture> con_positive_indices;
+	id <MTLTexture> con_negative_indices;
+	id <MTLTexture> con_positive_offsets;
+	id <MTLTexture> con_negative_offsets;
+	id <MTLTexture> con_num_positive_indices;
+	id <MTLTexture> con_num_negative_indices;
 
 	id <MTLBuffer> accepted_move;
+	id <MTLBuffer> cur_violation;
 } gpu_info_t;
 
 typedef struct {

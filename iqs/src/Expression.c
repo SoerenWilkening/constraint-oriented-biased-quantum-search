@@ -1,6 +1,6 @@
 #include "Expression.h"
 
-int min_size = 30000;
+size_t min_size = 30000;
 
 int len_literal(expression_t *expr , int clause){
 	for (int i = 1; i < MAXCLAUSESIZE; ++i) {
@@ -31,7 +31,7 @@ void sort_expression(expression_t *expr){
 	qsort(expr->literals, expr->expr_size, sizeof(int64_t) * MAXCLAUSESIZE, compare_tuples);
 }
 
-int expr_index(int lit, int ind){
+size_t expr_index(size_t lit, int ind){
 	return MAXCLAUSESIZE * lit + ind;
 }
 
