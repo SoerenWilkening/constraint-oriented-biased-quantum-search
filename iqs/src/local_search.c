@@ -218,7 +218,7 @@ void *explore_neighbourhood(void *args){
 		}
 
 		// if cur_best is better than sol: stop all threads
-		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = 1;
+		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = dat->stopping_condition;
 
 		// unflip bits
 		for (int i = 0; i < k; ++i) {
@@ -236,7 +236,8 @@ void *explore_neighbourhood(void *args){
 int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t *con, new_constraints_t *obj,
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
-						int *accept_worse_counter, int max_worse_acceptances) {
+						int *accept_worse_counter, int max_worse_acceptances,
+						int stopping_criterion) {
 
 	int C = con->num_constraints;
 
@@ -280,6 +281,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].progress = prog_data.progress;
 		data[i].id = i;
 		data[i].stopping_criterion = &stop_at_first;
+		data[i].stopping_condition = stopping_criterion;
 	}
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
@@ -343,7 +345,8 @@ int local_search(state_t *cur_sol,
                  solver_t solver,
                  int64_t stop_val,
                  callback_t callback,
-				 int max_worse_acceptances) {
+				 int max_worse_acceptances,
+				 int stopping_criterion) {
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -402,10 +405,11 @@ int local_search(state_t *cur_sol,
 //	for (int i = 0; i < 10; ++i) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
 											  max_constraint_clauses, moves, num_moves, &tabu_list,
-											  &worse_acceptance_counter, max_worse_acceptances);
+											  &worse_acceptance_counter, max_worse_acceptances,
+											  stopping_criterion);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
+//		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
 		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;

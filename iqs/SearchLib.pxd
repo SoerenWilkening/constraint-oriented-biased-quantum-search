@@ -103,7 +103,8 @@ cdef extern from "src/local_search.h":
 	                 int solver,
 	                 int64_t stop_val,
 	                 callback_t callback,
-	                 int max_worse_acceptances) nogil
+	                 int max_worse_acceptances,
+	                 int stopping_criterion) nogil
 
 cdef class new_constraint:
 	cdef new_constraints_t con;

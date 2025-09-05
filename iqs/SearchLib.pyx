@@ -326,7 +326,8 @@ cpdef run_local_search(initial: state_py,
         int solver,
         int64_t stop_val,
         object callback,
-        int max_worse_acceptances):
+        int max_worse_acceptances,
+        int stopping_condition):
 
 	new_state: state_py = copy(initial)
 	cdef state_t *st = new_state.state
@@ -336,7 +337,7 @@ cpdef run_local_search(initial: state_py,
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 	with nogil:
-		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances)
+		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances, stopping_condition)
 
 	new_state.get_x()
 	return new_state

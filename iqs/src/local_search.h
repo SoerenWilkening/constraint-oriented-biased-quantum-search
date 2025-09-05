@@ -45,6 +45,7 @@ typedef struct {
 	double *progress;
 	int id;
 	int *stopping_criterion;
+	int stopping_condition;
 } local_search_data_t;
 
 #define NUMThreads 6
@@ -57,6 +58,7 @@ int local_search(state_t *cur_sol,
                  solver_t solver,
                  int64_t stop_val,
                  callback_t callback,
-                 int max_worse_acceptances);
+                 int max_worse_acceptances,
+                 int stopping_criterion);
 
 #endif //IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H

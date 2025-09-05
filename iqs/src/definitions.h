@@ -24,6 +24,9 @@
 #define ACCEPTMANY 1
 #define ACCEPTONE 0
 
+#define STOPATBEST 0
+#define STOPATFIRST 1
+
 // define callback functionality
 typedef void (*callback_t)(int64_t, size_t, double, double);
 

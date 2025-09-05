@@ -237,12 +237,12 @@ or {self.runtime}s sampling
 		return res[0][-1]
 
 
-	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10):
-		# ex = Executor(self.n, self.objective, self.constraint)
-		# ex.gpu_local_search()
+	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10, stopping_condition: int = STOPATFIRST):
+		assert stopping_condition in [STOPATFIRST, STOPATBEST]
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		t1 = time()
-		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1, callback, max_worse_acceptances)
+		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1,
+		                                    callback, max_worse_acceptances, stopping_condition)
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
 #
