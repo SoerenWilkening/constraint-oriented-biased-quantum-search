@@ -436,29 +436,49 @@ state_t *quantum_local_search_states(
 		state_t *cur_sol,
 		tabu_list_t *tabu_list,
 		size_t *num_states,
-		int64_t threshold) {
+		size_t *mapping) {
 	size_t feasible_state_counter = 0;
 	state_t *st = malloc(num_moves * sizeof(state_t));
 	for (int i = 0; i < num_moves; ++i) {
 		st[feasible_state_counter].prob = 1. / ((double) num_moves);
 		st[feasible_state_counter].vector = sw_init(cur_sol->vector.bits);
-		for (int j = 0; j < moves[i].num_flips; ++j) sw_flpbit(st[feasible_state_counter].vector, moves[i].flips[j]); // flip bits
-		int feasible;
-		int objective = 0;
-		if (move_is_tabu(&tabu_list, i)) feasible = 0;
-		else {
-			objective = objective_value(obj, &st[feasible_state_counter]);
-			feasible = eval_constraints(con, &st[feasible_state_counter], cur_sol->vector.bits);
-		}
-		feasible &= (objective < threshold);
+		sw_set_inplace(st[feasible_state_counter].vector, cur_sol->vector);
+		for (int j = 0; j < moves[i].num_flips; ++j)
+			sw_flpbit(st[feasible_state_counter].vector, moves[i].flips[j]); // flip bits
 
-		if (feasible) {
-			st[feasible_state_counter].feasible = 1;
-			st[feasible_state_counter].tot_profit = objective_value(obj, &st[feasible_state_counter]);
+		// the oracle will look for the following states:
+		// -> states, which moves are not tabu
+		// -> if cur_col is not feasible:
+		// -> -> if new sol is not fesible, but constraint violation lower than the one of cur_sol
+		// -> -> new sol is feasible
+		// -> else
+		// -> -> new sol is feasible and objective value is better
+		int feasible = 0;
+		int include_state = 1;
+		int64_t objective = 0;
+		if (move_is_tabu(&tabu_list, i)) include_state = 0;
+		else {
+			feasible = eval_constraints(con, &st[feasible_state_counter], cur_sol->vector.bits);
+			// for non feasible solutions, objective value is constraint violation
+			if (!feasible) {
+				for (int j = 0; j < con->num_constraints; ++j) {
+					int64_t viol = constraint_violation(con, &st[feasible_state_counter], j);
+					objective -= (viol < 0) * viol;
+				}
+			} else { objective = objective_value(obj, &st[feasible_state_counter]); }
+		}
+
+		include_state &= (feasible && !cur_sol->feasible) |
+		                 (((!feasible) && !cur_sol->feasible) | (feasible && cur_sol->feasible)) &
+		                 (objective < cur_sol->tot_profit);
+
+		if (include_state) {
+			st[feasible_state_counter].feasible = feasible;
+			st[feasible_state_counter].tot_profit = objective;
+			mapping[feasible_state_counter] = i; // index of state mapped to index of move
 			feasible_state_counter++;
-		}else{
-			// unflip the bits of non feasible solutions
-			for (int j = 0; j < moves[i].num_flips; ++j) sw_flpbit(st[feasible_state_counter].vector, moves[i].flips[j]); // flip bits
+		} else {
+			sw_clear(st[feasible_state_counter].vector);
 		}
 	}
 	*num_states = feasible_state_counter;
@@ -468,7 +488,10 @@ state_t *quantum_local_search_states(
 
 int quantum_local_search(new_constraints_t *obj,
                          new_constraints_t *con,
-                         state_t *cur_sol, int k) {
+                         state_t *cur_sol, int k,
+                         size_t *total_oracle_applications) {
+	state_t *global_opt = copy_state(cur_sol);
+
 	size_t num_moves = 0;
 	move_t *moves = move_list(k, cur_sol->vector.bits, &num_moves);
 
@@ -478,13 +501,104 @@ int quantum_local_search(new_constraints_t *obj,
 	tabu_list.moves = malloc(tabu_list.max_moves * sizeof(int));
 	for (int i = 0; i < tabu_list.max_moves; ++i) tabu_list.moves[i] = -1;
 
-	size_t num_states = 0;
-	state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, cur_sol, &tabu_list, &num_states, -7);
+	size_t M = (size_t) (22.5 * sqrt((double) num_moves));
+	printf("M = %zu\n", M);
 
-	for (int i = 0; i < num_states; ++i) {
-		print_state(&qlsqs[i]);
-		printf("\n");
+	int worse_acceptances = 0;
+	// outer loop does the iterative searching until break condition is met
+	while (worse_acceptances < 10) {
+
+		// apply qsearch to improve solution
+		// only stop, one the best solution found, was better then the current solution
+		// starting state is the worst possible state with assignment of current solution
+		// used, so that the best solution in neighbourhood can be found, even if it is worst than current solution
+		state_t *start = copy_state(cur_sol);
+		start->feasible = 0;
+		start->tot_profit = INT64_MAX;
+		size_t m_tot = 0;
+
+		size_t index_of_best = 0;
+
+		while (m_tot < M) {
+			// recompute states, since, the neighbourhood changes after every accepted state
+			size_t num_states = 0;
+			size_t *mapping = malloc(num_moves * sizeof(size_t)); // map the indices of the superposition ot the indices of the moves
+			state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, start, &tabu_list, &num_states,
+			                                             mapping);
+
+			size_t iterations = 0;
+			size_t rounds = 0;
+			size_t measured_index = 0;
+			state_t *qs = QSearch(qlsqs, num_states, &iterations, &rounds, M, &measured_index);
+			free_state(qlsqs, num_states);
+
+			*total_oracle_applications += 2 * iterations + rounds;
+			m_tot += iterations;
+			size_t index = mapping[measured_index];
+			free(mapping);
+
+			if (qs != NULL) {
+				index_of_best = index;
+				// better solution was found
+				state_t temp = *start;
+				*start = *qs;
+				*qs = temp;
+				free_state(qs, 1);
+				// check, if new found solution is better than current solution, as we can then stop
+				int accept = ((start->feasible && cur_sol->feasible) || (!start->feasible && !cur_sol->feasible)) &&
+				             (start->tot_profit < cur_sol->tot_profit) ||
+				             (start->feasible && !cur_sol->feasible);
+				if (accept) {
+					temp = *cur_sol;
+					*cur_sol = *start;
+					*start = temp;
+					free_state(start, 1);
+					start = NULL;
+					break;
+				}
+			} else { break; }
+		}
+		// if found cur sol is better than global opt: adjust
+		int accept_global = ((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&
+		             (cur_sol->tot_profit < global_opt->tot_profit) ||
+		             (cur_sol->feasible && !global_opt->feasible);
+		if (accept_global) {
+			free_state(global_opt, 1);
+			global_opt = copy_state(cur_sol);
+			printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
+		}
+
+		if (start != NULL) {
+			// if start did not provide a better solution, still accept it as worse solution
+			state_t temp = *cur_sol;
+			*cur_sol = *start;
+			*start = temp;
+			free_state(start, 1);
+			start = NULL;
+			worse_acceptances++;
+		}
+
+		// adjust the tabu list
+		tabu_list.moves[tabu_list.head] = index_of_best;
+		tabu_list.head += 1;
+		tabu_list.head %= tabu_list.max_moves;
 	}
+	free_move_list(moves, num_moves);
+	free(tabu_list.moves);
+
+	state_t temp = *cur_sol;
+	*cur_sol = *global_opt;
+	*global_opt = temp;
+	free_state(global_opt, 1);
 
 	return 0;
 }
+
+//-32 0.066667 1 10000
+//-16 0.066667 1 01000
+//-8 0.066667 1 00100
+//-24 0.066667 1 01100
+//-20 0.066667 1 01010
+//-18 0.066667 1 01001
+//-12 0.066667 1 00110
+//-10 0.066667 1 00101

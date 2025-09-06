@@ -66,6 +66,7 @@ int local_search(state_t *cur_sol,
 
 int quantum_local_search(new_constraints_t *obj,
                          new_constraints_t *con,
-						 state_t *cur_sol, int k);
+						 state_t *cur_sol, int k,
+						 size_t *total_oracle_applications);
 
 #endif //IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H

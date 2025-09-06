@@ -2,9 +2,13 @@
 #include "local_search.h"
 
 int main(){
+	srand(clock());
+
 	int arr[5];
-	for (int i = 0; i < 5; ++i) arr[i] = 1;
+	for (int i = 0; i < 5; ++i) arr[i] = 0;
 	state_t *sol = init_state(0, arr, 5);
+	sol->tot_profit = INT64_MAX;
+	sol->feasible = 0;
 
 	// generate simple 0-1 knapsack instance
 	expression_t *expr = init_expression();
@@ -29,8 +33,13 @@ int main(){
 	add_expression_to_constraints(&obj, expr);
 
 
+	size_t total_oracle_application = 0;
+	quantum_local_search(&obj, &con, sol, 2, &total_oracle_application);
+	printf("%zu ", total_oracle_application);
+	print_state(sol);
+	printf("\n");
 
-	quantum_local_search(&obj, &con, sol, 2);
+	free_state(sol, 1);
 
     return 0;
 }
