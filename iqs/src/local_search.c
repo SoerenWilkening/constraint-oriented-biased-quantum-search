@@ -4,7 +4,7 @@
 
 #include "local_search.h"
 
-static inline int move_is_tabu(tabu_list_t *tabu_list, int move){
+static inline int move_is_tabu(tabu_list_t *tabu_list, int move) {
 	if (tabu_list->head == -1) return 0;
 	for (int i = 0; i < tabu_list->max_moves; ++i) {
 		if (move == tabu_list->moves[i]) return 1;
@@ -12,7 +12,9 @@ static inline int move_is_tabu(tabu_list_t *tabu_list, int move){
 	return 0;
 }
 
-static inline void update_state(state_t *cur_best, state_t *cur_best_tabu, state_t *state2, int64_t objective, int feasible, tabu_list_t *tabu, int move){
+static inline void
+update_state(state_t *cur_best, state_t *cur_best_tabu, state_t *state2, int64_t objective, int feasible,
+             tabu_list_t *tabu, int move) {
 	if (!move_is_tabu(tabu, move)) {
 		sw_set_inplace(cur_best->vector, state2->vector); // copy assignment to current best
 		cur_best->tot_profit = objective;
@@ -25,7 +27,7 @@ static inline void update_state(state_t *cur_best, state_t *cur_best_tabu, state
 	cur_best_tabu->feasible = feasible;
 }
 
-static inline int aspiration(state_t *new_sol, state_t *global_opt){
+static inline int aspiration(state_t *new_sol, state_t *global_opt) {
 	// for tabu moves: if better than global opt: accept
 //	int accepted = 0;
 //	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
@@ -40,7 +42,7 @@ static inline int aspiration(state_t *new_sol, state_t *global_opt){
 	return 0;
 }
 
-static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *global_opt){
+static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *global_opt) {
 	int accepted = 0;
 	int greater_objective = new_sol->tot_profit > cur_sol->tot_profit;
 	if (!new_sol->feasible && cur_sol->feasible) accepted = 1;
@@ -52,14 +54,14 @@ static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *globa
 	new_sol->tot_profit = cur_sol->tot_profit;
 	new_sol->feasible = cur_sol->feasible;
 
-    int acc_glob = 0;
+	int acc_glob = 0;
 	greater_objective = global_opt->tot_profit > cur_sol->tot_profit;
 	if (!global_opt->feasible && cur_sol->feasible) acc_glob = 1;
 	if (global_opt->feasible && cur_sol->feasible && greater_objective) acc_glob = 1;
 	if (!global_opt->feasible && !cur_sol->feasible && greater_objective) acc_glob = 1;
-    if (!acc_glob) return accepted;
+	if (!acc_glob) return accepted;
 
-    sw_set_inplace(global_opt->vector, cur_sol->vector); // copy assignment to current best
+	sw_set_inplace(global_opt->vector, cur_sol->vector); // copy assignment to current best
 	global_opt->tot_profit = cur_sol->tot_profit;
 	global_opt->feasible = cur_sol->feasible;
 
@@ -114,25 +116,25 @@ void free_move_list(move_t *move_list, int num_moves) {
 }
 
 
-typedef struct{
-    double progress[NUMThreads];
-    int stat;
+typedef struct {
+	double progress[NUMThreads];
+	int stat;
 } dat_t;
 
 
-void *print_status(void *args){
-    dat_t *progress = (dat_t *)args;
-    while (!progress->stat){
-        printf("\r");
-        for (int i = 0; i < NUMThreads; i++){
-            printf("| %6.1f%% |", progress->progress[i] * 100);
-        }
-        usleep(1000000);
-    }
-    return NULL;
+void *print_status(void *args) {
+	dat_t *progress = (dat_t *) args;
+	while (!progress->stat) {
+		printf("\r");
+		for (int i = 0; i < NUMThreads; i++) {
+			printf("| %6.1f%% |", progress->progress[i] * 100);
+		}
+		usleep(1000000);
+	}
+	return NULL;
 }
 
-void *explore_neighbourhood(void *args){
+void *explore_neighbourhood(void *args) {
 	local_search_data_t *dat = (local_search_data_t *) args;
 	int C = dat->con->num_constraints;
 	int64_t steps[C];
@@ -199,7 +201,7 @@ void *explore_neighbourhood(void *args){
 			if (feasible) {
 				dat->initial_feasible = feasible;
 				update_state(cur_best, cur_best_tabu, new_sol, objective_value(dat->obj, new_sol),
-							 1, dat->tabu_list, mov);
+				             1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
 //				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
@@ -237,8 +239,8 @@ void *explore_neighbourhood(void *args){
 int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t *con, new_constraints_t *obj,
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
-						int *accept_worse_counter, int max_worse_acceptances,
-						int stopping_criterion, int *neighbourhood_counter) {
+                        int *accept_worse_counter, int max_worse_acceptances,
+                        int stopping_criterion, int *neighbourhood_counter) {
 
 	int C = con->num_constraints;
 
@@ -255,10 +257,10 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	prepare_constraints(con, new_sol, &ful_con);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
-    dat_t prog_data;
-    // memset(prog_data.progress, 0, NUMThreads * sizeof(double));
-    // prog_data.stat = 0;
-    // pthread_t progress_thread;
+	dat_t prog_data;
+	// memset(prog_data.progress, 0, NUMThreads * sizeof(double));
+	// prog_data.stat = 0;
+	// pthread_t progress_thread;
 	// pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
 	local_search_data_t data[NUMThreads];
 	pthread_t threads[NUMThreads];
@@ -316,10 +318,10 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
 
 	int new_move_index = -1;
-	if (accepted || accepted_tabu){
+	if (accepted || accepted_tabu) {
 		// determine index of move
 		new_move_index = -1;
-	}else{
+	} else {
 		if (*accept_worse_counter == max_worse_acceptances) return 0; // stop the entire search
 		accepted = 1;
 		// no better solution found:
@@ -348,8 +350,8 @@ int local_search(state_t *cur_sol,
                  solver_t solver,
                  int64_t stop_val,
                  callback_t callback,
-				 int max_worse_acceptances,
-				 int stopping_criterion) {
+                 int max_worse_acceptances,
+                 int stopping_criterion) {
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -359,11 +361,11 @@ int local_search(state_t *cur_sol,
 
 	array_t ful = sw_init(obj->num_clauses[0]);
 	int max_constraint_clauses = 0;
-	for (int i = 0; i < C; ++i){
-		if (con->num_clauses[i] > max_constraint_clauses){
+	for (int i = 0; i < C; ++i) {
+		if (con->num_clauses[i] > max_constraint_clauses) {
 			max_constraint_clauses = con->num_clauses[i];
-        }
-    }
+		}
+	}
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
@@ -394,7 +396,7 @@ int local_search(state_t *cur_sol,
 	tabu_list.max_moves = 10;
 	tabu_list.head = 0;
 	tabu_list.moves = malloc(tabu_list.max_moves * sizeof(int));
-	for (int i = 0; i < tabu_list.max_moves ; ++i) {
+	for (int i = 0; i < tabu_list.max_moves; ++i) {
 		tabu_list.moves[i] = -1;
 	}
 
@@ -404,16 +406,16 @@ int local_search(state_t *cur_sol,
 	int worse_acceptance_counter = 0;
 	int counter = 0;
 	while (break_condition) {
-	    int neighbourhood_counter = 0;
-//	for (int i = 0; i < 10; ++i) {
+		int neighbourhood_counter = 0;
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
-											  max_constraint_clauses, moves, num_moves, &tabu_list,
-											  &worse_acceptance_counter, max_worse_acceptances,
-											  stopping_criterion, &neighbourhood_counter);
+		                                      max_constraint_clauses, moves, num_moves, &tabu_list,
+		                                      &worse_acceptance_counter, max_worse_acceptances,
+		                                      stopping_criterion, &neighbourhood_counter);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 //		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
-		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time, neighbourhood_counter);
+		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
+		       neighbourhood_counter);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
 	}
@@ -423,6 +425,66 @@ int local_search(state_t *cur_sol,
 	free_move_list(moves, num_moves);
 	sw_clear(ful_con);
 	sw_clear(ful);
+
+	return 0;
+}
+
+state_t *quantum_local_search_states(
+		new_constraints_t *obj,
+		new_constraints_t *con,
+		move_t *moves, size_t num_moves,
+		state_t *cur_sol,
+		tabu_list_t *tabu_list,
+		size_t *num_states,
+		int64_t threshold) {
+	size_t feasible_state_counter = 0;
+	state_t *st = malloc(num_moves * sizeof(state_t));
+	for (int i = 0; i < num_moves; ++i) {
+		st[feasible_state_counter].prob = 1. / ((double) num_moves);
+		st[feasible_state_counter].vector = sw_init(cur_sol->vector.bits);
+		for (int j = 0; j < moves[i].num_flips; ++j) sw_flpbit(st[feasible_state_counter].vector, moves[i].flips[j]); // flip bits
+		int feasible;
+		int objective = 0;
+		if (move_is_tabu(&tabu_list, i)) feasible = 0;
+		else {
+			objective = objective_value(obj, &st[feasible_state_counter]);
+			feasible = eval_constraints(con, &st[feasible_state_counter], cur_sol->vector.bits);
+		}
+		feasible &= (objective < threshold);
+
+		if (feasible) {
+			st[feasible_state_counter].feasible = 1;
+			st[feasible_state_counter].tot_profit = objective_value(obj, &st[feasible_state_counter]);
+			feasible_state_counter++;
+		}else{
+			// unflip the bits of non feasible solutions
+			for (int j = 0; j < moves[i].num_flips; ++j) sw_flpbit(st[feasible_state_counter].vector, moves[i].flips[j]); // flip bits
+		}
+	}
+	*num_states = feasible_state_counter;
+	st = (state_t *) realloc(st, feasible_state_counter * sizeof(state_t));
+	return st;
+}
+
+int quantum_local_search(new_constraints_t *obj,
+                         new_constraints_t *con,
+                         state_t *cur_sol, int k) {
+	size_t num_moves = 0;
+	move_t *moves = move_list(k, cur_sol->vector.bits, &num_moves);
+
+	tabu_list_t tabu_list;
+	tabu_list.max_moves = 10;
+	tabu_list.head = 0;
+	tabu_list.moves = malloc(tabu_list.max_moves * sizeof(int));
+	for (int i = 0; i < tabu_list.max_moves; ++i) tabu_list.moves[i] = -1;
+
+	size_t num_states = 0;
+	state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, cur_sol, &tabu_list, &num_states, -7);
+
+	for (int i = 0; i < num_states; ++i) {
+		print_state(&qlsqs[i]);
+		printf("\n");
+	}
 
 	return 0;
 }

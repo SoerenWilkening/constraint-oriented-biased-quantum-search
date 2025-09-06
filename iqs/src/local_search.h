@@ -18,6 +18,7 @@
 #include "constraint.h"
 #include "state.h"
 #include "solver.h"
+#include "quantum_search.h"
 
 typedef struct {
 	int num_flips;
@@ -61,5 +62,10 @@ int local_search(state_t *cur_sol,
                  callback_t callback,
                  int max_worse_acceptances,
                  int stopping_criterion);
+
+
+int quantum_local_search(new_constraints_t *obj,
+                         new_constraints_t *con,
+						 state_t *cur_sol, int k);
 
 #endif //IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H
