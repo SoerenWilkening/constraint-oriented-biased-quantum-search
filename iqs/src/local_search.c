@@ -150,6 +150,7 @@ void *explore_neighbourhood(void *args){
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
 		// stop, if first better solution was found
 		if (*dat->stopping_criterion) break;
+		dat->count_states++; // store how many states were investigated by thread
 
 		int *comb = dat->moves[mov].flips;
 		int k = dat->moves[mov].num_flips;
@@ -237,7 +238,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
 						int *accept_worse_counter, int max_worse_acceptances,
-						int stopping_criterion) {
+						int stopping_criterion, int *neighbourhood_counter) {
 
 	int C = con->num_constraints;
 
@@ -282,6 +283,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].id = i;
 		data[i].stopping_criterion = &stop_at_first;
 		data[i].stopping_condition = stopping_criterion;
+		data[i].count_states = 0;
 	}
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
@@ -304,6 +306,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 			free_state(data[i].cur_best_tabu, 1);
 		}
 		if (acc || acc_tab) accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
+		*neighbourhood_counter += data[i].count_states;
 	}
 	//prog_data.stat = 1;
 	//pthread_join(progress_thread, NULL);
@@ -400,17 +403,17 @@ int local_search(state_t *cur_sol,
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
 	int counter = 0;
-	printf("moves = %d\n", num_moves);
 	while (break_condition) {
+	    int neighbourhood_counter = 0;
 //	for (int i = 0; i < 10; ++i) {
 		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
 											  max_constraint_clauses, moves, num_moves, &tabu_list,
 											  &worse_acceptance_counter, max_worse_acceptances,
-											  stopping_criterion);
+											  stopping_criterion, &neighbourhood_counter);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 //		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
-		printf("%d %d %lld %lld %f\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time);
+		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time, neighbourhood_counter);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
 	}

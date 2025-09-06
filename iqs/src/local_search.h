@@ -46,6 +46,7 @@ typedef struct {
 	int id;
 	int *stopping_criterion;
 	int stopping_condition;
+	int count_states;
 } local_search_data_t;
 
 #define NUMThreads 6
