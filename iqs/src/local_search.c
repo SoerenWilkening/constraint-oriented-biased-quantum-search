@@ -69,7 +69,7 @@ static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *globa
 }
 
 
-move_t *move_list(int d, int n, int *num_moves) {
+move_t *move_list(int d, int n, int *num_moves, int with_shuffle) {
 	int count = 0;
 	int *comb = malloc(d * sizeof(int));
 	for (int k = 1; k <= d; ++k) {
@@ -106,6 +106,17 @@ move_t *move_list(int d, int n, int *num_moves) {
 		}
 	}
 	free(comb);
+
+	// shuffle moves if wanted
+	if(with_shuffle){
+		// Shuffle with Fisher-Yates algorithm
+		for (int i = count - 1; i > 0; i--) {
+			int j = rand() % (i + 1);  // random index from 0..i
+			move_t temp = moves[i];
+			moves[i] = moves[j];
+			moves[j] = temp;
+		}
+	}
 	*num_moves = count;
 	return moves;
 }
@@ -369,30 +380,22 @@ int local_search(state_t *cur_sol,
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
-//	state_t *new_sol = copy_state(cur_sol);
-//	int break_item = 0;
-//	 int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
-//	free_state(new_sol, 1);
-//
-//	print_state(cur_sol);
-
 	int64_t remainings[C];
 	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
 	prepare_constraints(con, cur_sol, &ful_con);
 
 	int initial_feasible = eval_constraints(con, cur_sol, n);
-//	cur_sol->feasible = initial_feasible;
-//	if (initial_feasible) {
-//		cur_sol->tot_profit = objective_value(obj, cur_sol);
-//		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
-//	} else {
-//		cur_sol->tot_profit = 0;
-//		for (int i = 0; i < C; ++i) if (remainings[i] < 0) cur_sol->tot_profit -= remainings[i];
-//	}
 	state_t *global_opt = copy_state(cur_sol);
 
 	int num_moves = 0;
-	move_t *moves = move_list(distance, n, &num_moves);
+	move_t *moves = move_list(distance, n, &num_moves, true);
+//	for (int i = 0; i < num_moves; ++i) {
+//		printf("%d: ", moves[i].num_flips);
+//		for (int j = 0; j < moves[i].num_flips; ++j) {
+//			printf("%d ", moves[i].flips[j]);
+//		}
+//		printf("\n");
+//	}
 
 	tabu_list_t tabu_list;
 	tabu_list.max_moves = 10;
@@ -495,7 +498,7 @@ int quantum_local_search(new_constraints_t *obj,
 	state_t *global_opt = copy_state(cur_sol);
 
 	size_t num_moves = 0;
-	move_t *moves = move_list(k, cur_sol->vector.bits, &num_moves);
+	move_t *moves = move_list(k, cur_sol->vector.bits, &num_moves, false);
 
 	tabu_list_t tabu_list;
 	tabu_list.max_moves = 10;

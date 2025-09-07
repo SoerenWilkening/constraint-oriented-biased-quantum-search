@@ -22,8 +22,9 @@ state_t *init_state(int64_t ObjVal, const int *array, int n) {
     state_t *state = malloc(sizeof(state_t));
     state->tot_profit = ObjVal;
     state->prob = 1.;
+    state->feasible = 0.;
     state->vector = sw_init(n);
-    state->branch = sw_init(n);
+//    state->branch = sw_init(n);
     for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
     return state;
 }
@@ -34,7 +35,7 @@ state_t *init_large_state(int n, int number_states){
 		state[0].tot_profit = 0;
 		state[0].prob = 1.;
 		state->vector = sw_init(n);
-		state->branch = sw_init(n);
+//		state->branch = sw_init(n);
 	}
 	return state;
 }

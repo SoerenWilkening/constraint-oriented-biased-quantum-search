@@ -9,6 +9,7 @@ os.chdir(script_dir)
 
 # Compiler & linker flags for AddressSanitizer
 compiler_args = ["-O3", "-flto", "-pthread"]
+# compiler_args = ["-g", "-flto", "-pthread"]
 
 extensions = [
 	Extension("iqs.Constants", ["iqs/Constants.py"], extra_compile_args = compiler_args),
