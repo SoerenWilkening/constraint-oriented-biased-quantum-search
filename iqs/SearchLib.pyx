@@ -203,7 +203,7 @@ def read_nodes_wrapper(str name ,n: int) -> int | state_py:
 # define callback functionality ===============================
 
 # Python-compatible C wrapper
-cdef void my_callback_c(int64_t a, size_t b, double c, double d) noexcept:
+cdef void my_callback_c(int64_t a, size_t b, double c, double d) with gil:
 	if python_callback is not None:
 		python_callback(a, b, c, d)
 
@@ -350,11 +350,18 @@ cpdef run_local_search(initial: state_py,
 cpdef run_quantum_local_search(initial: state_py,
 		con: new_constraint,
 		obj: new_constraint,
-        int distance):
+        int distance,
+        callback):
 
+	srand(os.getpid())
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
-	quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications)
+	global python_callback
+	python_callback = callback
+	cdef callback_t cb_ptr = <callback_t> my_callback_c
+
+	with nogil:
+		quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
 
 cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
 	cdef int break_item = 0;

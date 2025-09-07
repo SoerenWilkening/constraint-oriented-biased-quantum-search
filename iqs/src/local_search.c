@@ -108,7 +108,7 @@ move_t *move_list(int d, int n, int *num_moves, int with_shuffle) {
 	free(comb);
 
 	// shuffle moves if wanted
-	if(with_shuffle){
+	if (with_shuffle) {
 		// Shuffle with Fisher-Yates algorithm
 		for (int i = count - 1; i > 0; i--) {
 			int j = rand() % (i + 1);  // random index from 0..i
@@ -126,12 +126,10 @@ void free_move_list(move_t *move_list, int num_moves) {
 	free(move_list);
 }
 
-
 typedef struct {
 	double progress[NUMThreads];
 	int stat;
 } dat_t;
-
 
 void *print_status(void *args) {
 	dat_t *progress = (dat_t *) args;
@@ -418,9 +416,10 @@ int local_search(state_t *cur_sol,
 		                                      stopping_criterion, &neighbourhood_counter);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
-//		if (break_condition && callback) callback(global_opt->tot_profit, 0, time, preprocessing_time);
-		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
-		       neighbourhood_counter);
+//		printf("%p\n", callback);
+		if (callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
+//		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
+//		       neighbourhood_counter);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
 	}
@@ -442,9 +441,22 @@ state_t *quantum_local_search_states(
 		tabu_list_t *tabu_list,
 		size_t *num_states,
 		size_t *mapping) {
+
+	array_t ful_con = sw_init(con->total_clauses);
+	int C = con->num_constraints;
+	int64_t remainings[C];
+	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
+	prepare_constraints(con, cur_sol, &ful_con);
+
+
+	array_t ful = sw_init(obj->num_clauses[0]);
+	prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
+	int64_t init_val = objective_value(obj, cur_sol);
+
 	size_t feasible_state_counter = 0;
 	state_t *st = malloc(num_moves * sizeof(state_t));
 	for (int i = 0; i < num_moves; ++i) {
+		st[feasible_state_counter].tot_profit = 0LL;
 		st[feasible_state_counter].prob = 1. / ((double) num_moves);
 		st[feasible_state_counter].vector = sw_init(cur_sol->vector.bits);
 		sw_set_inplace(st[feasible_state_counter].vector, cur_sol->vector);
@@ -463,14 +475,51 @@ state_t *quantum_local_search_states(
 		int64_t objective = 0;
 		if (move_is_tabu(&tabu_list, i)) include_state = 0;
 		else {
-			feasible = eval_constraints(con, &st[feasible_state_counter], cur_sol->vector.bits);
+			int64_t total_violation = 0;
+
+			int64_t totals[C];
+			array_t inv = sw_init(con->total_clauses);
+			memset(totals, 0, C * sizeof(int64_t));
+			int *changed_con = calloc(MINSIZE, sizeof(int));
+			int num_con_changes = 0;
+
+			for (int j = 0; j < moves[i].num_flips; ++j) {
+				adjusted_constraint_violation(con, moves[i].flips[j], con->positive_indices, con->num_positive_indices,
+				                              con->positive_offsets, &st[feasible_state_counter],
+				                              POSITIVE, totals, &ful_con, &changed_con, &num_con_changes, &inv);
+				adjusted_constraint_violation(con, moves[i].flips[j], con->negative_indices, con->num_negative_indices,
+				                              con->negative_offsets, &st[feasible_state_counter],
+				                              NEGATIVE, totals, &ful_con, &changed_con, &num_con_changes, &inv);
+			}
+			free(changed_con);
+			sw_clear(inv);
+			for (int cnstr = 0; cnstr < C; ++cnstr) {
+				// only sum up violations
+				total_violation -= remainings[cnstr] - totals[cnstr] < 0 ? remainings[cnstr] - totals[cnstr] : 0;
+			}
+
+//			for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+//				int64_t viol = constraint_violation(con, &st[feasible_state_counter], cnstr);
+//				total_violation -= (viol < 0) * viol;
+//			}
+			feasible = (total_violation <= 0);
 			// for non feasible solutions, objective value is constraint violation
 			if (!feasible) {
-				for (int j = 0; j < con->num_constraints; ++j) {
-					int64_t viol = constraint_violation(con, &st[feasible_state_counter], j);
-					objective -= (viol < 0) * viol;
-				}
-			} else { objective = objective_value(obj, &st[feasible_state_counter]); }
+				objective = total_violation;
+//			} else { objective = objective_value(obj, &st[feasible_state_counter]); }
+			} else {
+				int *changes = calloc(MINSIZE, sizeof(int));
+				int num_cahnges = 0;
+				objective = init_val + objective_value_improved(
+						obj,
+						&st[feasible_state_counter],
+						moves[i].num_flips,
+						moves[i].flips,
+						&ful,
+						&changes,
+						&num_cahnges);
+				free(changes);
+			}
 		}
 
 		include_state &= (feasible && !cur_sol->feasible) |
@@ -480,21 +529,55 @@ state_t *quantum_local_search_states(
 		if (include_state) {
 			st[feasible_state_counter].feasible = feasible;
 			st[feasible_state_counter].tot_profit = objective;
-			mapping[feasible_state_counter] = i; // index of state mapped to index of move
 			feasible_state_counter++;
 		} else {
 			sw_clear(st[feasible_state_counter].vector);
 		}
 	}
+	sw_clear(ful);
 	*num_states = feasible_state_counter;
 	st = (state_t *) realloc(st, feasible_state_counter * sizeof(state_t));
 	return st;
 }
 
+
+state_t *updated(state_t *bnb, size_t number_states,
+                 size_t *new_number, state_t *cur_sol, tabu_list_t *tabu_list,
+                 size_t *mapping) {
+	state_t *up = calloc(number_states, sizeof(state_t));
+	size_t a = 0;
+
+	for (size_t i = 0; i < number_states; ++i) {
+		int include_state = 1;
+		if (move_is_tabu(tabu_list, i)) include_state = 0;
+		include_state &= (bnb[i].feasible && !cur_sol->feasible) |
+		                 (((!bnb[i].feasible) && !cur_sol->feasible) | (bnb[i].feasible && cur_sol->feasible)) &
+		                 (bnb[i].tot_profit < cur_sol->tot_profit);
+
+		if (include_state) {
+			mapping[a] = i;
+			up[a].tot_profit = bnb[i].tot_profit;
+			up[a].vector = sw_set(bnb[i].vector);
+			up[a].feasible = bnb[i].feasible;
+			up[a].prob = bnb[i].prob;
+			a++;
+		}
+	}
+	*new_number = a;
+	if (a == 0) {
+		free_state(up, number_states);
+		return NULL;
+	}
+	up = realloc(up, a * sizeof(state_t));
+	return up;
+}
+
+
 int quantum_local_search(new_constraints_t *obj,
                          new_constraints_t *con,
                          state_t *cur_sol, int k,
-                         size_t *total_oracle_applications) {
+                         size_t *total_oracle_applications,
+                         callback_t callback) {
 	state_t *global_opt = copy_state(cur_sol);
 
 	size_t num_moves = 0;
@@ -507,7 +590,7 @@ int quantum_local_search(new_constraints_t *obj,
 	for (int i = 0; i < tabu_list.max_moves; ++i) tabu_list.moves[i] = -1;
 
 	size_t M = (size_t) (22.5 * sqrt((double) num_moves));
-	printf("M = %zu\n", M);
+//	printf("M = %zu\n", M);
 
 	int worse_acceptances = 0;
 	// outer loop does the iterative searching until break condition is met
@@ -524,22 +607,41 @@ int quantum_local_search(new_constraints_t *obj,
 
 		size_t index_of_best = 0;
 
+		size_t num_states = 0;
+		struct timespec t1, t2;
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, start, &tabu_list, &num_states,
+		                                             NULL);
+
+//	for (int i = 0; i < num_states; ++i) {
+//		print_state(&qlsqs[i]);
+//		printf("\n");
+//	}
+
+//	    clock_gettime(CLOCK_MONOTONIC, &t2);
+//	    printf("gen time = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 		while (m_tot < M) {
 			// recompute states, since, the neighbourhood changes after every accepted state
-			size_t num_states = 0;
-			size_t *mapping = malloc(num_moves * sizeof(size_t)); // map the indices of the superposition ot the indices of the moves
-			state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, start, &tabu_list, &num_states,
-			                                             mapping);
+			size_t *mapping = malloc(
+					num_moves * sizeof(size_t)); // map the indices of the superposition ot the indices of the moves
+			size_t new_number = 0;
+
+//			clock_gettime(CLOCK_MONOTONIC, &t1);
+			state_t *new_states = updated(qlsqs, num_states, &new_number, start, &tabu_list, mapping);
+//			clock_gettime(CLOCK_MONOTONIC, &t2);
+//			printf("update = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 
 			size_t iterations = 0;
 			size_t rounds = 0;
 			size_t measured_index = 0;
-			state_t *qs = QSearch(qlsqs, num_states, &iterations, &rounds, M, &measured_index);
-			free_state(qlsqs, num_states);
+			state_t *qs = QSearch(new_states, new_number, &iterations, &rounds, M, &measured_index);
 
 			*total_oracle_applications += 2 * iterations + rounds;
 			m_tot += iterations;
 			size_t index = mapping[measured_index];
+
+			free_state(new_states, new_number);
+			free(mapping);
 
 			if (qs != NULL) {
 				index_of_best = index;
@@ -562,15 +664,20 @@ int quantum_local_search(new_constraints_t *obj,
 				}
 			} else { break; }
 		}
+		free_state(qlsqs, num_states);
 		// if found cur sol is better than global opt: adjust
-		int accept_global = ((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&
-		             (cur_sol->tot_profit < global_opt->tot_profit) ||
-		             (cur_sol->feasible && !global_opt->feasible);
+		int accept_global =
+				((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&
+				(cur_sol->tot_profit < global_opt->tot_profit) ||
+				(cur_sol->feasible && !global_opt->feasible);
 		if (accept_global) {
 			free_state(global_opt, 1);
 			global_opt = copy_state(cur_sol);
-            printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
+			if (callback) callback(-global_opt->tot_profit, *total_oracle_applications, 0, 0);
+//			printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
 		}
+		clock_gettime(CLOCK_MONOTONIC, &t2);
+//		printf("total = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 
 		if (start != NULL) {
 			// if start did not provide a better solution, still accept it as worse solution
@@ -590,9 +697,9 @@ int quantum_local_search(new_constraints_t *obj,
 	free_move_list(moves, num_moves);
 	free(tabu_list.moves);
 
-	state_t temp = *cur_sol;
-	*cur_sol = *global_opt;
-	*global_opt = temp;
+//	state_t temp = *cur_sol;
+//	*cur_sol = *global_opt;
+//	*global_opt = temp;
 	free_state(global_opt, 1);
 
 	return 0;

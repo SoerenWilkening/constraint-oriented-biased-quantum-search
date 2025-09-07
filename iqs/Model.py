@@ -253,5 +253,14 @@ or {self.runtime}s sampling
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
 
-	def quantum_local_search(self, distance):
-		run_quantum_local_search(self.initial_state, self.constraint, self.objective, distance)
+	def quantum_local_search(self, distance, callback = None, num_workers = 1):
+		Parallel(n_jobs = num_workers, backend="threading")(
+			delayed(run_quantum_local_search)(
+				self.initial_state,
+				self.constraint,
+				self.objective,
+				distance,
+				callback
+			) for i in range(num_workers)
+		)
+		# run_quantum_local_search(self.initial_state, self.constraint, self.objective, distance, callback)

@@ -33,6 +33,9 @@ int main(){
 	add_expression_to_constraints(&obj, expr);
 
 
+	preprocessing(5, &obj);
+	preprocessing(5, &con);
+
 	size_t total_oracle_application = 0;
 	quantum_local_search(&obj, &con, sol, 2, &total_oracle_application);
 	printf("%zu ", total_oracle_application);

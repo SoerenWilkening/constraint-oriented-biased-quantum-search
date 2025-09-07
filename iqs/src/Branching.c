@@ -110,26 +110,26 @@ double StateProbability(state_t *state, state_t *threshold){
     return state->prob;
 }
 
-state_t *updated(state_t *bnb, size_t number_states,
-                size_t *new_number, state_t *threshold, int sense) {
-    state_t *up = calloc(number_states, sizeof(state_t));
-    size_t a = 0;
-
-    for (size_t i = 0; i < number_states; ++i) {
-        if (bnb[i].tot_profit < threshold->tot_profit) {
-            up[a].tot_profit = bnb[i].tot_profit;
-            up[a].vector = sw_set(bnb[i].vector);
-            up[a].branch = sw_set(bnb[i].branch);
-            StateProbability(&up[a], threshold);
-
-            a++;
-        }
-    }
-    *new_number = a;
-    if (a == 0) {
-        free_state(up, number_states);
-        return NULL;
-    }
-    up = realloc(up, a * sizeof(state_t));
-    return up;
-}
+//state_t *updated(state_t *bnb, size_t number_states,
+//                size_t *new_number, state_t *threshold, int sense) {
+//    state_t *up = calloc(number_states, sizeof(state_t));
+//    size_t a = 0;
+//
+//    for (size_t i = 0; i < number_states; ++i) {
+//        if (bnb[i].tot_profit < threshold->tot_profit) {
+//            up[a].tot_profit = bnb[i].tot_profit;
+//            up[a].vector = sw_set(bnb[i].vector);
+//            up[a].branch = sw_set(bnb[i].branch);
+//            StateProbability(&up[a], threshold);
+//
+//            a++;
+//        }
+//    }
+//    *new_number = a;
+//    if (a == 0) {
+//        free_state(up, number_states);
+//        return NULL;
+//    }
+//    up = realloc(up, a * sizeof(state_t));
+//    return up;
+//}
