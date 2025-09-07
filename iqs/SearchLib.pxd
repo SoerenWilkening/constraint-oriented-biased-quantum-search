@@ -26,17 +26,26 @@ cdef extern from "src/SearchLib.h":
 		array_t branch
 
 	state_t *init_state(int64_t ObjVal, int *array, int n)
+	state_t *copy_state(state_t *state)
 	void print_state(state_t *state)
 	void free_state(state_t *state, size_t numStates)
 
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
-	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M)
+	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)
 	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
 	        int *break_item) nogil
+
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
 	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
+
+	int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
+	                              new_constraints_t *con,
+	                              new_constraints_t *obj,
+	                              int depth_look_ahead,
+	                              int *break_item
+	                              );
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:
@@ -105,6 +114,11 @@ cdef extern from "src/local_search.h":
 	                 callback_t callback,
 	                 int max_worse_acceptances,
 	                 int stopping_criterion) nogil
+
+	int quantum_local_search(new_constraints_t *obj,
+	                         new_constraints_t *con,
+	                         state_t *cur_sol, int k,
+	                         size_t *total_oracle_applications)
 
 cdef class new_constraint:
 	cdef new_constraints_t con;

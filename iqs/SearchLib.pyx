@@ -104,7 +104,11 @@ cdef class state_py:
 		else: self.objval = self.state[0].tot_profit
 
 	def __copy__(self) -> state_py:
-		return state_py(self.objval, self.arr)
+		cop_st = state_py(0, [0])
+		free_state(cop_st.state, 1)
+		cop_st.state = copy_state(self.state)
+		cop_st.get_x()
+		return cop_st
 
 	def __str__(self) -> str:
 		if self.state is NULL: return "NULL state"
@@ -166,8 +170,8 @@ def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
 	cdef size_t rounds = 0
 	res: state_py = state_py(0, [0])
 	free_state(res.state, 1)
-
-	res.state = QSearch(bfs.state, bfs.num_states, &iterations, &rounds, M)
+	cdef size_t index = 0;
+	res.state = QSearch(bfs.state, bfs.num_states, &iterations, &rounds, M, &index)
 	res.get_x()
 
 	return res, iterations, rounds
@@ -341,3 +345,17 @@ cpdef run_local_search(initial: state_py,
 
 	new_state.get_x()
 	return new_state
+
+
+cpdef run_quantum_local_search(initial: state_py,
+		con: new_constraint,
+		obj: new_constraint,
+        int distance):
+
+	cdef state_t *st = initial.state
+	cdef size_t oracle_applications = 0
+	quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications)
+
+cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
+	cdef int break_item = 0;
+	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 3, &break_item)

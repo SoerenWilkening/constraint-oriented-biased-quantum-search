@@ -28,6 +28,7 @@ extensions = [
 	           os.path.join("iqs", "src", "state.c"),
 	           os.path.join("iqs", "src", "local_search.c"),
 	           os.path.join("iqs", "src", "constraint.c"),
+	           os.path.join("iqs", "src", "quantum_search.c"),
 	           ],
 	          extra_compile_args = compiler_args,
 	          include_dirs = [os.path.join("iqs", "src")]),

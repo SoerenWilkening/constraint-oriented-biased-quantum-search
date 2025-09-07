@@ -63,7 +63,7 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, break_item);
+	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, obj, 0, break_item);
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;

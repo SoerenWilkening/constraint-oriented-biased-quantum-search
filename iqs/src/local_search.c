@@ -369,24 +369,26 @@ int local_search(state_t *cur_sol,
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
-	state_t *new_sol = copy_state(cur_sol);
-	int break_item = 0;
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
-	free_state(new_sol, 1);
+//	state_t *new_sol = copy_state(cur_sol);
+//	int break_item = 0;
+//	 int pot_eval = initial_state_preparation(new_sol, cur_sol, con, 0, &break_item);
+//	free_state(new_sol, 1);
+//
+//	print_state(cur_sol);
 
 	int64_t remainings[C];
 	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
 	prepare_constraints(con, cur_sol, &ful_con);
 
 	int initial_feasible = eval_constraints(con, cur_sol, n);
-	cur_sol->feasible = initial_feasible;
-	if (initial_feasible) {
-		cur_sol->tot_profit = objective_value(obj, cur_sol);
-		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
-	} else {
-		cur_sol->tot_profit = 0;
-		for (int i = 0; i < C; ++i) if (remainings[i] < 0) cur_sol->tot_profit -= remainings[i];
-	}
+//	cur_sol->feasible = initial_feasible;
+//	if (initial_feasible) {
+//		cur_sol->tot_profit = objective_value(obj, cur_sol);
+//		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
+//	} else {
+//		cur_sol->tot_profit = 0;
+//		for (int i = 0; i < C; ++i) if (remainings[i] < 0) cur_sol->tot_profit -= remainings[i];
+//	}
 	state_t *global_opt = copy_state(cur_sol);
 
 	int num_moves = 0;
@@ -535,7 +537,6 @@ int quantum_local_search(new_constraints_t *obj,
 			*total_oracle_applications += 2 * iterations + rounds;
 			m_tot += iterations;
 			size_t index = mapping[measured_index];
-			free(mapping);
 
 			if (qs != NULL) {
 				index_of_best = index;
@@ -565,7 +566,7 @@ int quantum_local_search(new_constraints_t *obj,
 		if (accept_global) {
 			free_state(global_opt, 1);
 			global_opt = copy_state(cur_sol);
-			printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
+            printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
 		}
 
 		if (start != NULL) {

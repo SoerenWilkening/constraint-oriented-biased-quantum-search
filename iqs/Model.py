@@ -7,7 +7,7 @@ import numpy as np
 # from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression
-from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search
+from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search, run_quantum_local_search, run_general_greedy
 from .Metal_executor import Executor
 from copy import copy
 from warnings import warn
@@ -181,6 +181,13 @@ or {self.runtime}s sampling
 			self.constraint.process(self.n)
 			self.constraints_compiled = True
 
+	def general_greedy(self):
+		if self.initial_state is not None:
+			del self.initial_state
+		self.manual_initial(0, [0] * self.n)
+		run_general_greedy(self.initial_state, self.constraint, self.objective)
+
+
 	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
 	          results = "min", bfs = False) -> float | None:
@@ -245,4 +252,6 @@ or {self.runtime}s sampling
 		                                    callback, max_worse_acceptances, stopping_condition)
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
-#
+
+	def quantum_local_search(self, distance):
+		run_quantum_local_search(self.initial_state, self.constraint, self.objective, distance)

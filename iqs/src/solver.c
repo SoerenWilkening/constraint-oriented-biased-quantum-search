@@ -168,22 +168,22 @@ int64_t max_value(const int64_t *arr, int n) {
 
 int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
                               new_constraints_t *con,
-//                              const unsigned int *positive_indices, const unsigned int *num_positive_indices,
-//                              const unsigned int *positive_offsets,
-//                              const unsigned int *negative_indices, const unsigned int *num_negative_indices,
-//                              const unsigned int *negative_offsets,
+                              new_constraints_t *obj,
                               int depth_look_ahead,
                               int *break_item
 ) {
-	int n = cur_sol->vector.bits;
+
+    // cur_sol is not necessary anymore
+
+	int n = new_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
 
 	// reset constraint rhs to initial values
 	memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
 	// initialize new solution
-	new_sol->tot_profit = cur_sol->tot_profit;
-	sw_set_ui_0(new_sol->vector);
+//	new_sol->tot_profit = cur_sol->tot_profit;
+//	sw_set_ui_0(new_sol->vector);
 
 	int i;
 	int64_t ret_total1[con->num_constraints];
@@ -241,9 +241,19 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 			                  new_bit, NEGATIVE, PLAIN, ret_total1);
 	}
 
-	cur_sol->tot_profit = 0; // solution might be infeasible
-	sw_clear(cur_sol->vector);
-	cur_sol->vector = sw_set(new_sol->vector);
+    new_sol->feasible = eval_constraints(con, new_sol, new_sol->vector.bits);
+	new_sol->tot_profit = 0;
+
+	if (new_sol->feasible) {
+//		cur_sol->tot_profit = 0;
+		new_sol->tot_profit = objective_value(obj, new_sol);
+//		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
+	} else {
+		int64_t remainings[con->num_constraints];
+		for (int i = 0; i < con->num_constraints; ++i) remainings[i] = constraint_violation(con, new_sol, i);
+		new_sol->tot_profit = 0;
+		for (int i = 0; i < con->num_constraints; ++i) if (remainings[i] < 0) new_sol->tot_profit -= remainings[i];
+	}
 
 	return min_value(potentials, con->num_constraints);
 }

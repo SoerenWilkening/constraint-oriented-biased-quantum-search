@@ -12,7 +12,7 @@ void free_state(state_t *state, size_t numStates) {
 	if (state == NULL) return;
     for (size_t i = 0; i < numStates; i++){
         sw_clear(state[i].vector);
-        sw_clear(state[i].branch);
+        //sw_clear(state[i].branch);
     }
     free(state);
 }
