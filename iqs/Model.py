@@ -226,6 +226,7 @@ or {self.runtime}s sampling
 			return
 
 		t1 = time()
+		global_opt: state_py = copy(self.initial_state)
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
 		         delayed(run_sampling)(
 			         self.initial_state,
@@ -234,7 +235,8 @@ or {self.runtime}s sampling
 			         M, stopping_time,
 			         depth_look_ahead,
 			         self.solver,
-                     stop_val, callback, max_delta, reset_delta) for _ in range(num_workers)
+                     stop_val, callback, max_delta, reset_delta,
+			         global_opt) for _ in range(num_workers)
 		         )
 
 		self.objective_value = min([i[0].objective_value() for i in res])

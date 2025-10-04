@@ -35,7 +35,7 @@ cdef extern from "src/SearchLib.h":
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)
 	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
-	        int *break_item) nogil
+	        int *break_item, state_t *global_opt) nogil
 
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
 	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
@@ -125,3 +125,12 @@ cdef class new_constraint:
 	cdef new_constraints_t con;
 	cdef int num_constraints;
 	cdef void add(self, Expression expr)
+
+
+cdef extern from "src/model.h":
+	ctypedef struct model_t:
+		double runtime
+		int64_t value
+
+cdef class model:
+	cdef model_t c_model

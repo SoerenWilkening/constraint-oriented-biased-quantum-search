@@ -1,5 +1,5 @@
 from copy import copy
-
+import time
 import numpy as np
 
 from .Constants import *
@@ -221,7 +221,8 @@ cpdef run_sampling(
 		int64_t stop_val,
 		object callback,
 		int max_delta,
-		int reset_delta):
+		int reset_delta,
+		global_opt: state_py):
 
 	# print(max_delta)
 	# with nogil:
@@ -251,7 +252,7 @@ cpdef run_sampling(
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -267,7 +268,7 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			# with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
 
 			# if found_new and reset_delta:
 			# 	delta = 0
@@ -353,7 +354,7 @@ cpdef run_quantum_local_search(initial: state_py,
         int distance,
         callback):
 
-	srand(os.getpid())
+	srand(100 * os.getpid() + int(time.time()))
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
 	global python_callback
@@ -366,3 +367,18 @@ cpdef run_quantum_local_search(initial: state_py,
 cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
 	cdef int break_item = 0;
 	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 3, &break_item)
+
+
+cdef class model:
+
+	def __cinit__(self):
+		self.c_model.runtime = 0
+		self.c_model.value = 0
+
+	@property
+	def objective_value(self):
+		return self.c_model.value
+
+	@property
+	def runtime(self):
+		return self.c_model.value

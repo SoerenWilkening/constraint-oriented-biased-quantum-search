@@ -49,28 +49,7 @@ static inline int update_potentials(new_constraints_t *con, int64_t *potentials,
 
 	size_t C = con->num_constraints;
 	// revert the constraints rhs accordingly
-	for (int cnstr = 0; cnstr < C; cnstr++) {
-		potentials[cnstr] += direction * ret_total[cnstr];
-//        int64_t total = 0;
-//		size_t clause_offset = first_clause_index(con, cnstr);
-//		for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++) {
-//			unsigned int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
-//			size_t clause_index = clause_offset + index;
-//
-//			// only if all previous items are assigned to 1, adjust rhs
-//			int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-//			int is_closed = 1; // check, if there are unassigned variables within the clause
-//			for (int i = 0; i < con->clause_length[clause_index]; i++) {
-//				size_t var = con->variables[variable_index(index, i, clause_offset)];
-//				if (var < item) assigned *= sw_tstbit(cur_sol->vector, var);
-//				if (var > item) is_closed = 0;
-//			}
-//			if (negative == POSITIVE && is_closed || negative == NEGATIVE)
-//				total += direction * labs(con->factors[clause_index]) * assigned;
-//		}
-////		printf("%lld %lld\n", total, direction * ret_total[cnstr]);
-//		potentials[cnstr] += total;
-	}
+	for (int cnstr = 0; cnstr < C; cnstr++) potentials[cnstr] += direction * ret_total[cnstr];
 	return 1;
 }
 

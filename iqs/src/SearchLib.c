@@ -3,6 +3,8 @@
 //
 
 #include "SearchLib.h"
+#include <pthread.h>
+pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 volatile sig_atomic_t stop_flag = 0;
 
@@ -46,7 +48,8 @@ int ctg(
 		solver_t solver,
 		int64_t stop_val,
 		callback_t callback,
-		int *break_item) {
+		int *break_item,
+        state_t *global_opt) {
 	state_t *new_sol = copy_state(cur_sol);
 	int m_tot = 0;
 	int n = cur_sol->vector.bits;
@@ -123,9 +126,17 @@ int ctg(
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
-			if (callback && feasible && updated && method != ACCEPTMANY) {
-				callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
+			// update global_opt if better solution is found
+			pthread_mutex_lock(&update_lock);
+			if (global_opt->tot_profit > cur_sol->tot_profit){
+				global_opt->tot_profit = cur_sol->tot_profit;
+				sw_set_inplace(global_opt->vector, cur_sol->vector);
+				if (callback && feasible && updated && method != ACCEPTMANY) {
+					callback(global_opt->tot_profit, *qtg_applications, total_time, preprocess_time);
+				}
 			}
+			pthread_mutex_unlock(&update_lock);
+
 			if (stage == 3 && method == ACCEPTMANY) {
 			    if (num_accepted == number_states - 1){
 			        int64_t mini = 0;
