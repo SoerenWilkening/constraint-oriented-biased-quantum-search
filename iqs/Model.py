@@ -1,23 +1,18 @@
-# import os
-# import sys
 import os
 from time import time
 import numpy as np
 
-# from iqs.Metal_executor import Executor
 from .Constants import *
 from .Expression import Variable, Expression
 from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search, run_quantum_local_search, run_general_greedy
-from .Metal_executor import Executor
 from copy import copy
 from warnings import warn
 
 from multiprocessing import shared_memory
-import signal
-import sys
 from .StateGenerator import StateGenerator
-# from .Metal_executor import Executor
 from joblib import Parallel, delayed
+
+from .CircuitBackendBinder import circuit
 
 class Model:
 
@@ -54,6 +49,8 @@ class Model:
 		self.gpu_compiled: bool = False
 
 		self.constraints_compiled: bool = False
+
+		self.circuit : circuit | None = None
 		# set_seed(time())
 
 	def __copy__(self):
@@ -161,24 +158,27 @@ or {self.runtime}s sampling
 		if self.initial_state is not None: del self.initial_state
 		del self.objective
 		del self.constraint
+		del self.circuit
 
 
-	def kill_children(self):
-		for pid in self.child_pid:
-			try:
-				os.kill(pid, signal.SIGTERM)
-			except ProcessLookupError:
-				pass
-		for pid in self.child_pid:
-			try:
-				os.waitid(pid, 0, 0)
-			except ChildProcessError:
-				pass
+	# def kill_children(self):
+	# 	for pid in self.child_pid:
+	# 		try:
+	# 			os.kill(pid, signal.SIGTERM)
+	# 		except ProcessLookupError:
+	# 			pass
+	# 	for pid in self.child_pid:
+	# 		try:
+	# 			os.waitid(pid, 0, 0)
+	# 		except ChildProcessError:
+	# 			pass
 
 	def close(self):
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
 			self.constraint.process(self.n)
+			self.circuit = circuit()
+			print(self.circuit)
 			self.constraints_compiled = True
 
 	def general_greedy(self):
@@ -263,6 +263,6 @@ or {self.runtime}s sampling
 				self.objective,
 				distance,
 				callback
-			) for i in range(num_workers)
+			) for _ in range(num_workers)
 		)
 		# run_quantum_local_search(self.initial_state, self.constraint, self.objective, distance, callback)
