@@ -74,10 +74,10 @@ cdef class Executor:
 
 	def __init__(self, int n, obj: new_constraint, con: new_constraint):
 		pass
-
-	cdef exec(self):
-		exec_gpu(self.n, self.obj, self.con)
-
-	def gpu_local_search(self):
-		self.exec()
-		return 0
+	#
+	# cdef exec(self):
+	# 	exec_gpu(self.n, self.obj, self.con)
+	#
+	# def gpu_local_search(self):
+	# 	self.exec()
+	# 	return 0

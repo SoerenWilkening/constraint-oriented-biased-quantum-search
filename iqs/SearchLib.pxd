@@ -134,3 +134,16 @@ cdef extern from "src/model.h":
 
 cdef class model:
 	cdef model_t c_model
+
+
+# # pthread declarations
+# cdef extern from "pthread.h":
+#     ctypedef struct pthread_mutex_t:
+#         pass
+#     ctypedef struct pthread_mutexattr_t:
+#         pass
+#
+#     int pthread_mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *attr)
+#     int pthread_mutex_lock(pthread_mutex_t *mutex)
+#     int pthread_mutex_unlock(pthread_mutex_t *mutex)
+#     int pthread_mutex_destroy(pthread_mutex_t *mutex)

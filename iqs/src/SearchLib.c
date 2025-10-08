@@ -4,6 +4,8 @@
 
 #include "SearchLib.h"
 #include <pthread.h>
+#include <Python.h>
+
 pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 volatile sig_atomic_t stop_flag = 0;
@@ -128,43 +130,30 @@ int ctg(
 		if (res) {
 			// update global_opt if better solution is found
 			pthread_mutex_lock(&update_lock);
+			int should_callback = 0;
 			if (global_opt->tot_profit > cur_sol->tot_profit){
 				global_opt->tot_profit = cur_sol->tot_profit;
 				sw_set_inplace(global_opt->vector, cur_sol->vector);
 				if (callback && feasible && updated && method != ACCEPTMANY) {
-					callback(global_opt->tot_profit, *qtg_applications, total_time, preprocess_time);
-				}
+                    callback(global_opt->tot_profit, *qtg_applications, total_time, preprocess_time);
+                }
 			}
 			pthread_mutex_unlock(&update_lock);
 
-			if (stage == 3 && method == ACCEPTMANY) {
-			    if (num_accepted == number_states - 1){
-			        int64_t mini = 0;
-					int index = 0;
-				    for (int i = 0; i < number_states; ++i) {
-						if (mini > stored[i].tot_profit){
-							mini = stored[i].tot_profit;
-							index = i;
-						}
-				    }
-					if (index > 0) copy_state_inplace(&stored[0], &stored[index]);
-				    for (int i = 1; i < number_states; ++i) copy_state_inplace(&stored[i], &stored[0]);
-					cur_sol = stored;
-					num_accepted = 0;
-                    if (callback) callback(cur_sol->tot_profit, *qtg_applications, total_time, preprocess_time);
-			    }
-			    else{
-				    num_accepted++;
-				    cur_sol = &stored[num_accepted];
-				}
-			}
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
 				    stage = 2;
-				    if (callback) {
-			        	callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
-			        }
+				    pthread_mutex_lock(&update_lock);
+				    int64_t val = objective_value(obj, cur_sol);
+				    if (global_opt->tot_profit > val){
+				        global_opt->tot_profit = val;
+				        sw_set_inplace(global_opt->vector, cur_sol->vector);
+				        if (callback) {
+			        	    callback(objective_value(obj, cur_sol), *qtg_applications, total_time, preprocess_time);
+			            }
+                    }
+				    pthread_mutex_unlock(&update_lock);
 				    direction = -1;
 				}
 			}

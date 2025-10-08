@@ -177,8 +177,9 @@ or {self.runtime}s sampling
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
 			self.constraint.process(self.n)
-			self.circuit = circuit()
-			print(self.circuit)
+			# self.circuit = circuit()
+			# self.circuit.compile()
+			# print(self.circuit)
 			self.constraints_compiled = True
 
 	def general_greedy(self):
