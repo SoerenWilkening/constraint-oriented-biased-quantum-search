@@ -1,7 +1,7 @@
 from copy import copy
 import time
 import numpy as np
-
+import signal
 from .Constants import *
 
 def set_seed(unsigned int seed):
@@ -222,13 +222,12 @@ cpdef run_sampling(
 		object callback,
 		int max_delta,
 		int reset_delta,
-		global_opt: state_py):
+		global_opt: state_py,
+		not_stop: list[int]
+):
 
-	# print(max_delta)
-	# with nogil:
-
-	# print("M = ", M)
-
+	t_start: float = time.time()
+	t_total: float = 0
 	set_seed(os.getpid())
 	global python_callback
 	python_callback = callback
@@ -267,13 +266,17 @@ cpdef run_sampling(
 			# print(cur_sol.state[0].vector.bits / delta - 1)
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
-			# with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
+			with nogil:
+				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
 
-			# if found_new and reset_delta:
-			# 	delta = 0
-
-			if stt.tot_profit == stpvl: break
+			if stt.tot_profit == stpvl:
+				not_stop[0] = 0
+				t_total: float = time.time() - t_start
+				# print(qtg_applications)
+				signal.raise_signal(signal.SIGINT)
+				break
+			if not not_stop[0]:
+				break
 
 	cur_sol.get_x()
 	arr = []
@@ -281,7 +284,7 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr, brk_tm
+	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total
 
 cpdef run_bfs(
 		initial: state_py,
@@ -367,7 +370,11 @@ cpdef run_quantum_local_search(initial: state_py,
 cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
 	cdef int break_item = 0;
 	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 3, &break_item)
+	return break_item
 
+
+def reset_c_flags():
+	reset_flag()
 
 cdef class model:
 

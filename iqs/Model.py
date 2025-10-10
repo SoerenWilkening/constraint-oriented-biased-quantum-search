@@ -4,7 +4,11 @@ import numpy as np
 
 from .Constants import *
 from .Expression import Variable, Expression
-from .SearchLib import state_py, new_constraint, run_sampling, set_seed, set_bias_wrapper, run_bfs, run_local_search, run_quantum_local_search, run_general_greedy
+from .SearchLib import (state_py,
+                        new_constraint, run_sampling, set_seed,
+                        set_bias_wrapper, run_bfs, run_local_search,
+                        run_quantum_local_search, run_general_greedy,
+                        reset_c_flags)
 from copy import copy
 from warnings import warn
 
@@ -13,6 +17,8 @@ from .StateGenerator import StateGenerator
 from joblib import Parallel, delayed
 
 from .CircuitBackendBinder import circuit
+
+import signal
 
 class Model:
 
@@ -228,6 +234,7 @@ or {self.runtime}s sampling
 
 		t1 = time()
 		global_opt: state_py = copy(self.initial_state)
+		not_stop = [1]
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
 		         delayed(run_sampling)(
 			         self.initial_state,
@@ -237,14 +244,19 @@ or {self.runtime}s sampling
 			         depth_look_ahead,
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta,
-			         global_opt) for _ in range(num_workers)
+			         global_opt,
+			         not_stop
+		         ) for _ in range(num_workers)
 		         )
 
+		reset_c_flags()
+		obj_vals = [i[0].objective_value() for i in res]
 		self.objective_value = min([i[0].objective_value() for i in res])
-		self.grover_iterations = min([i[1] for i in res])
-		self.runtime = time() - t1
-		self.final_state = res[0][0]
-		return res[0][-1]
+		index_opt = obj_vals.index(self.objective_value)
+		self.grover_iterations = res[index_opt][1]
+		self.runtime = res[index_opt][-1]
+		self.final_state = res[index_opt][0]
+		return res[0][-2]
 
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10, stopping_condition: int = STOPATFIRST):

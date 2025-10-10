@@ -14,6 +14,10 @@ void handle_signal(int signum) {
 	stop_flag = 1;
 }
 
+void reset_flag(){
+    stop_flag = 0;
+}
+
 int bfs(
 		state_t *cur_sol,
 		new_constraints_t *con,
@@ -68,14 +72,16 @@ int ctg(
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
-	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, obj, 0, break_item);
+//	int pot_eval = initial_state_preparation(new_sol, cur_sol, con, obj, 0, break_item);
+
+//    int pot_eval = eval_constraints(con, new_sol, n);
 
 	clock_gettime(CLOCK_MONOTONIC, &t2);
 	double preprocess_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int res;
 
-	int feasible = eval_constraints(con, cur_sol, n);
-	if (!feasible) cur_sol->tot_profit = pot_eval;
+	 int feasible = eval_constraints(con, cur_sol, n);
+	// if (!feasible) cur_sol->tot_profit = pot_eval;
 
 	int stage = 1;
 	if (solver == SATISFY) search_function = CSearch_sat;
@@ -125,6 +131,7 @@ int ctg(
 				con, obj,
 				depth_look_ahead, direction, &fulfilled_objective_terms
 		);
+//		printf("%lld %lld\n", cur_sol->tot_profit, - (int64_t) con->num_constraints);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
@@ -143,7 +150,9 @@ int ctg(
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-				    stage = 2;
+//				    stage = 2; // for immediately go to stage 3
+				    stage = 3; // for immediately go to stage 3
+				    counter = 10; // for immediately go to stage 3
 				    pthread_mutex_lock(&update_lock);
 				    int64_t val = objective_value(obj, cur_sol);
 				    if (global_opt->tot_profit > val){
@@ -160,8 +169,7 @@ int ctg(
 
 			m_tot = 0;
 			rounds = 0;
-			if (feasible && ((solver == SATISFY && cur_sol->tot_profit == -con->num_constraints) ||
-			    (cur_sol->tot_profit <= stop_val && stop_val != -1))) {
+			if ((solver == SATISFY && cur_sol->tot_profit == - (int64_t) con->num_constraints) || feasible && (cur_sol->tot_profit <= stop_val && stop_val != -1)) {
 				break;
 			}
 		}

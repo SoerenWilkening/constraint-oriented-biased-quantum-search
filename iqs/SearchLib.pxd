@@ -30,6 +30,8 @@ cdef extern from "src/SearchLib.h":
 	void print_state(state_t *state)
 	void free_state(state_t *state, size_t numStates)
 
+	void reset_flag();
+
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)

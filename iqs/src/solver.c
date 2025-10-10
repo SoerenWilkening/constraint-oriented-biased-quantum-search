@@ -224,9 +224,7 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 	new_sol->tot_profit = 0;
 
 	if (new_sol->feasible) {
-//		cur_sol->tot_profit = 0;
 		new_sol->tot_profit = objective_value(obj, new_sol);
-//		prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
 	} else {
 		int64_t remainings[con->num_constraints];
 		for (int i = 0; i < con->num_constraints; ++i) remainings[i] = constraint_violation(con, new_sol, i);
@@ -425,16 +423,67 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 		int64_t val = min_value(potentials, con->num_constraints);
 		int64_t val_max = max_value(potentials, con->num_constraints);
 
-		if ((cur_sol->tot_profit < val && direction == 1) || // maximize, if constraint is violated
-		    (cur_sol->tot_profit > val_max && direction == -1 &&
-		     val > 0)) { // minimize otherwise, but keep constraints satisfied
-			cur_sol->tot_profit = val;
-			if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
-			sw_clear(cur_sol->vector);
-			cur_sol->vector = sw_set(new_sol->vector);
+        // this method is only called, when no feasible solution was found yet:
+        // so we minimize either the constraint violation, or compute the objcetive value
+        int64_t total_violation = 0;
 
-			return 1;
+		for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+			// only sum up violations
+			total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
 		}
+		int feasible = (total_violation == 0);
+
+        if (direction == 1 && feasible){
+            // was not feasible before, but now
+            total_violation = 0;
+            for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+			    // only sum up potentials
+			    total_violation += potentials[cnstr]; // all are >= 0
+		    }
+            sw_clear(cur_sol->vector);
+		    cur_sol->vector = sw_set(new_sol->vector);
+		    cur_sol->tot_profit = total_violation;
+		    cur_sol->feasible = 1;
+		    return 1;
+        }
+        if (direction == -1){
+            // other direction, minimize remaining capacity
+            total_violation = 0;
+		    for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+			    // only sum up potentials
+			    total_violation += potentials[cnstr]; // all are >= 0
+		    }
+        }
+        //                                              \/ no feas sol    \/ preserves feasibility
+		if ((cur_sol->tot_profit > total_violation) && (direction == 1 || feasible)){ // lower violation was found
+		    sw_clear(cur_sol->vector);
+		    cur_sol->vector = sw_set(new_sol->vector);
+		    cur_sol->tot_profit = total_violation;
+		    cur_sol->feasible = 0;
+		    return 1;
+		}
+//        // when feasible solution was found: direction = -1
+//        // requires to ensure feasibility
+//        // minimze to total positive contribution
+//		if (feasible){ // feasible solution was found
+//		    sw_clear(cur_sol->vector);
+//		    cur_sol->vector = sw_set(new_sol->vector);
+//		    cur_sol->tot_profit = objective_value(obj, new_sol);
+//		    cur_sol->feasible = 1;
+//		    return 1;
+//		}
+
+
+		// if ((cur_sol->tot_profit < val && direction == 1) || // maximize, if constraint is violated
+		//     (cur_sol->tot_profit > val_max && direction == -1 &&
+		//      val > 0)) { // minimize otherwise, but keep constraints satisfied
+		// 	cur_sol->tot_profit = val;
+		// 	if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
+		// 	sw_clear(cur_sol->vector);
+		// 	cur_sol->vector = sw_set(new_sol->vector);
+//
+		// 	return 1;
+		// }
 	}
 	return 0;
 }
