@@ -3,6 +3,7 @@ import time
 import numpy as np
 import signal
 from .Constants import *
+from random import randint
 
 def set_seed(unsigned int seed):
 	srand(seed)
@@ -223,12 +224,13 @@ cpdef run_sampling(
 		int max_delta,
 		int reset_delta,
 		global_opt: state_py,
-		not_stop: list[int]
+		not_stop: list[int],
+		int ignore_constraint_search
 ):
 
 	t_start: float = time.time()
 	t_total: float = 0
-	set_seed(os.getpid())
+	set_seed(randint(0, 10000000))
 	global python_callback
 	python_callback = callback
 
@@ -242,16 +244,24 @@ cpdef run_sampling(
 	cdef int64_t stpvl = stop_val
 	cdef int M_c = M
 	cdef int stppngtm = stopping_time
-	cdef state_t *stt = cur_sol.state
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int feasible;
 	cdef int brk_tm = 0;
+	cdef int n = cur_sol.state[0].vector.bits
+
+	# if solver == SATISFY:
+	# 	random_array = [randint(0, 1) for _ in range(n)]
+	# 	for i in range(n):
+	# 		if random_array[i]:
+	# 			sw_flpbit(cur_sol.state[0].vector, i)
+
+	cdef state_t *stt = cur_sol.state
 
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state, ignore_constraint_search)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -267,7 +277,7 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			with nogil:
-				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state)
+				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state, False)
 
 			if stt.tot_profit == stpvl:
 				not_stop[0] = 0

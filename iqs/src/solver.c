@@ -320,7 +320,10 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 //        printf("%lld %lld\n", potentials[0], potentials[1]);
 		int as1 = (i == n);
 //		if (i == n) as1 = eval_constraints(con, new_sol, n);
-		if (as1) for (int k = 0; k < con->num_constraints; ++k) as1 &= potentials[k] >= 0;
+		if (as1) for (int k = 0; k < con->num_constraints; ++k) {
+		    if (con->sense[k] == EQUAL) as1 &= potentials[k] == 0;
+		    else as1 &= potentials[k] >= 0;
+		}
 
 		int NumChangedTerms = 0;
 		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
@@ -351,7 +354,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
                     new_constraints_t *con, new_constraints_t *obj,
                     int depth_look_ahead, int direction, array_t *ful
 ) {
-
+//    printf("call constraints\n");
 	int64_t potentials[con->num_constraints];
 	int64_t ret_total1[con->num_constraints];
 	int64_t ret_total2[con->num_constraints];
@@ -429,7 +432,10 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 		for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 			// only sum up violations
-			total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
+			if (con->sense[cnstr] == EQUAL) {
+			    // ehen equality, the total violation is the difference from protentials being unequal 0
+			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? labs(potentials[cnstr]) : 0;
+			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
 

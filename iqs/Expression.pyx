@@ -85,10 +85,10 @@ cdef class Expression:
 		self.rhs = -2
 
 	def __str__(self):
-		for i in range(self.expr[0].expr_size):
-			for j in range(self.expr[0].len_literal[i]):
-				print(self.expr[0].literals[5 * i + j], end = " ")
-			print()
+		# for i in range(self.expr[0].expr_size):
+		# 	for j in range(self.expr[0].len_literal[i]):
+		# 		print(self.expr[0].literals[5 * i + j], end = " ")
+		# 	print()
 		return ""
 
 	def __copy__(self):
@@ -214,13 +214,14 @@ cdef class Expression:
 	def __eq__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			potential = 0
-			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[5 * i] < 0:
-					potential -= self.expr[0].literals[5 * i]
+			# potential = 0
+			# for i in range(self.expr[0].expr_size):
+			# 	if self.expr[0].literals[5 * i] < 0:
+			# 		potential -= self.expr[0].literals[5 * i]
 
 			add_sense_to_expression(self.expr, EQUAL)
-			add_rhs_to_expression(self.expr, other + potential)
+			add_rhs_to_expression(self.expr, other)
 			self.sense = EQUAL
-			self.rhs = other + potential
+			# self.rhs = other + potential
+			self.rhs = other
 			return self

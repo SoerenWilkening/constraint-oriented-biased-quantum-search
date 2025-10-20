@@ -23,6 +23,7 @@ import signal
 class Model:
 
 	def __init__(self):
+		self.global_opt = None
 		self.gpu_imported: bool = False
 
 		# self.gpu_executor: Executor | None = None
@@ -83,7 +84,8 @@ or {self.runtime}s sampling
 		self.objective_value: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
-
+		del self.global_opt
+		
 	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> Variable | Expression:
 		if bound > 1:
 			number = int(np.floor(np.log2(bound))) + 1
@@ -167,22 +169,12 @@ or {self.runtime}s sampling
 		del self.circuit
 
 
-	# def kill_children(self):
-	# 	for pid in self.child_pid:
-	# 		try:
-	# 			os.kill(pid, signal.SIGTERM)
-	# 		except ProcessLookupError:
-	# 			pass
-	# 	for pid in self.child_pid:
-	# 		try:
-	# 			os.waitid(pid, 0, 0)
-	# 		except ChildProcessError:
-	# 			pass
-
 	def close(self):
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
+			print("processed obj")
 			self.constraint.process(self.n)
+			print("processed con")
 			# self.circuit = circuit()
 			# self.circuit.compile()
 			# print(self.circuit)
@@ -197,7 +189,8 @@ or {self.runtime}s sampling
 
 	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
-	          results = "min", bfs = False) -> float | None:
+	          results = "min", bfs = False,
+	          ignore_constraint_search = False) -> float | None:
 		"""
 
 		:param M:
@@ -211,7 +204,6 @@ or {self.runtime}s sampling
 		assert results in ["min", "average"]
 
 		self.calls += 1
-		# set_seed(time() + 10 * self.calls)
 
 		if self.solver == SATISFY:
 			if M != -1: warn("Defined M will be ignored when solving SAT")
@@ -233,7 +225,7 @@ or {self.runtime}s sampling
 			return
 
 		t1 = time()
-		global_opt: state_py = copy(self.initial_state)
+		self.global_opt: state_py = copy(self.initial_state)
 		not_stop = [1]
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
 		         delayed(run_sampling)(
@@ -244,8 +236,9 @@ or {self.runtime}s sampling
 			         depth_look_ahead,
 			         self.solver,
                      stop_val, callback, max_delta, reset_delta,
-			         global_opt,
-			         not_stop
+			         self.global_opt,
+			         not_stop,
+			         ignore_constraint_search
 		         ) for _ in range(num_workers)
 		         )
 
@@ -255,7 +248,7 @@ or {self.runtime}s sampling
 		index_opt = obj_vals.index(self.objective_value)
 		self.grover_iterations = res[index_opt][1]
 		self.runtime = res[index_opt][-1]
-		self.final_state = res[index_opt][0]
+		self.final_state = self.global_opt
 		return res[0][-2]
 
 

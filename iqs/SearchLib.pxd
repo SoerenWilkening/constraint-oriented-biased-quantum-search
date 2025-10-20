@@ -14,6 +14,8 @@ cdef extern from "src/intarray.h":
 
 	int sw_tstbit(array_t A, size_t B)
 
+	void sw_flpbit(array_t A, size_t B);
+
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
@@ -37,7 +39,7 @@ cdef extern from "src/SearchLib.h":
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)
 	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
-	        int *break_item, state_t *global_opt) nogil
+	        int *break_item, state_t *global_opt, int ignore_constraint_search) nogil
 
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
 	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil

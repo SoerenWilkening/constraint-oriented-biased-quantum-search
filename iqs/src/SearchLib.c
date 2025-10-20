@@ -55,7 +55,8 @@ int ctg(
 		int64_t stop_val,
 		callback_t callback,
 		int *break_item,
-        state_t *global_opt) {
+        state_t *global_opt,
+        int ignore_constraint_search) {
 	state_t *new_sol = copy_state(cur_sol);
 	int m_tot = 0;
 	int n = cur_sol->vector.bits;
@@ -83,12 +84,19 @@ int ctg(
 	 int feasible = eval_constraints(con, cur_sol, n);
 	// if (!feasible) cur_sol->tot_profit = pot_eval;
 
+//    printf("ignore %d\n", ignore_constraint_search);
 	int stage = 1;
 	if (solver == SATISFY) search_function = CSearch_sat;
-	else if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
-	else if (solver == OPTIMIZE && feasible) {
+	if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
+	if (solver == OPTIMIZE && feasible) {
 	    prepare(obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
+	    search_function = CSearch_opt;
+	}
+	if (solver == OPTIMIZE && ignore_constraint_search) {
+	    stage = 3;
+	    cur_sol->tot_profit = 0;
+	    global_opt->tot_profit = 0;
 	    search_function = CSearch_opt;
 	}
 	int direction = 1;
@@ -131,7 +139,7 @@ int ctg(
 				con, obj,
 				depth_look_ahead, direction, &fulfilled_objective_terms
 		);
-//		printf("%lld %lld\n", cur_sol->tot_profit, - (int64_t) con->num_constraints);
+//		printf("%lld %lld %lld %lld\n", m_tot, res, cur_sol->tot_profit, global_opt->tot_profit);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
@@ -150,9 +158,7 @@ int ctg(
 			if (solver == OPTIMIZE && !feasible){
 				feasible = eval_constraints(con, new_sol, n);
 				if (feasible) {
-//				    stage = 2; // for immediately go to stage 3
-				    stage = 3; // for immediately go to stage 3
-				    counter = 10; // for immediately go to stage 3
+				    stage = 2;
 				    pthread_mutex_lock(&update_lock);
 				    int64_t val = objective_value(obj, cur_sol);
 				    if (global_opt->tot_profit > val){

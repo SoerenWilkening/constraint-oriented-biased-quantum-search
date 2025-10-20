@@ -121,14 +121,14 @@ void preprocessing(
 ) {
 
     int size_steps = 1 << 14;
-	int C = con->num_constraints;
+	uint64_t C = con->num_constraints;
 
 	con->positive_indices = calloc(size_steps, sizeof(uint32_t));
 	con->negative_indices = calloc(size_steps, sizeof(uint32_t));
-	con->positive_offsets = malloc(n * C * sizeof(uint32_t));
-	con->negative_offsets = malloc(n * C * sizeof(uint32_t));
-	con->num_positive_indices = malloc(n * C * sizeof(uint32_t));
-	con->num_negative_indices = malloc(n * C * sizeof(uint32_t));
+	con->positive_offsets = malloc((uint64_t) n * C * sizeof(uint32_t));
+	con->negative_offsets = malloc((uint64_t) n * C * sizeof(uint32_t));
+	con->num_positive_indices = malloc((uint64_t) n * C * sizeof(uint32_t));
+	con->num_negative_indices = malloc((uint64_t) n * C * sizeof(uint32_t));
 
 	con->positive_array_length = 0;
 	con->negative_array_length = 0;
@@ -155,6 +155,7 @@ void preprocessing(
 	size_t counter_positive = 0;
 	size_t counter_negative = 0;
 	for (int item = 0; item < n; item++) {
+	    printf("\r %f %%", (double) item / n * 100);
 
 		for (int cnstr = 0; cnstr < C; cnstr++) {
 			size_t clause_offset = first_clause_index(con, cnstr);
@@ -195,6 +196,7 @@ void preprocessing(
 	}
 	con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
 	con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+	printf("\r");
 }
 
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
