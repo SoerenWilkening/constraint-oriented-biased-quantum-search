@@ -75,10 +75,6 @@ def set_constraint_dependence_wrapper(dependence: list[double]):
 # Class containing all the states information and acts as wrpper for C functionality
 
 cdef class state_py:
-	cdef state_t *state
-	cdef size_t num_states
-	cdef int[:] arr
-	cdef int64_t objval
 
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
 		self.num_states = 1

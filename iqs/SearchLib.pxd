@@ -130,6 +130,11 @@ cdef class new_constraint:
 	cdef int num_constraints;
 	cdef void add(self, Expression expr)
 
+cdef class state_py:
+	cdef state_t *state
+	cdef size_t num_states
+	cdef int[:] arr
+	cdef int64_t objval
 
 cdef extern from "src/model.h":
 	ctypedef struct model_t:

@@ -12,6 +12,12 @@
 #include "constraint.h"
 #include "state.h"
 
+int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
+                                    const unsigned int *indices,
+                                    const unsigned int *num_indices,
+                                    const unsigned int *offsets, state_t *cur_sol,
+                                    int bit, int negative, int direction, int64_t *ret_total);
+
 int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total);

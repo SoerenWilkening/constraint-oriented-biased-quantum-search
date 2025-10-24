@@ -63,6 +63,22 @@ extensions = [
 	           ],
 	          extra_compile_args = compiler_args,
 	          include_dirs = [os.path.join("iqs", "src")]),
+
+	Extension("iqs.state_sampler",
+	          ["iqs/state_sampler.pyx",
+	           os.path.join("iqs", "src", "solver.c"),
+	           os.path.join("iqs", "src", "SearchLib.c"),
+	           os.path.join("iqs", "src", "Branching.c"),
+	           os.path.join("iqs", "src", "intarray.c"),
+	           os.path.join("iqs", "src", "Expression.c"),
+	           os.path.join("iqs", "src", "state.c"),
+	           os.path.join("iqs", "src", "local_search.c"),
+	           os.path.join("iqs", "src", "constraint.c"),
+	           os.path.join("iqs", "src", "quantum_search.c"),
+	           os.path.join("iqs", "src", "approximate_state_sampler.c"),
+	           ],
+	          extra_compile_args = compiler_args,
+	          include_dirs = [os.path.join("iqs", "src")]),
 ]
 
 setup(

@@ -16,6 +16,7 @@ int compare(int64_t obj, int64_t thr, int sense);
 void free_state(state_t *state, size_t numStates);
 state_t *init_state(int64_t ObjVal, const int *array, int n);
 state_t *init_large_state(int n, int number_states);
+state_t *increse_large_state(state_t *state,  int old_num_states, int new_num_states);
 state_t *copy_state(state_t *state);
 void copy_state_inplace(state_t *dest, state_t *src);
 void print_state(state_t *state);

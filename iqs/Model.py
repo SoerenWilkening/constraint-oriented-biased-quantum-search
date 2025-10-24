@@ -18,7 +18,7 @@ from joblib import Parallel, delayed
 
 from .CircuitBackendBinder import circuit
 
-import signal
+from .state_sampler import approximate_state
 
 class Model:
 
@@ -178,6 +178,7 @@ or {self.runtime}s sampling
 			# self.circuit = circuit()
 			# self.circuit.compile()
 			# print(self.circuit)
+			set_bias_wrapper(self.n / 4)
 			self.constraints_compiled = True
 
 	def general_greedy(self):
@@ -271,3 +272,14 @@ or {self.runtime}s sampling
 				callback
 			) for _ in range(num_workers)
 		)
+
+	def approximate_benchmarking(self, samples = 1024):
+		# print()
+		# print("bias", self.n / 4)
+		# print()
+		# set_bias_wrapper(float(self.n / 4))
+
+		state = approximate_state(self.n, self.n / 4)
+		state.opt_sampler(self.objective, self.constraint, self.initial_state, samples)
+		print(state)
+		del state

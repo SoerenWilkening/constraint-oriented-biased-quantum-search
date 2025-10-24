@@ -1,4 +1,4 @@
-#include <state.h>
+#include "state.h"
 
 int min(int a, int b){
     return (a < b) ? a : b;
@@ -12,7 +12,7 @@ void free_state(state_t *state, size_t numStates) {
 	if (state == NULL) return;
     for (size_t i = 0; i < numStates; i++){
         sw_clear(state[i].vector);
-        //sw_clear(state[i].branch);
+        sw_clear(state[i].branch);
     }
     free(state);
 }
@@ -24,20 +24,34 @@ state_t *init_state(int64_t ObjVal, const int *array, int n) {
     state->prob = 1.;
     state->feasible = 0.;
     state->vector = sw_init(n);
-//    state->branch = sw_init(n);
-    for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
+    state->branch = sw_init(n);
+    if (array != NULL) for (int i = 0; i < n; ++i) if (array[i] == 1) sw_setbit(state->vector, i);
     return state;
 }
 
 state_t *init_large_state(int n, int number_states){
 	state_t *state = malloc(number_states * sizeof(state_t));
 	for (int i = 0; i < number_states; ++i) {
-		state[0].tot_profit = 0;
-		state[0].prob = 1.;
-		state->vector = sw_init(n);
-//		state->branch = sw_init(n);
+		state[i].tot_profit = 0;
+		state[i].prob = 1.;
+        state[i].feasible = 0;
+		state[i].vector = sw_init(n);
+		state[i].branch = sw_init(n);
 	}
 	return state;
+}
+
+state_t *increse_large_state(state_t *state, int old_num_states, int new_num_states){
+    state = realloc(state, new_num_states * sizeof(state_t));
+    int n = state->vector.bits;
+    for (int i = old_num_states; i < new_num_states; ++i) {
+        state[i].tot_profit = 0;
+        state[i].prob = 1.;
+        state[i].feasible = 0;
+        state[i].vector = sw_init(n);
+        state[i].branch = sw_init(n);
+    }
+    return state;
 }
 
 state_t *copy_state(state_t *state){
@@ -58,8 +72,10 @@ void copy_state_inplace(state_t *dest, state_t *src){
 }
 
 void print_state(state_t *state){
-    printf("%lld %f %d ", state->tot_profit, state->prob, state->feasible);
+    printf("%lld %f %d %zu ", state->tot_profit, state->prob, state->feasible, state->vector.bits);
     sw_print(state->vector);
+    printf(" ");
+    sw_print(state->branch);
 }
 
 state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {

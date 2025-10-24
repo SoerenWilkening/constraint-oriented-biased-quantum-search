@@ -35,7 +35,7 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
 	return 1;
 }
 
-static inline int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
+int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
                                     const unsigned int *indices,
                                     const unsigned int *num_indices,
                                     const unsigned int *offsets, state_t *cur_sol,

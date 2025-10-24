@@ -36,6 +36,8 @@ void set_constraint_dependence(double *dependence, int n);
 //double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats);
 
 static inline double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats){
+    
+//    printf("bias = %f\n", BranchingStats.bias);
     double total_bias, f = 0, q = 0;
     double objective_factor = stats->objective_factor; // objective related
     double constraint_factor = stats->constraint_factor; // constraint related

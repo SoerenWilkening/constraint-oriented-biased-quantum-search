@@ -26,6 +26,8 @@ add_executable(improved_quantum_search
         iqs/src/quantum_search.h
         iqs/src/model.c
         iqs/src/model.h
+        iqs/src/approximate_state_sampler.c
+        iqs/src/approximate_state_sampler.h
 )
 
 
