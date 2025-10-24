@@ -224,7 +224,6 @@ or {self.runtime}s sampling
 			           stop_val, callback, max_delta, reset_delta)
 			return
 
-		t1 = time()
 		self.global_opt: state_py = copy(self.initial_state)
 		not_stop = [1]
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
@@ -261,6 +260,7 @@ or {self.runtime}s sampling
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
 
+
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
 		Parallel(n_jobs = num_workers, backend="threading")(
 			delayed(run_quantum_local_search)(
@@ -271,4 +271,3 @@ or {self.runtime}s sampling
 				callback
 			) for _ in range(num_workers)
 		)
-		# run_quantum_local_search(self.initial_state, self.constraint, self.objective, distance, callback)
