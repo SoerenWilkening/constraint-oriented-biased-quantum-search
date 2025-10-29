@@ -1,3 +1,4 @@
+import sys
 from copy import copy
 import time
 import numpy as np
@@ -118,8 +119,9 @@ cdef class state_py:
 		if self.state is not NULL:
 			free_state(self.state, self.num_states)
 
+	@property
 	def objective_value(self):
-		return self.objval
+		return self.state[0].tot_profit
 
 	def __iter__(self):
 		return [sw_tstbit(self.state[0].vector, i)  for i in range(self.state[0].vector.bits)].__iter__()
@@ -162,14 +164,18 @@ cdef class state_py:
 		self.state = read_states(f, num_files, &self.num_states, n)
 
 
-def QSearch_wrapper(state_py bfs, int M) -> tuple[state_py, int, int]:
+def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py, int, int]:
 	cdef size_t iterations = 0
 	cdef size_t rounds = 0
-	res: state_py = state_py(0, [0])
-	free_state(res.state, 1)
+	print(bfs)
+	print("done")
+	sys.stdout.flush()
+	res: state_py = state_py(11, [0, 0])
+	print("freed")
+	sys.stdout.flush()
+	print(res)
 	cdef size_t index = 0;
 	res.state = QSearch(bfs.state, bfs.num_states, &iterations, &rounds, M, &index)
-	res.get_x()
 
 	return res, iterations, rounds
 

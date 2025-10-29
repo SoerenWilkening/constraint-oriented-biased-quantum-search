@@ -35,9 +35,10 @@ void increase_number_of_bad_states(approximate_state_t *state){
 }
 
 void print_approximate_state(approximate_state_t *state) {
-    printf("allocated =     %10zu %10zu\n", state->allocated_good, state->allocated_bad);
-    printf("used =          %10zu %10zu\n", state->num_good, state->num_bad);
-    printf("probability =   %.15f %.15f -> delta = %.8f\n", state->good_amplitude, state->bad_amplitude, state->delta);
+    printf("allocated =     %16zu %16zu\n", state->allocated_good, state->allocated_bad);
+    printf("used =          %16zu %16zu\n", state->num_good, state->num_bad);
+    printf("probability =   %.15f %.15f -> delta = %.8f -> %f parallel repetitions\n",
+            state->good_amplitude, state->bad_amplitude, state->delta, 5 * 1. / (1 - state->delta));
     
     printf("Good states:\n");
     for (int i = 0; i < 20; ++i) {

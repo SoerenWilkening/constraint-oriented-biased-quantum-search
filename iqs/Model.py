@@ -8,7 +8,7 @@ from .SearchLib import (state_py,
                         new_constraint, run_sampling, set_seed,
                         set_bias_wrapper, run_bfs, run_local_search,
                         run_quantum_local_search, run_general_greedy,
-                        reset_c_flags)
+                        reset_c_flags, QSearch_wrapper)
 from copy import copy
 from warnings import warn
 
@@ -19,6 +19,7 @@ from joblib import Parallel, delayed
 from .CircuitBackendBinder import circuit
 
 from .state_sampler import approximate_state
+# from typing import Type
 
 class Model:
 
@@ -243,8 +244,8 @@ or {self.runtime}s sampling
 		         )
 
 		reset_c_flags()
-		obj_vals = [i[0].objective_value() for i in res]
-		self.objective_value = min([i[0].objective_value() for i in res])
+		obj_vals = [i[0].objective_value for i in res]
+		self.objective_value = min([i[0].objective_value for i in res])
 		index_opt = obj_vals.index(self.objective_value)
 		self.grover_iterations = res[index_opt][1]
 		self.runtime = res[index_opt][-1]
@@ -273,13 +274,23 @@ or {self.runtime}s sampling
 			) for _ in range(num_workers)
 		)
 
-	def approximate_benchmarking(self, samples = 1024):
-		# print()
-		# print("bias", self.n / 4)
-		# print()
-		# set_bias_wrapper(float(self.n / 4))
+	def approximate_benchmarking(self, samples = 1024, M = 100):
 
-		state = approximate_state(self.n, self.n / 4)
-		state.opt_sampler(self.objective, self.constraint, self.initial_state, samples)
-		print(state)
-		del state
+		total_iterations = 0
+		threshold = copy(self.initial_state)
+
+		while True:
+			state = approximate_state(self.n, self.n / 4)
+			state.opt_sampler(self.objective, self.constraint, threshold, samples)
+
+			r, it, rounds = state.QSearch(M)
+			total_iterations += it
+			print(state.delta)
+			del state
+			if r is  None:
+				break
+			else:
+				del threshold
+				threshold = r
+			print(threshold.objective_value, 2 * it + rounds)
+		print(total_iterations)

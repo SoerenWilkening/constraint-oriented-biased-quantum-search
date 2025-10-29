@@ -9,7 +9,7 @@
 #include "constraint.h"
 #include "solver.h"
 
-#define STATE_BLOCK 1024
+#define STATE_BLOCK 16384
 
 typedef struct {
   state_t *good;

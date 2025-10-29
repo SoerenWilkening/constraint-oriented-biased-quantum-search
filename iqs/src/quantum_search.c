@@ -51,6 +51,11 @@ state_t *amplitude_amplification(state_t *states, size_t numStates, size_t calls
 }
 
 state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index) {
+
+//    for (int i = 0; i < numStates; i++) {
+//        print_state(&states[i]);
+//        printf("\n");
+//    }
 	size_t m, j, m_tot;
 	m_tot = 0;
 	double c = 6. / 5;
