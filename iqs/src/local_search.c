@@ -541,7 +541,7 @@ state_t *quantum_local_search_states(
 }
 
 
-state_t *updated(state_t *bnb, size_t number_states,
+state_t *updated_local(state_t *bnb, size_t number_states,
                  size_t *new_number, state_t *cur_sol, tabu_list_t *tabu_list,
                  size_t *mapping) {
 	state_t *up = calloc(number_states, sizeof(state_t));
@@ -627,7 +627,7 @@ int quantum_local_search(new_constraints_t *obj,
 			size_t new_number = 0;
 
 //			clock_gettime(CLOCK_MONOTONIC, &t1);
-			state_t *new_states = updated(qlsqs, num_states, &new_number, start, &tabu_list, mapping);
+			state_t *new_states = updated_local(qlsqs, num_states, &new_number, start, &tabu_list, mapping);
 //			clock_gettime(CLOCK_MONOTONIC, &t2);
 //			printf("update = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 

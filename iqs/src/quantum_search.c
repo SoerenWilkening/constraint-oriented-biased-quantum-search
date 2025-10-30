@@ -51,7 +51,6 @@ state_t *amplitude_amplification(state_t *states, size_t numStates, size_t calls
 }
 
 state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index) {
-
 //    for (int i = 0; i < numStates; i++) {
 //        print_state(&states[i]);
 //        printf("\n");
@@ -69,7 +68,7 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
 		m = ceil(pow(c, *rounds));
 		j = rand() % m;
 		*iterations += j;
-		m_tot += j;
+		m_tot += 2 * j + 1;
 
 		result = amplitude_amplification(states, numStates, j, measured_index);
 

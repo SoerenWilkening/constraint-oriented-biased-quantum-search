@@ -2,7 +2,11 @@ from time import time
 import gurobipy as gp
 from .SearchLib import read_nodes_wrapper, store
 from .Constants import OPTIMIZE, SATISFY
-class StateGenerator:
+from .SearchLib import state_py, QSearch_wrapper
+from copy import copy
+# from __future__ import print_function
+
+class exact_simulator:
 	def __init__(self, model, path = "./"):
 		self.model = model
 		self.states: list[float, tuple[list[int], list[int]]] | list = []
@@ -13,6 +17,10 @@ class StateGenerator:
 		self.gur_model.setParam('OutputFlag', 0)
 		self.file = f"{path}states_1.txt"
 
+	def __del__(self):
+		del self.bfs
+		del self.gur_model
+		del self
 
 	def generate_gurobi_model(self):
 		# generate gurobi model from own model
@@ -47,6 +55,33 @@ class StateGenerator:
 				counter += 1
 			self.gur_model.setObjective(-sum(sat[i] for i in sat), sense = gp.GRB.MINIMIZE)
 
+	def QMaxSearch(self, M):
+		threshold: state_py = copy(self.model.initial_state)
+
+		incumbents = []
+		total_iterations = 0
+
+		while True:
+		# for _ in range(2):
+			up = self.bfs.update(threshold, 0)
+			# print("updated", len(up), end = "")
+			# print(threshold)
+
+			it = 0
+			rounds = 0
+			index = 0
+			st, it, round = QSearch_wrapper(up, M)
+			# print(st.objective_value, 2 * it + rounds)
+			total_iterations += 2 * it + rounds
+
+			if st is None:
+				break
+			else:
+				del threshold
+				threshold = st
+				incumbents.append((-threshold.objective_value, total_iterations))
+
+		return incumbents
 
 	def stategen(self):
 		self.counter = 0
@@ -69,7 +104,7 @@ class StateGenerator:
 			return len(self.bfs)
 
 		self.model.initial_state.get_x()
-		initial = self.model.initial_state.objective_value()
+		initial = self.model.initial_state.objective_value
 		self.store_counter = 0
 
 		self.gur_model.setParam('MIPGap', .0)
@@ -132,7 +167,7 @@ class StateGenerator:
 			print(
 				f"\r{self.explored / (2 ** (self.model.n + 1) - 1) * 100:.10f}% | "
 				f"{int(self.t / 3600) :4.0f}:{int(self.t / 60) % 60:2.0f}:{self.t % 60:2.0f} | "
-				f"{len(self.states)} states ", end = ""
+				f"{len(self.states)} states ", end=""
 			)
 			self.reltime = 0
 
@@ -145,8 +180,9 @@ class StateGenerator:
 
 			# obj = int(round(decimal.Decimal(self.model.ObjVal) * decimal.Decimal(10 ** self.digits)))
 			obj = self.gur_model.ObjVal
+			# print(obj, threshold, obj < threshold)
 			# if solver == "sat": obj = self.Con.count()
-			if threshold < obj:
+			if threshold > obj:
 				self.breadth_first_search(
 					threshold,
 					level + 1,

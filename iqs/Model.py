@@ -1,24 +1,24 @@
 import os
+from copy import copy
+from multiprocessing import shared_memory
 from time import time
-import numpy as np
+from warnings import warn
 
+import numpy as np
+from joblib import Parallel, delayed
+
+from .CircuitBackendBinder import circuit
 from .Constants import *
 from .Expression import Variable, Expression
 from .SearchLib import (state_py,
                         new_constraint, run_sampling, set_seed,
                         set_bias_wrapper, run_bfs, run_local_search,
                         run_quantum_local_search, run_general_greedy,
-                        reset_c_flags, QSearch_wrapper)
-from copy import copy
-from warnings import warn
-
-from multiprocessing import shared_memory
-from .StateGenerator import StateGenerator
-from joblib import Parallel, delayed
-
-from .CircuitBackendBinder import circuit
-
+                        reset_c_flags)
+from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
+
+
 # from typing import Type
 
 class Model:
@@ -58,8 +58,9 @@ class Model:
 
 		self.constraints_compiled: bool = False
 
-		self.circuit : circuit | None = None
-		# set_seed(time())
+		self.circuit: circuit | None = None
+
+	# set_seed(time())
 
 	def __copy__(self):
 		new_m = Model()
@@ -86,11 +87,11 @@ or {self.runtime}s sampling
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 		del self.global_opt
-		
+
 	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> Variable | Expression:
 		if bound > 1:
 			number = int(np.floor(np.log2(bound))) + 1
-			x = self.add_variables(number, name=name)
+			x = self.add_variables(number, name = name)
 			expr = sum(2 ** i * x[list(x.keys())[i]] for i in range(number))
 			self.add_constraint(expr <= bound)
 			return expr
@@ -105,7 +106,7 @@ or {self.runtime}s sampling
 		if bound > 1:
 			for i in range(n):
 				# print(i)
-				x[i] = self.add_variable(self.n, name=name, bound=bound)
+				x[i] = self.add_variable(self.n, name = name, bound = bound)
 			return x
 		for i in range(n):
 			x[self.n + i] = Variable(self.n + i, f"{name}{self.n + i}")
@@ -127,6 +128,7 @@ or {self.runtime}s sampling
 		else:
 			expr = expr >= 0
 
+		self.obj_expr.append(expr)
 		self.objective.add_expression(expr)
 
 	def add_constraint(self, constraint: Expression | int | None = None) -> None:
@@ -134,23 +136,26 @@ or {self.runtime}s sampling
 		expr.merge()
 		# self.con_expr.append(expr)
 		self.constraint.add_expression(expr)
+		self.con_expr.append(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		self.initial_state = state_py(P, assignment)
 
 	def compile(self):
 		self.gpu_compiled = True
-		# self.gpu_executor = Executor(self.n, self.n / 4, int(time()), self.linear_con_form, self.linear_obj_form,
-		#                              len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
-		#                              self.solver)
+
+	# self.gpu_executor = Executor(self.n, self.n / 4, int(time()), self.linear_con_form, self.linear_obj_form,
+	#                              len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
+	#                              self.solver)
 
 	def worker_process(self, shm_name, index, shape,
 	                   M, stopping_time, depth_look_ahead, stop_val, callback, max_delta, reset_delta):
 		try:
 			existing_shm = shared_memory.SharedMemory(shm_name)
-			arr = np.ndarray(shape, dtype=np.float64, buffer=existing_shm.buf)
+			arr = np.ndarray(shape, dtype = np.float64, buffer = existing_shm.buf)
 			set_seed(int(time() + os.getpid() * 1234) % (int(2 ** 16) - 1))
-			res = run_sampling(self.initial_state, self.constraint, self.objective, M, stopping_time, depth_look_ahead, self.solver,
+			res = run_sampling(self.initial_state, self.constraint, self.objective, M, stopping_time, depth_look_ahead,
+			                   self.solver,
 			                   stop_val, callback, max_delta, reset_delta)
 			arr[index, 0] = res[0].objective_value()
 			arr[index, 1] = res[1]
@@ -169,13 +174,12 @@ or {self.runtime}s sampling
 		del self.constraint
 		del self.circuit
 
-
 	def close(self):
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
-			print("processed obj")
+			# print("processed obj")
 			self.constraint.process(self.n)
-			print("processed con")
+			# print("processed con")
 			# self.circuit = circuit()
 			# self.circuit.compile()
 			# print(self.circuit)
@@ -188,9 +192,9 @@ or {self.runtime}s sampling
 		self.manual_initial(0, [0] * self.n)
 		run_general_greedy(self.initial_state, self.constraint, self.objective)
 
-
-	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None, arch = "cpu",
-	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers:int=12,
+	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None,
+	          arch = "cpu",
+	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
 	          results = "min", bfs = False,
 	          ignore_constraint_search = False) -> float | None:
 		"""
@@ -218,30 +222,30 @@ or {self.runtime}s sampling
 		set_bias_wrapper(bias)
 
 		if bfs:
-			s = StateGenerator(self)
+			s = exact_simulator(self)
 			s.generate_gurobi_model()
 			s.stategen()
 			print(len(s.bfs))
 			run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-			           stop_val, callback, max_delta, reset_delta)
+			        stop_val, callback, max_delta, reset_delta)
 			return
 
 		self.global_opt: state_py = copy(self.initial_state)
 		not_stop = [1]
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-		         delayed(run_sampling)(
-			         self.initial_state,
-			         self.constraint,
-			         self.objective,
-			         M, stopping_time,
-			         depth_look_ahead,
-			         self.solver,
-                     stop_val, callback, max_delta, reset_delta,
-			         self.global_opt,
-			         not_stop,
-			         ignore_constraint_search
-		         ) for _ in range(num_workers)
-		         )
+			delayed(run_sampling)(
+				self.initial_state,
+				self.constraint,
+				self.objective,
+				M, stopping_time,
+				depth_look_ahead,
+				self.solver,
+				stop_val, callback, max_delta, reset_delta,
+				self.global_opt,
+				not_stop,
+				ignore_constraint_search
+			) for _ in range(num_workers)
+		)
 
 		reset_c_flags()
 		obj_vals = [i[0].objective_value for i in res]
@@ -252,19 +256,19 @@ or {self.runtime}s sampling
 		self.final_state = self.global_opt
 		return res[0][-2]
 
-
-	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10, stopping_condition: int = STOPATFIRST):
+	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
+	                 stopping_condition: int = STOPATFIRST):
 		assert stopping_condition in [STOPATFIRST, STOPATBEST]
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		t1 = time()
-		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time, self.solver, -1,
+		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time,
+		                                    self.solver, -1,
 		                                    callback, max_worse_acceptances, stopping_condition)
 		self.runtime = time() - t1
 		self.objective_value = self.final_state.objective_value()
 
-
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
-		Parallel(n_jobs = num_workers, backend="threading")(
+		Parallel(n_jobs = num_workers, backend = "threading")(
 			delayed(run_quantum_local_search)(
 				self.initial_state,
 				self.constraint,
@@ -275,8 +279,11 @@ or {self.runtime}s sampling
 		)
 
 	def approximate_benchmarking(self, samples = 1024, M = 100):
+		deltas = []
+		incumbents = []
 
 		total_iterations = 0
+		set_seed(int(time()))
 		threshold = copy(self.initial_state)
 
 		while True:
@@ -284,13 +291,29 @@ or {self.runtime}s sampling
 			state.opt_sampler(self.objective, self.constraint, threshold, samples)
 
 			r, it, rounds = state.QSearch(M)
-			total_iterations += it
-			print(state.delta)
+			total_iterations += 2 * it + 1
+			deltas.append(state.delta)
 			del state
-			if r is  None:
+			if r is None:
 				break
 			else:
 				del threshold
 				threshold = r
-			print(threshold.objective_value, 2 * it + rounds)
-		print(total_iterations)
+				incumbents.append((-threshold.objective_value, total_iterations))
+
+		return total_iterations, deltas, incumbents
+
+	def exact_benchmark(self, M):
+		set_bias_wrapper(self.n / 4)
+		stgen = exact_simulator(self)
+		stgen.generate_gurobi_model()
+		# print(self.initial_state)
+		print(stgen.stategen())
+		inc = stgen.QMaxSearch(M)
+		del stgen
+		return inc
+
+		# state = approximate_state(self.n, self.n / 4)
+		# inc =  state.exact_QSearch(self.objective, self.constraint, M, self.initial_state)
+		# del state
+		# return inc

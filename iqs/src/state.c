@@ -1,4 +1,5 @@
 #include "state.h"
+#include <math.h>
 
 int min(int a, int b){
     return (a < b) ? a : b;
@@ -81,23 +82,27 @@ void print_state(state_t *state){
 state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n) {
     state_t *parent;
 
-    int placeholder;
+    double placeholder;
     size_t estimate = 500000;
     parent = calloc(estimate, sizeof(state_t));
 
     size_t count = 0;
 
     for (int x = 0; x < num_files; x++){
+//        printf("file = %s\n", name[x]);
         FILE *file = fopen(name[x], "r");
         if (!file) return NULL;
 
-        for (size_t i = 0; i < estimate; ++i) {
-            if (fscanf(file, "%d ", &placeholder) != 1) {
+        size_t i = count - 1;
+        while (1) {
+            i++;
+            if (fscanf(file, "%lf ", &placeholder) != 1) {
                 fclose(file);
                 break;
             }
+//            if (fabs(placeholder) < 0.1) printf("file = %s\n", name[x]);
 //            printf("%d\n", placeholder);
-            parent[i].tot_profit = placeholder;
+            parent[i].tot_profit = (int64_t) placeholder;
             parent[i].vector = sw_init(n);
             parent[i].branch = sw_init(n);
             for (int j = 0; j < n; ++j) {
@@ -110,8 +115,9 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
             }
             if (count == estimate - 1) {
                 // increase the size of parent, if necessary
+                increse_large_state(parent, estimate, 2 * estimate);
                 estimate *= 2;
-                parent = realloc(parent, estimate * sizeof(state_t));
+//                parent = realloc(parent, estimate * sizeof(state_t));
             }
             count++;
         }

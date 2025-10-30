@@ -1,3 +1,5 @@
+from copy import copy
+from .SearchLib import set_bias_wrapper, QSearch_wrapper
 
 cdef class approximate_state:
 
@@ -27,7 +29,7 @@ cdef class approximate_state:
 		cdef new_constraints_t *ob = <new_constraints_t *> &obj.con;
 		cdef new_constraints_t *co = <new_constraints_t *> &con.con;
 		CSearch_opt_sampler(self.state, st, samples, co, ob, 1)
-		print("number good = ", self.state.num_good)
+		# print("number good = ", self.state.num_good)
 
 	# cdef c_opt_sampler(self, new_constraint obj , new_constraint con, state_py cur_sol, int samples):
 
@@ -38,7 +40,6 @@ cdef class approximate_state:
 		cdef size_t index = 0
 
 		cdef state_t *res = QSearch(self.state.good, self.state.num_good, &it, &rounds, M, &index)
-		print(it, rounds)
 
 		if res is NULL:
 			del st
@@ -47,3 +48,30 @@ cdef class approximate_state:
 		st.state = res
 		return st, it, rounds
 
+
+	def exact_QSearch(self, obj, con, M, initial):
+		bfs = state_py(0, [])
+		bfs.read("/Users/sorenwilkening/Desktop/improved_quantum_search/Projects/Knapsack/KP_instances/n_25_c_8191_g_6_f_0.3_eps_0_s_100/states_0.0.txt", self.state.good[0].vector.bits)
+		total_iterations = 0
+		threshold: state_py = copy(initial)
+
+		incumbents = []
+
+		while True:
+			up = bfs.update(threshold, 0)
+
+			it = 0
+			rounds = 0
+			index = 0
+			st, it, round = QSearch_wrapper(up, M)
+			# print(st.objective_value, 2 * it + rounds)
+			total_iterations += 2 * it + rounds
+
+			if st is None:
+				break
+			else:
+				del threshold
+				threshold = st
+				incumbents.append((-threshold.objective_value, total_iterations))
+
+		return incumbents

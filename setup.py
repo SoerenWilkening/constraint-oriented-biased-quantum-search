@@ -86,7 +86,7 @@ setup(
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
-	ext_modules = cythonize(extensions, language_level = 2),
+	ext_modules = cythonize(extensions, language_level = 3),
 )
 
 

@@ -110,6 +110,7 @@ cdef class state_py:
 
 	def __str__(self) -> str:
 		if self.state is NULL: return "NULL state"
+		# print_state(&self.state[])
 		for i in range(self.num_states):
 			print_state(&self.state[i])
 			print()
@@ -144,12 +145,20 @@ cdef class state_py:
 			f.write(f"{i} ")
 		f.close()
 
+	def update(self, state_py threshold, int sense) -> state_py:
+		up = state_py(0, [0])
+		free_state(up.state, up.num_states)
+		up.state = <state_t *>updated(self.state, self.num_states, &up.num_states, threshold.state, sense)
+
+		return up
+
 	def read(self, str name, int n) -> None:
 		# print(name)
 		directoy = os.path.dirname(name)
+		# print(directoy)
 		value = str(name).split("states_")[0].replace(directoy + "/", "")
 		# print(value, directoy)
-		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if value in i]
+		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if value in i and "test" not in i and "states" in i]
 		# print(files)
 
 		num_files = len(files)
@@ -164,19 +173,15 @@ cdef class state_py:
 		self.state = read_states(f, num_files, &self.num_states, n)
 
 
-def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py, int, int]:
+def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	cdef size_t iterations = 0
 	cdef size_t rounds = 0
-	print(bfs)
-	print("done")
 	sys.stdout.flush()
 	res: state_py = state_py(11, [0, 0])
-	print("freed")
-	sys.stdout.flush()
-	print(res)
 	cdef size_t index = 0;
 	res.state = QSearch(bfs.state, bfs.num_states, &iterations, &rounds, M, &index)
-
+	if res.state == NULL:
+		return None, iterations, rounds
 	return res, iterations, rounds
 
 import os
