@@ -44,4 +44,8 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 );
 
 
+double CSearch_opt_monte_carlo_sampler(
+    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error
+);
+
 #endif // SOLVER_H

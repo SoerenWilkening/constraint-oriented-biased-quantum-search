@@ -22,7 +22,9 @@ typedef struct {
 #define number_incumbents 1024
 
 incumbents_t *init_incumbents(int n, state_t *initial);
+
 void print_incumbents(incumbents_t *incumbents);
+
 void free_incumbents(incumbents_t *incumbents);
 
 int compare(int64_t obj, int64_t thr, int sense);

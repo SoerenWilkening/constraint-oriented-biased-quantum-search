@@ -28,7 +28,11 @@ cdef extern from "src/SearchLib.h":
 		array_t branch
 
 	ctypedef struct incumbents_t:
-		pass
+		state_t *states;
+		int *search_stage;
+		int allocated;
+		int head;
+		int num_states;
 
 	state_t *init_state(int64_t ObjVal, int *array, int n)
 	state_t *copy_state(state_t *state)
@@ -58,6 +62,12 @@ cdef extern from "src/SearchLib.h":
 	                              int depth_look_ahead,
 	                              int *break_item
 	                              );
+
+	double CSearch_opt_monte_carlo_sampler(
+			state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error
+	);
+
+	double StateProbability(state_t *state, state_t *threshold);
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:

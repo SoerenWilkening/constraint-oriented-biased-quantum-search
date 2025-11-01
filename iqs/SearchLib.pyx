@@ -90,6 +90,23 @@ cdef class incumbents:
 		print_incumbents(self.incumbent)
 		return ""
 
+	def estimate_grover_iterations(self, new_constraint con, new_constraint obj, double error):
+		incumbents = []
+		total_calls = 0
+
+		for i in range(self.incumbent[0].head):
+			ampl = CSearch_opt_monte_carlo_sampler(<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error)
+			if ampl == 0.:
+				ampl = StateProbability(&self.incumbent[0].states[i + 1], &self.incumbent[0].states[i])
+
+			# use tightest bound for qunatum search
+			# repeat 9 times to get success probability > 99.9 %
+			total_calls += int(np.floor(9. / 2 * 1. / np.sqrt(ampl)))
+			incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
+
+		return incumbents
+
+
 cdef class state_py:
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
 		self.num_states = 1
@@ -332,8 +349,13 @@ cpdef run_sampling(
 	for i in range(cur_sol.state[0].vector.bits):
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
+	# print(inc)
+
+	incumb = inc.estimate_grover_iterations(con, obj, 0.1)
+	del inc
+
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total, inc
+	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total, incumb
 
 cpdef run_bfs(
 		initial: state_py,

@@ -197,7 +197,7 @@ or {self.runtime}s sampling
 	          arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
 	          results = "min", bfs = False,
-	          ignore_constraint_search = False) -> float | None:
+	          ignore_constraint_search = False) -> list | None:
 		"""
 
 		:param M:
@@ -255,7 +255,6 @@ or {self.runtime}s sampling
 		self.grover_iterations = res[index_opt][1]
 		self.runtime = res[index_opt][-2]
 		self.final_state = self.global_opt
-		print(res[0][-1])
 		return res[0][-1]
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
