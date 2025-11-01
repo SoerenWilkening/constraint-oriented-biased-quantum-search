@@ -223,7 +223,6 @@ int ctg(
 		}
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
-//            printf("inner\n");
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = objective_value(obj, cur_sol);

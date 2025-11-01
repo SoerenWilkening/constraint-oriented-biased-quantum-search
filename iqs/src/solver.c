@@ -625,24 +625,20 @@ double CSearch_opt_monte_carlo_sampler(
     for (int l = 0; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
         
-        // Store which bit from the previous solution is flipped
-        int NumChanges = 0;
-        int *ChangedBits = calloc(n, sizeof(int));
-        
         // reset constraint rhs to initial values
         memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
         
         // initialize new solution
         new_sol->tot_profit = cur_sol->tot_profit;
         sw_set_ui_0(new_sol->vector);
-        
+        sw_set_ui_0(new_sol->branch);
+
         int i;
         for (i = 0; i < n; i++) {
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
             double random_num = ((double) (rand() % 123456)) / 123455.;
             
             // Initialize new bit to be 0
-            sw_clrbit(new_sol->vector, i);
             int new_bit = 0;
             
             // check, if assignment does not exceed potentials
@@ -677,9 +673,6 @@ double CSearch_opt_monte_carlo_sampler(
                 new_bit = 1;
             }
             
-            // was a bit flipped?
-            if (bit != new_bit) ChangedBits[NumChanges++] = i;
-            
             int all_positive;
             if (new_bit) {
                 update_potentials(con, potentials, i,
@@ -702,8 +695,6 @@ double CSearch_opt_monte_carlo_sampler(
                 else as1 &= potentials[k] >= 0;
             }
         
-        int NumChangedTerms = 0;
-        int *ChangedTerms = calloc(MINSIZE, sizeof(int));
         int64_t val = cur_sol->tot_profit;
         if (as1) val = objective_value(obj, new_sol);
         
@@ -713,11 +704,215 @@ double CSearch_opt_monte_carlo_sampler(
             counter++;
         }
         estimate = ((double) counter) / (l + 1);
-        if (estimate > 0)
-            samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
-//        printf("%d %f\n", samples, estimate);
+        if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
         free_state(new_sol, 1);
     }
     
+    return estimate;
+}
+
+double CSearch_opt_sat_monte_carlo_sampler(
+    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction
+) {
+    int n = cur_sol->vector.bits;
+	int64_t potentials[con->num_constraints];
+	int64_t ret_total1[con->num_constraints];
+	int64_t ret_total2[con->num_constraints];
+    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
+    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+    
+    int counter = 0;
+    int samples = (int) pow(0.0001, -2);
+    double estimate = 0;
+    
+	for (int l = 0; l < samples; l++) {
+        state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
+		// reset constraint rhs to initial values
+		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+
+		// initialize new solution
+		new_sol->tot_profit = cur_sol->tot_profit;
+		sw_set_ui_0(new_sol->vector);
+
+		int i;
+		int both_infeasible = 0;
+
+        sw_set_ui_0(new_sol->vector);
+        sw_set_ui_0(new_sol->branch);
+
+		for (i = 0; i < n; i++) {
+			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
+			double random_num = ((double) (rand() % 123456)) / 123455.;
+
+			// Initialize new bit to be 0
+			int new_bit = 0;
+
+			// check, if assignment does not exceed potentials
+			// if depth look ahead is 0, it will check only the next assignment
+			int count[2] = {0, 0};
+
+            // look ahead to the left side
+            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the right side
+            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+
+			// only counts needs to be checked, since they also include bool_plus and bool_minus
+			// If all the constraints ar fulfilled by both assignments, "branch"
+			if (count[0] > 0 && count[1] > 0 || count[0] == 0 && count[1] == 0) {
+                sw_setbit(new_sol->branch, i);
+				if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+					sw_setbit(new_sol->vector, i);
+					new_bit = 1;
+				} else { sw_clrbit(new_sol->vector, i); }
+				if (count[0] == 0 && count[1] == 0) both_infeasible = 1;
+			}
+			// we are forced to go left, when only count[0] leads to a feasible solution
+			// count[0] > 0 does not need to be checked, since both == 0 was checked prior
+			if (count[0] != 0 && count[1] == 0) {
+				// but if left don't lead to feasible solution: break
+				sw_clrbit(new_sol->vector, i);
+				new_bit = 0;
+			}
+			// we are forced to go right, when only count[1] leads to feasible solution
+			if (count[0] == 0 && count[1] != 0) {
+				// but if right don't lead to feasible solution: break
+				sw_setbit(new_sol->vector, i);
+				new_bit = 1;
+			}
+			if (new_bit) {
+				update_potentials(con, potentials, i,
+				                  con->positive_indices,
+				                  con->num_positive_indices,
+				                  con->positive_offsets, new_sol,
+				                  new_bit, POSITIVE, PLAIN, ret_total2);
+			} else
+				update_potentials(con, potentials, i,
+				                  con->negative_indices,
+				                  con->num_negative_indices,
+				                  con->negative_offsets, new_sol,
+				                  new_bit, NEGATIVE, PLAIN, ret_total1);
+		}
+        // this method is only called, when no feasible solution was found yet:
+        // so we minimize either the constraint violation, or compute the objcetive value
+        int64_t total_violation = 0;
+
+		for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+			// only sum up violations
+			if (con->sense[cnstr] == EQUAL) {
+			    // ehen equality, the total violation is the difference from protentials being unequal 0
+			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? labs(potentials[cnstr]) : 0;
+			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
+		}
+		int feasible = (total_violation == 0);
+
+        if (direction == 1 && feasible){
+            // was not feasible before, but now
+            counter++;
+        }
+        if (direction == -1){
+            // other direction, minimize remaining capacity
+            total_violation = 0;
+		    for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+			    // only sum up potentials
+			    total_violation += potentials[cnstr]; // all are >= 0
+		    }
+        }
+        //                                              \/ no feas sol    \/ preserves feasibility
+		if ((cur_sol->tot_profit > total_violation) && (direction == 1 || feasible)){ // lower violation was found
+            // good state
+            counter++;
+		}
+        estimate = ((double) counter) / (l + 1);
+        if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
+        free_state(new_sol, 1);
+	}
+	return estimate;
+}
+
+
+double CSearch_sat_monte_carlo_sampler(
+    state_t *cur_sol, new_constraints_t *con, double error
+) {
+    int n = cur_sol->vector.bits;
+    int64_t potentials[con->num_constraints];
+    int64_t ret_total1[con->num_constraints];
+    int64_t ret_total2[con->num_constraints];
+    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
+    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+    
+    int counter = 0;
+    int samples = (int) pow(0.0001, -2);
+    double estimate = 0;
+    
+    for (int l = 0; l < samples; l++) {
+        
+        state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
+        
+        // reset constraint rhs to initial values
+        memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+        
+        // initialize new solution
+        new_sol->tot_profit = cur_sol->tot_profit;
+        
+        int i;
+        for (i = 0; i < n; i++) {
+            int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
+            double random_num = ((double) (rand() % 123456)) / 123455.;
+            
+            int new_bit = 0;
+            
+            // check, if assignment does not exceed potentials
+            // if depth look ahead is 0, it will check only the next assignment
+            int count[2] = {0, 0};
+            // look ahead to the left side
+            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the right side
+            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            
+            // only counts needs to be checked, since they also include bool_plus and bool_minus
+            // If all the constraints ar fulfilled by both assignments, "branch"
+            if (count[0] > 0 && count[1] > 0) {
+                sw_setbit(new_sol->branch, i);
+                if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+                    sw_setbit(new_sol->vector, i);
+                    new_bit = 1;
+                } else { sw_clrbit(new_sol->vector, i); }
+            }
+            // we are forced to go left, when only count[0] leads to a feasible solution
+            // count[0] > 0 does not need to be checked, since both == 0 was checked prior
+            if (count[0] != 0 && count[1] == 0 || count[0] == 0 && count[1] == 0) {
+                // but if left don't lead to feasible solution: break
+                sw_clrbit(new_sol->vector, i);
+                new_bit = 0;
+            }
+            // we are forced to go right, when only count[1] leads to feasible solution
+            if (count[0] == 0 && count[1] != 0) {
+                // but if right don't lead to feasible solution: break
+                sw_setbit(new_sol->vector, i);
+                new_bit = 1;
+            }
+            
+            if (new_bit) {
+                update_potentials(con, potentials, i,
+                                  con->positive_indices,
+                                  con->num_positive_indices,
+                                  con->positive_offsets, new_sol,
+                                  new_bit, POSITIVE, PLAIN, ret_total2);
+            } else
+                update_potentials(con, potentials, i,
+                                  con->negative_indices,
+                                  con->num_negative_indices,
+                                  con->negative_offsets, new_sol,
+                                  new_bit, NEGATIVE, PLAIN, ret_total1);
+        }
+        int64_t val = -num_satisfied_constrains(con, new_sol);
+        if (cur_sol->tot_profit > val) {
+            // If solution is updated, change the array of fulfilled terms
+            counter++;
+        }
+        estimate = ((double) counter) / (l + 1);
+        if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
+        free_state(new_sol, 1);
+    }
     return estimate;
 }

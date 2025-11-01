@@ -95,13 +95,23 @@ cdef class incumbents:
 		total_calls = 0
 
 		for i in range(self.incumbent[0].head):
-			ampl = CSearch_opt_monte_carlo_sampler(<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error)
+			if self.incumbent[0].search_stage[i] == 1:
+				ampl = CSearch_opt_sat_monte_carlo_sampler(
+					<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error, 1
+				)
+			elif self.incumbent[0].search_stage[i] == 2:
+				ampl = CSearch_opt_sat_monte_carlo_sampler(
+					<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error, -1
+				)
+			else:
+				ampl = CSearch_opt_monte_carlo_sampler(<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error)
+
 			if ampl == 0.:
 				ampl = StateProbability(&self.incumbent[0].states[i + 1], &self.incumbent[0].states[i])
 
 			# use tightest bound for qunatum search
 			# repeat 9 times to get success probability > 99.9 %
-			total_calls += int(np.floor(9. / 2 * 1. / np.sqrt(ampl)))
+			total_calls += int(np.floor(7. / 2 * 1. / np.sqrt(ampl)))
 			incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
 
 		return incumbents

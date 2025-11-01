@@ -63,9 +63,9 @@ cdef extern from "src/SearchLib.h":
 	                              int *break_item
 	                              );
 
-	double CSearch_opt_monte_carlo_sampler(
-			state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error
-	);
+	double CSearch_opt_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error);
+	double CSearch_opt_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction);
+	double CSearch_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, double error);
 
 	double StateProbability(state_t *state, state_t *threshold);
 
