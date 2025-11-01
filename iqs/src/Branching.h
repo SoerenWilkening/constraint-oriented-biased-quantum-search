@@ -57,31 +57,39 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
     }
     if (bit_T == 0){
         if(bit_S == 0) {
-            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+            // both bits 0
+            total_bias = (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
         }
         else {
-            total_bias = 1;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+            // bit1 = 0, bit2 = 1
+            total_bias = 1. / (stats->bias + 2.);
+//            total_bias = 1;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
         }
     } else{
         if(bit_S == 0) {
-            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * 1. / (stats->bias + 2.);
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+            // bit1 = 1, bit2 = 0
+            total_bias = 1. / (stats->bias + 2.);
+//            total_bias = 1;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
         }
         else {
-            total_bias = 1;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * 1. / (stats->bias + 2.);
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
+            // both bits 1
+            total_bias = (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
+//            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
         }
     }
 

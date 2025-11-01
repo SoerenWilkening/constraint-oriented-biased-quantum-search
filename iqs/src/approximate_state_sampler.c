@@ -18,7 +18,9 @@ approximate_state_t *init_approximete_state(int n, double bias) {
     appr->good_amplitude = 0;
     appr->bad_amplitude = 0;
     appr->delta = 1; // no states/amplitudes collected yet
-    
+
+    appr->samples_first_good = -1;
+    appr->good_count = 0;
     return appr;
 }
 
@@ -39,7 +41,9 @@ void print_approximate_state(approximate_state_t *state) {
     printf("used =          %16zu %16zu\n", state->num_good, state->num_bad);
     printf("probability =   %.15f %.15f -> delta = %.8f -> %f parallel repetitions\n",
             state->good_amplitude, state->bad_amplitude, state->delta, 5 * 1. / (1 - state->delta));
-    
+    printf("first good =    %16d\n", state->samples_first_good);
+    printf("good count =    %16d\n", state->good_count);
+
     printf("Good states:\n");
     for (int i = 0; i < 20; ++i) {
         print_state(&state->good[i]);
@@ -147,7 +151,8 @@ int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }
-            }
+                
+            }else sw_clrbit(new_sol->branch, i);
             if (count[0] == 0 && count[1] == 0) break;
             // we are forced to go left, when only count[0] leads to a feasible solution
             // count[0] > 0 does not need to be checked, since both == 0 was checked prior
@@ -195,10 +200,12 @@ int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
         new_sol->feasible = as1;
         new_sol->tot_profit = val;
         StateProbability(new_sol, cur_sol);
-        
+
         if (as1 && cur_sol->tot_profit > val) {
             // put good state into list of good states
             // If solution is updated, change the array of fulfilled terms
+            if (state->samples_first_good == -1) state->samples_first_good = l;
+            state->good_count++;
             if (!state_is_contained_in_good_list(state, new_sol)){
                 increase_number_of_good_states(state); // allocate more space
                 copy_state_inplace(&state->good[state->num_good], new_sol);

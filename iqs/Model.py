@@ -24,6 +24,7 @@ from .state_sampler import approximate_state
 class Model:
 
 	def __init__(self):
+		self.stgen = None
 		self.global_opt = None
 		self.gpu_imported: bool = False
 
@@ -289,6 +290,7 @@ or {self.runtime}s sampling
 		while True:
 			state = approximate_state(self.n, self.n / 4)
 			state.opt_sampler(self.objective, self.constraint, threshold, samples)
+			print(state)
 
 			r, it, rounds = state.QSearch(M)
 			total_iterations += 2 * it + 1
@@ -300,17 +302,17 @@ or {self.runtime}s sampling
 				del threshold
 				threshold = r
 				incumbents.append((-threshold.objective_value, total_iterations))
-
+				# del threshold
+		del threshold
 		return total_iterations, deltas, incumbents
 
 	def exact_benchmark(self, M):
 		set_bias_wrapper(self.n / 4)
-		stgen = exact_simulator(self)
-		stgen.generate_gurobi_model()
-		# print(self.initial_state)
-		print(stgen.stategen())
-		inc = stgen.QMaxSearch(M)
-		del stgen
+		if self.stgen is None:
+			self.stgen = exact_simulator(self)
+			self.stgen.generate_gurobi_model()
+
+		inc = self.stgen.QMaxSearch(M)
 		return inc
 
 		# state = approximate_state(self.n, self.n / 4)

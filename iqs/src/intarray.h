@@ -70,6 +70,7 @@ static inline array_t sw_set(array_t B) {
 	return A;
 }
 
+
 static inline void sw_set_inplace(array_t A, array_t B) {
 	A.n = B.n;
 	for (size_t LOOPINDEX = 0; LOOPINDEX < B.n; ++LOOPINDEX) {

@@ -95,7 +95,7 @@ int ctg(
 	}
 	if (solver == OPTIMIZE && ignore_constraint_search) {
 	    stage = 3;
-	    cur_sol->tot_profit = 0;
+	    cur_sol->tot_profit = objective_value(obj, cur_sol);
 	    global_opt->tot_profit = 0;
 	    search_function = CSearch_opt;
 	}
@@ -139,17 +139,17 @@ int ctg(
 				con, obj,
 				depth_look_ahead, direction, &fulfilled_objective_terms
 		);
-//		printf("%lld %lld %lld %lld\n", m_tot, res, cur_sol->tot_profit, global_opt->tot_profit);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
 			// update global_opt if better solution is found
 			pthread_mutex_lock(&update_lock);
 			int should_callback = 0;
+
 			if (global_opt->tot_profit > cur_sol->tot_profit){
-				global_opt->tot_profit = cur_sol->tot_profit;
-				sw_set_inplace(global_opt->vector, cur_sol->vector);
-				if (callback && feasible && updated && method != ACCEPTMANY) {
+			    copy_state_inplace(global_opt, cur_sol);
+
+				if (callback && global_opt->feasible && method != ACCEPTMANY) {
                     callback(global_opt->tot_profit, *qtg_applications, total_time, preprocess_time);
                 }
 			}
@@ -181,6 +181,7 @@ int ctg(
 		}
         // improve violations before optimizing
         if (solver == OPTIMIZE && counter > 10 && !updated) {
+//            printf("inner\n");
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = objective_value(obj, cur_sol);

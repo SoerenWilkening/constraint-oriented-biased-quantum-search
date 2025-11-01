@@ -330,7 +330,6 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 		int64_t val = cur_sol->tot_profit;
 		if (as1) val = objective_value(obj, new_sol);
 //		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
-
 		if (as1 && cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms
 //            for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
@@ -338,6 +337,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			cur_sol->tot_profit = val;
 			sw_clear(cur_sol->vector);
 			cur_sol->vector = sw_set(new_sol->vector);
+			cur_sol->feasible = as1;
 
 			free(ChangedTerms);
 			free(ChangedBits);
@@ -360,7 +360,7 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < j * j + 1; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
@@ -505,7 +505,7 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < j * j + 1; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 

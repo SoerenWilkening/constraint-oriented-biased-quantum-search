@@ -4,6 +4,7 @@ from .SearchLib import read_nodes_wrapper, store
 from .Constants import OPTIMIZE, SATISFY
 from .SearchLib import state_py, QSearch_wrapper
 from copy import copy
+import sys
 # from __future__ import print_function
 
 class exact_simulator:
@@ -56,6 +57,8 @@ class exact_simulator:
 			self.gur_model.setObjective(-sum(sat[i] for i in sat), sense = gp.GRB.MINIMIZE)
 
 	def QMaxSearch(self, M):
+		if self.bfs is None:
+			self.stategen()
 		threshold: state_py = copy(self.model.initial_state)
 
 		incumbents = []
@@ -63,16 +66,23 @@ class exact_simulator:
 
 		while True:
 		# for _ in range(2):
+		# 	print("update")
+		# 	sys.stdout.flush()
 			up = self.bfs.update(threshold, 0)
-			# print("updated", len(up), end = "")
-			# print(threshold)
 
+			# print("search")
+			# sys.stdout.flush()
 			it = 0
 			rounds = 0
 			index = 0
 			st, it, round = QSearch_wrapper(up, M)
+			# print("searched")
+			# sys.stdout.flush()
 			# print(st.objective_value, 2 * it + rounds)
 			total_iterations += 2 * it + rounds
+			del up
+			# print("deleted")
+			# sys.stdout.flush()
 
 			if st is None:
 				break
@@ -80,6 +90,8 @@ class exact_simulator:
 				del threshold
 				threshold = st
 				incumbents.append((-threshold.objective_value, total_iterations))
+
+		del threshold
 
 		return incumbents
 

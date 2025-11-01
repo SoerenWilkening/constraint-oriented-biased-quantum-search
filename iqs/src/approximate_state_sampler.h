@@ -21,6 +21,8 @@ typedef struct {
   double good_amplitude;
   double bad_amplitude;
   double delta;
+  int samples_first_good;
+  int good_count;
 } approximate_state_t;
 
 

@@ -97,16 +97,38 @@ void set_constraint_dependence(double *dependence, int n){
 
 double StateProbability(state_t *state, state_t *threshold){
     state->prob = 1.;
+//    printf("%f\n", BranchingStats.bias);
+    int count0 = 0;
+    int count1 = 0;
     for (size_t j = 0; j < state->vector.bits; ++j) {
         if (sw_tstbit(state->branch, j) == 1) {
+            
             state->prob *= BranchingFunction(
                 j,
                 sw_tstbit(state->vector, j),
                 sw_tstbit(threshold->vector, j),
                 0, &BranchingStats
             );
+//            if (sw_tstbit(state->vector, j) != sw_tstbit(threshold->vector, j)){
+//                printf("%d -> 0 -> %f\n", j, BranchingFunction(
+//                    j,
+//                    sw_tstbit(state->vector, j),
+//                    sw_tstbit(threshold->vector, j),
+//                    0, &BranchingStats
+//                ));
+//                count0++;
+//            }else{
+//                printf("%d -> 1 -> %f\n", j, BranchingFunction(
+//                    j,
+//                    sw_tstbit(state->vector, j),
+//                    sw_tstbit(threshold->vector, j),
+//                    0, &BranchingStats
+//                ));
+//                count1++;
+//            }
         }
     }
+//    printf("%d %d %.15f\n", count0, count1, state->prob);
     return state->prob;
 }
 
@@ -119,6 +141,8 @@ state_t *updated(state_t *bnb, size_t number_states,
     for (size_t i = 0; i < number_states; ++i) {
         if (bnb[i].tot_profit < threshold->tot_profit) {
             up[a].tot_profit = bnb[i].tot_profit;
+            sw_clear(up[a].vector);
+            sw_clear(up[a].branch);
             up[a].vector = sw_set(bnb[i].vector);
             up[a].branch = sw_set(bnb[i].branch);
             StateProbability(&up[a], threshold);

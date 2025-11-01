@@ -21,6 +21,10 @@ cdef class approximate_state:
 	def delta(self):
 		return self.state.delta
 
+	@property
+	def good(self):
+		return self.state.good_amplitude
+
 
 	def opt_sampler(self, new_constraint obj, new_constraint con, state_py cur_sol, samples):
 		# print(samples)

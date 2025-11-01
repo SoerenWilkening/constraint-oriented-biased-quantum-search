@@ -44,6 +44,11 @@ state_t *init_large_state(int n, int number_states){
 
 state_t *increse_large_state(state_t *state, int old_num_states, int new_num_states){
     state = realloc(state, new_num_states * sizeof(state_t));
+    if (state == NULL){
+        printf("failed reallocation\n");
+        fflush(stdout);
+        exit(1);
+    }
     int n = state->vector.bits;
     for (int i = old_num_states; i < new_num_states; ++i) {
         state[i].tot_profit = 0;
@@ -68,8 +73,9 @@ state_t *copy_state(state_t *state){
 void copy_state_inplace(state_t *dest, state_t *src){
 	dest->tot_profit = src->tot_profit;
 	dest->prob = src->prob;
-	dest->vector = sw_set(src->vector);
-	dest->branch = sw_set(src->branch);
+	dest->feasible = src->feasible;
+	sw_set_inplace(dest->vector, src->vector);
+	sw_set_inplace(dest->branch, src->branch);
 }
 
 void print_state(state_t *state){
@@ -84,13 +90,26 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
 
     double placeholder;
     size_t estimate = 500000;
-    parent = calloc(estimate, sizeof(state_t));
+//    parent = calloc(estimate, sizeof(state_t));
+    parent = init_large_state(n, estimate);
+    if (parent == NULL) {
+        printf("failed allocation\n");
+        fflush(stdout);
+        exit(1);
+    }
 
     size_t count = 0;
 
     for (int x = 0; x < num_files; x++){
 //        printf("file = %s\n", name[x]);
+        fflush(stdout);
         FILE *file = fopen(name[x], "r");
+        if (file == NULL){
+            printf("failed reading\n");
+            fflush(stdout);
+            exit(1);
+        }
+
         if (!file) return NULL;
 
         size_t i = count - 1;
@@ -103,8 +122,8 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
 //            if (fabs(placeholder) < 0.1) printf("file = %s\n", name[x]);
 //            printf("%d\n", placeholder);
             parent[i].tot_profit = (int64_t) placeholder;
-            parent[i].vector = sw_init(n);
-            parent[i].branch = sw_init(n);
+//            parent[i].vector = sw_init(n);
+//            parent[i].branch = sw_init(n);
             for (int j = 0; j < n; ++j) {
                 int assignment = 0, branching = 0;
                 fscanf(file, "%d %d ", &assignment, &branching);
@@ -124,6 +143,10 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
     }
 //    printf("count %d\n", count);
     *NumberStatesFinal = count;
+    for (int i = count; i < estimate; i++){
+        sw_clear(parent[i].vector);
+        sw_clear(parent[i].branch);
+    }
     parent = realloc(parent, count * sizeof(state_t));
     return parent;
 }

@@ -120,6 +120,9 @@ cdef class state_py:
 		if self.state is not NULL:
 			free_state(self.state, self.num_states)
 
+	# def __del__(self):
+	# 	del self.arr
+
 	@property
 	def objective_value(self):
 		return self.state[0].tot_profit
@@ -160,24 +163,35 @@ cdef class state_py:
 		# print(value, directoy)
 		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if value in i and "test" not in i and "states" in i]
 		# print(files)
+		# sys.stdout.flush()
 
 		num_files = len(files)
+		# print(num_files)
+		sys.stdout.flush()
 		cdef char** f = <char **> calloc(num_files, sizeof(char *))
 		for i in range(num_files):
+			# print(i)
+			sys.stdout.flush()
 			file_bytes = files[i]
 			f[i] = <char *> calloc(len(file_bytes) + 1, sizeof(char))
 			for j in range(len(file_bytes)):
 				f[i][j] = file_bytes[j]
 
+		# print("free")
+		# sys.stdout.flush()
 		free_state(self.state, self.num_states)
+		# print("read")
+		# sys.stdout.flush()
 		self.state = read_states(f, num_files, &self.num_states, n)
+		# print("done")
+		# sys.stdout.flush()
 
 
 def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	cdef size_t iterations = 0
 	cdef size_t rounds = 0
-	sys.stdout.flush()
 	res: state_py = state_py(11, [0, 0])
+	free_state(res.state, 1)
 	cdef size_t index = 0;
 	res.state = QSearch(bfs.state, bfs.num_states, &iterations, &rounds, M, &index)
 	if res.state == NULL:
