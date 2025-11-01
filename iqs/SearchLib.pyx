@@ -1,10 +1,12 @@
-import sys
-from copy import copy
-import time
-import numpy as np
 import signal
-from .Constants import *
+import sys
+import time
+from copy import copy
 from random import randint
+
+import numpy as np
+
+from .Constants import *
 
 def set_seed(unsigned int seed):
 	srand(seed)
@@ -52,7 +54,6 @@ cdef class new_constraint:
 	def eval_obj(self, state: state_py):
 		return objective_value(&self.con, state.state)
 
-
 def set_factors_wrapper(double objective_factor, double constraint_factor, double bias_factor, double look_factor):
 	set_factors(objective_factor, constraint_factor, bias_factor, look_factor)
 
@@ -75,17 +76,30 @@ def set_constraint_dependence_wrapper(dependence: list[double]):
 
 # Class containing all the states information and acts as wrpper for C functionality
 
-cdef class state_py:
+cdef class incumbents:
+	def __cinit__(self, n, st: state_py):
+		self.incumbent = init_incumbents(n, st.state)
 
+	def __init__(self, n, st: state_py):
+		pass
+
+	def __dealloc__(self):
+		free_incumbents(self.incumbent)
+
+	def __str__(self):
+		print_incumbents(self.incumbent)
+		return ""
+
+cdef class state_py:
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
 		self.num_states = 1
 		arr = np.array(array, dtype = np.int32)
-		self.arr = arr # easier handling when list it required
+		self.arr = arr  # easier handling when list it required
 
-		cdef int* ptr = <int *>calloc(arr.shape[0], sizeof(int))
-		for i in range(arr.shape[0]): ptr[i] = <int>arr[i]
+		cdef int * ptr = <int *> calloc(arr.shape[0], sizeof(int))
+		for i in range(arr.shape[0]): ptr[i] = <int> arr[i]
 		self.state = init_state(ObjVal, ptr, arr.shape[0])
-		free(<void *>ptr)
+		free(<void *> ptr)
 
 	def __init__(self, ObjVal, array):
 		pass
@@ -128,8 +142,8 @@ cdef class state_py:
 		return self.state[0].tot_profit
 
 	def __iter__(self):
-		return [sw_tstbit(self.state[0].vector, i)  for i in range(self.state[0].vector.bits)].__iter__()
-		# return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
+		return [sw_tstbit(self.state[0].vector, i) for i in range(self.state[0].vector.bits)].__iter__()
+	# return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
 
 	def integer_liste(self):
 		step = [[
@@ -151,7 +165,7 @@ cdef class state_py:
 	def update(self, state_py threshold, int sense) -> state_py:
 		up = state_py(0, [0])
 		free_state(up.state, up.num_states)
-		up.state = <state_t *>updated(self.state, self.num_states, &up.num_states, threshold.state, sense)
+		up.state = <state_t *> updated(self.state, self.num_states, &up.num_states, threshold.state, sense)
 
 		return up
 
@@ -161,7 +175,8 @@ cdef class state_py:
 		# print(directoy)
 		value = str(name).split("states_")[0].replace(directoy + "/", "")
 		# print(value, directoy)
-		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if value in i and "test" not in i and "states" in i]
+		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if
+		         value in i and "test" not in i and "states" in i]
 		# print(files)
 		# sys.stdout.flush()
 
@@ -183,9 +198,8 @@ cdef class state_py:
 		# print("read")
 		# sys.stdout.flush()
 		self.state = read_states(f, num_files, &self.num_states, n)
-		# print("done")
-		# sys.stdout.flush()
-
+	# print("done")
+	# sys.stdout.flush()
 
 def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	cdef size_t iterations = 0
@@ -200,7 +214,7 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 
 import os
 
-def store(states: list[float, tuple[list[int], list[int]]] , where: bytes) -> int:
+def store(states: list[float, tuple[list[int], list[int]]], where: bytes) -> int:
 	if os.path.exists(where): return 1
 
 	file = open(where, "a")
@@ -213,14 +227,13 @@ def store(states: list[float, tuple[list[int], list[int]]] , where: bytes) -> in
 	file.close()
 	return 0
 
-def read_nodes_wrapper(str name ,n: int) -> int | state_py:
+def read_nodes_wrapper(str name, n: int) -> int | state_py:
 	if not os.path.exists(name):
 		return 1
 
 	res = state_py(0, [0])
 	res.read(name, n)
 	return res
-
 
 # define callback functionality ===============================
 
@@ -248,7 +261,6 @@ cpdef run_sampling(
 		not_stop: list[int],
 		int ignore_constraint_search
 ):
-
 	t_start: float = time.time()
 	t_total: float = 0
 	set_seed(randint(0, 10000000))
@@ -257,7 +269,7 @@ cpdef run_sampling(
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	cur_sol : state_py = copy(initial)
+	cur_sol: state_py = copy(initial)
 
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
@@ -271,6 +283,8 @@ cpdef run_sampling(
 	cdef int brk_tm = 0;
 	cdef int n = cur_sol.state[0].vector.bits
 
+	inc = incumbents(n, initial)
+
 	# if solver == SATISFY:
 	# 	random_array = [randint(0, 1) for _ in range(n)]
 	# 	for i in range(n):
@@ -282,7 +296,9 @@ cpdef run_sampling(
 	if solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state, ignore_constraint_search)
+			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr,
+			               stpvl, cb_ptr, &brk_tm, global_opt.state, ignore_constraint_search,
+			               inc.incumbent)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
@@ -298,7 +314,9 @@ cpdef run_sampling(
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
 
 			with nogil:
-				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl, cb_ptr, &brk_tm, global_opt.state, False)
+				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl,
+				               cb_ptr, &brk_tm, global_opt.state, False,
+				               inc.incumbent)
 
 			if stt.tot_profit == stpvl:
 				not_stop[0] = 0
@@ -315,7 +333,7 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total
+	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total, inc
 
 cpdef run_bfs(
 		initial: state_py,
@@ -328,13 +346,12 @@ cpdef run_bfs(
 		object callback,
 		int max_delta,
 		int reset_delta):
-
 	global python_callback
 	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	cur_sol : state_py = copy(initial)
+	cur_sol: state_py = copy(initial)
 
 	cdef size_t qtg_applications = 0;
 	cdef int dpth = depth_look_ahead
@@ -355,19 +372,18 @@ cpdef run_bfs(
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
 	return cur_sol, qtg_applications
-	# return qtg_applications
+# return qtg_applications
 
 cpdef run_local_search(initial: state_py,
-		con: new_constraint,
-		obj: new_constraint,
-        int distance,
-		int stopping_time,
-        int solver,
-        int64_t stop_val,
-        object callback,
-        int max_worse_acceptances,
-        int stopping_condition):
-
+                       con: new_constraint,
+                       obj: new_constraint,
+                       int distance,
+                       int stopping_time,
+                       int solver,
+                       int64_t stop_val,
+                       object callback,
+                       int max_worse_acceptances,
+                       int stopping_condition):
 	new_state: state_py = copy(initial)
 	cdef state_t *st = new_state.state
 	global python_callback
@@ -376,18 +392,17 @@ cpdef run_local_search(initial: state_py,
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 	with nogil:
-		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances, stopping_condition)
+		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances,
+		             stopping_condition)
 
 	new_state.get_x()
 	return new_state
 
-
 cpdef run_quantum_local_search(initial: state_py,
-		con: new_constraint,
-		obj: new_constraint,
-        int distance,
-        callback):
-
+                               con: new_constraint,
+                               obj: new_constraint,
+                               int distance,
+                               callback):
 	srand(100 * os.getpid() + int(time.time()))
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
@@ -403,12 +418,10 @@ cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constr
 	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 3, &break_item)
 	return break_item
 
-
 def reset_c_flags():
 	reset_flag()
 
 cdef class model:
-
 	def __cinit__(self):
 		self.c_model.runtime = 0
 		self.c_model.value = 0

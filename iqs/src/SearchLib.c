@@ -8,6 +8,38 @@
 
 pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
 
+incumbents_t *init_incumbents(int n, state_t *initial){
+    incumbents_t *init = malloc(sizeof(incumbents_t));
+    init->head = 0;
+    init->allocated = number_incumbents;
+    init->num_states = 0;
+    init->search_stage = malloc(number_incumbents * sizeof(int));
+    init->states = init_large_state(n, number_incumbents);
+    copy_state_inplace(&init->states[0], initial);
+    return init;
+}
+
+void increase_incumbents(incumbents_t *incumbents){
+    if (incumbents->head + 1 < incumbents->allocated) return;
+    incumbents->states = increse_large_state(incumbents->states, incumbents->allocated, incumbents->allocated + number_incumbents);
+    incumbents->search_stage = realloc(incumbents->search_stage, (incumbents->allocated + number_incumbents) * sizeof(int));
+    incumbents->allocated += number_incumbents;
+}
+
+void print_incumbents(incumbents_t *incumbents){
+    for (int i = 0; i < incumbents->head + 1; ++i) {
+        printf("%d ", incumbents->search_stage[i]);
+        print_state(&incumbents->states[i]);
+        printf("\n");
+    }
+}
+
+void free_incumbents(incumbents_t *incumbents){
+    free_state(incumbents->states, incumbents->num_states);
+    free(incumbents->search_stage);
+    free(incumbents);
+}
+
 volatile sig_atomic_t stop_flag = 0;
 
 void handle_signal(int signum) {
@@ -56,7 +88,9 @@ int ctg(
 		callback_t callback,
 		int *break_item,
         state_t *global_opt,
-        int ignore_constraint_search) {
+        int ignore_constraint_search,
+        incumbents_t *incumbents
+        ) {
 	state_t *new_sol = copy_state(cur_sol);
 	int m_tot = 0;
 	int n = cur_sol->vector.bits;
@@ -142,6 +176,14 @@ int ctg(
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 		if (res) {
+
+            // add solution to incumbent list
+            increase_incumbents(incumbents);
+            incumbents->search_stage[incumbents->head] = stage;
+            copy_state_inplace(&incumbents->states[incumbents->head + 1], cur_sol);
+//            incumbents->num_states++;
+            incumbents->head++;
+
 			// update global_opt if better solution is found
 			pthread_mutex_lock(&update_lock);
 			int should_callback = 0;
@@ -191,6 +233,7 @@ int ctg(
         }
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
+	incumbents->search_stage[incumbents->head] = -1; // last step, no better incumbents found
 	free_state(new_sol, 0);
 	sw_clear(fulfilled_objective_terms);
 	return feasible;

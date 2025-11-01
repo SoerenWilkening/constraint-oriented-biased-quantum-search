@@ -27,6 +27,9 @@ cdef extern from "src/SearchLib.h":
 		array_t vector
 		array_t branch
 
+	ctypedef struct incumbents_t:
+		pass
+
 	state_t *init_state(int64_t ObjVal, int *array, int n)
 	state_t *copy_state(state_t *state)
 	void print_state(state_t *state)
@@ -37,9 +40,14 @@ cdef extern from "src/SearchLib.h":
 	state_t *read_states(char ** name, int num_files, size_t *NumberStatesFinal, int n)
 	state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense)
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)
+
+	incumbents_t *init_incumbents(int n, state_t *st);
+	void print_incumbents(incumbents_t *incumbents);
+	void free_incumbents(incumbents_t *incumbents);
+
 	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
-	        int *break_item, state_t *global_opt, int ignore_constraint_search) nogil
+	        int *break_item, state_t *global_opt, int ignore_constraint_search, incumbents_t *incumbent) nogil
 
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
 	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
@@ -140,6 +148,9 @@ cdef extern from "src/model.h":
 	ctypedef struct model_t:
 		double runtime
 		int64_t value
+
+cdef class incumbents:
+	cdef incumbents_t *incumbent
 
 cdef class model:
 	cdef model_t c_model

@@ -246,7 +246,7 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < j * j + 1; l++) {
+	for (int l = 0; l < 4 * j * j + 1; l++) {
 		// Store which bit from the previous solution is flipped
 		int NumChanges = 0;
 		int *ChangedBits = calloc(n, sizeof(int));

@@ -253,9 +253,10 @@ or {self.runtime}s sampling
 		self.objective_value = min([i[0].objective_value for i in res])
 		index_opt = obj_vals.index(self.objective_value)
 		self.grover_iterations = res[index_opt][1]
-		self.runtime = res[index_opt][-1]
+		self.runtime = res[index_opt][-2]
 		self.final_state = self.global_opt
-		return res[0][-2]
+		print(res[0][-1])
+		return res[0][-1]
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
 	                 stopping_condition: int = STOPATFIRST):
