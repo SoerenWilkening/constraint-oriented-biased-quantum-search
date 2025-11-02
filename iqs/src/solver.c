@@ -237,17 +237,21 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 }
 
 
-int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_opt(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful
 ) {
-
+    int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
 	int64_t ret_total1[con->num_constraints];
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
 	for (int l = 0; l < 4 * j * j + 1; l++) {
+        state_t *new_sol = copy_state(cur_sol);
+        sw_set_ui_0(new_sol->vector);
+        sw_set_ui_0(new_sol->branch);
+        
 		// Store which bit from the previous solution is flipped
 		int NumChanges = 0;
 		int *ChangedBits = calloc(n, sizeof(int));
@@ -346,26 +350,32 @@ int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 
 			free(ChangedTerms);
 			free(ChangedBits);
+            free_state(new_sol, 1);
 			return 1;
 		}
 		free(ChangedTerms);
 		free(ChangedBits);
+        free_state(new_sol, 1);
 	}
 	return 0;
 }
 
 
-int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_opt_sat(state_t *cur_sol, int j,
                     new_constraints_t *con, new_constraints_t *obj,
                     int depth_look_ahead, int direction, array_t *ful
 ) {
-//    printf("call constraints\n");
+    int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
 	int64_t ret_total1[con->num_constraints];
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
 	for (int l = 0; l < 4 * j * j + 1; l++) {
+        state_t *new_sol = copy_state(cur_sol);
+        sw_set_ui_0(new_sol->vector);
+        sw_set_ui_0(new_sol->branch);
+        
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
@@ -375,17 +385,12 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 
 		int i;
 		int both_infeasible = 0;
-        
-        sw_set_ui_0(new_sol->vector);
-        sw_set_ui_0(new_sol->branch);
-        
+  
 		for (i = 0; i < n; i++) {
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = ((double) (rand() % 123456)) / 123455.;
 
 			// Initialize new bit to be 0
-//			sw_clrbit(new_sol->vector, i);
-//			sw_clrbit(new_sol->branch, i);
 			int new_bit = 0;
 
 			// check, if assignment does not exceed potentials
@@ -434,8 +439,6 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 				                  new_bit, NEGATIVE, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-		int64_t val = min_value(potentials, con->num_constraints);
-		int64_t val_max = max_value(potentials, con->num_constraints);
 
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
@@ -479,46 +482,30 @@ int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms
 		    cur_sol->branch = sw_set(new_sol->branch);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 0;
-		    return 1;
-		}
-//        // when feasible solution was found: direction = -1
-//        // requires to ensure feasibility
-//        // minimze to total positive contribution
-//		if (feasible){ // feasible solution was found
-//		    sw_clear(cur_sol->vector);
-//		    cur_sol->vector = sw_set(new_sol->vector);
-//		    cur_sol->tot_profit = objective_value(obj, new_sol);
-//		    cur_sol->feasible = 1;
-//		    return 1;
-//		}
-
-
-		// if ((cur_sol->tot_profit < val && direction == 1) || // maximize, if constraint is violated
-		//     (cur_sol->tot_profit > val_max && direction == -1 &&
-		//      val > 0)) { // minimize otherwise, but keep constraints satisfied
-		// 	cur_sol->tot_profit = val;
-		// 	if (direction == 1 && val > 0) cur_sol->tot_profit = val_max;
-		// 	sw_clear(cur_sol->vector);
-		// 	cur_sol->vector = sw_set(new_sol->vector);
-//
-		// 	return 1;
-		// }
+            free_state(new_sol, 1);
+            return 1;
+        }
+        free_state(new_sol, 1);
 	}
 	return 0;
 }
 
 
-int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_sat(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful
 ) {
-
+    int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
 	int64_t ret_total1[con->num_constraints];
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
 	for (int l = 0; l < 4 * j * j + 1; l++) {
+        state_t *new_sol = copy_state(cur_sol);
+        sw_set_ui_0(new_sol->vector);
+        sw_set_ui_0(new_sol->branch);
+        
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
 
@@ -588,9 +575,11 @@ int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
 			sw_clear(cur_sol->branch);
 			cur_sol->vector = sw_set(new_sol->vector);
 			cur_sol->branch = sw_set(new_sol->branch);
-
-			return 1;
-		}
+            
+            free_state(new_sol, 1);
+            return 1;
+        }
+        free_state(new_sol, 1);
 	}
 	return 0;
 }
@@ -621,6 +610,7 @@ double CSearch_opt_monte_carlo_sampler(
     int counter = 0;
     int samples = (int) pow(0.0001, -2);
     double estimate = 0;
+    double prev = 0;
 
     for (int l = 0; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
@@ -703,9 +693,12 @@ double CSearch_opt_monte_carlo_sampler(
             // If solution is updated, change the array of fulfilled terms
             counter++;
         }
+        free_state(new_sol, 1);
         estimate = ((double) counter) / (l + 1);
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
-        free_state(new_sol, 1);
+        if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.05)) break;
+//        printf("%f %d %d %f\n", estimate, samples, l, fabs(prev - estimate));
+        prev = estimate;
     }
     
     return estimate;
@@ -724,7 +717,8 @@ double CSearch_opt_sat_monte_carlo_sampler(
     int counter = 0;
     int samples = (int) pow(0.0001, -2);
     double estimate = 0;
-    
+    double prev = 0;
+
 	for (int l = 0; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
 		// reset constraint rhs to initial values
@@ -822,8 +816,11 @@ double CSearch_opt_sat_monte_carlo_sampler(
             // good state
             counter++;
 		}
-        estimate = ((double) counter) / (l + 1);
+        estimate = ((double) counter) / (l + 1.);
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
+        if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.05)) break;
+        prev = estimate;
+//        printf("%f %d %d\n", estimate, samples, l);
         free_state(new_sol, 1);
 	}
 	return estimate;

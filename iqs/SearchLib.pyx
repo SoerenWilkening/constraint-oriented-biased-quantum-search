@@ -3,6 +3,7 @@ import sys
 import time
 from copy import copy
 from random import randint
+from tqdm import tqdm
 
 import numpy as np
 
@@ -94,7 +95,7 @@ cdef class incumbents:
 		incumbents = []
 		total_calls = 0
 
-		for i in range(self.incumbent[0].head):
+		for i in tqdm(range(self.incumbent[0].head)):
 			if self.incumbent[0].search_stage[i] == 1:
 				ampl = CSearch_opt_sat_monte_carlo_sampler(
 					<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error, 1
@@ -111,8 +112,9 @@ cdef class incumbents:
 
 			# use tightest bound for qunatum search
 			# repeat 9 times to get success probability > 99.9 %
-			total_calls += int(np.floor(7. / 2 * 1. / np.sqrt(ampl)))
-			incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
+			total_calls += int(np.floor(9. / 2 * 1. / np.sqrt(ampl)))
+			if -self.incumbent[0].states[i + 1].tot_profit >= 0:
+				incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
 
 		return incumbents
 
@@ -219,14 +221,8 @@ cdef class state_py:
 			for j in range(len(file_bytes)):
 				f[i][j] = file_bytes[j]
 
-		# print("free")
-		# sys.stdout.flush()
 		free_state(self.state, self.num_states)
-		# print("read")
-		# sys.stdout.flush()
 		self.state = read_states(f, num_files, &self.num_states, n)
-	# print("done")
-	# sys.stdout.flush()
 
 def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	cdef size_t iterations = 0
@@ -307,7 +303,6 @@ cpdef run_sampling(
 	cdef new_constraints_t *cnstrs = &con.con
 	cdef new_constraints_t *obctv = &obj.con
 	cdef int feasible;
-	cdef int brk_tm = 0;
 	cdef int n = cur_sol.state[0].vector.bits
 
 	inc = incumbents(n, initial)
@@ -324,7 +319,7 @@ cpdef run_sampling(
 		# Run sampling for optimization based on user input
 		with nogil:
 			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr,
-			               stpvl, cb_ptr, &brk_tm, global_opt.state, ignore_constraint_search,
+			               stpvl, cb_ptr, global_opt.state, ignore_constraint_search,
 			               inc.incumbent)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
@@ -342,7 +337,7 @@ cpdef run_sampling(
 
 			with nogil:
 				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl,
-				               cb_ptr, &brk_tm, global_opt.state, False,
+				               cb_ptr, global_opt.state, False,
 				               inc.incumbent)
 
 			if stt.tot_profit == stpvl:
@@ -361,11 +356,11 @@ cpdef run_sampling(
 
 	# print(inc)
 
-	incumb = inc.estimate_grover_iterations(con, obj, 0.1)
+	incumb = inc.estimate_grover_iterations(con, obj, 0.2)
 	del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr, brk_tm, t_total, incumb
+	return cur_sol, qtg_applications, feasible, arr, t_total, incumb
 
 cpdef run_bfs(
 		initial: state_py,

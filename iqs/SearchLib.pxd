@@ -51,7 +51,7 @@ cdef extern from "src/SearchLib.h":
 
 	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
-	        int *break_item, state_t *global_opt, int ignore_constraint_search, incumbents_t *incumbent) nogil
+	        state_t *global_opt, int ignore_constraint_search, incumbents_t *incumbent) nogil
 
 	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
 	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil

@@ -28,17 +28,17 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
                               int depth_look_ahead, int *break_item
 );
 
-int CSearch_opt(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_opt(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful
 );
 
-int CSearch_opt_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_opt_sat(state_t *cur_sol, int j,
                     new_constraints_t *con, new_constraints_t *obj,
                     int depth_look_ahead, int direction, array_t *ful
 );
 
-int CSearch_sat(state_t *new_sol, state_t *cur_sol, int j, int n, int NTerms,
+int CSearch_sat(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful
 );

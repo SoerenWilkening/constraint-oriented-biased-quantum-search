@@ -255,7 +255,21 @@ or {self.runtime}s sampling
 		self.grover_iterations = res[index_opt][1]
 		self.runtime = res[index_opt][-2]
 		self.final_state = self.global_opt
-		return res[0][-1]
+		total_incumbent = [j for i in range(num_workers) for j in res[i][-1]]
+		print(total_incumbent)
+		total_incumbent.sort(key = lambda x: x[1], reverse = False)
+		counter = 1
+		while True:
+			try:
+				if total_incumbent[counter][0] < total_incumbent[counter - 1][0]:
+					total_incumbent.pop(counter)
+					counter -= 1
+				counter += 1
+			except:
+				break
+
+
+		return total_incumbent
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
 	                 stopping_condition: int = STOPATFIRST):
