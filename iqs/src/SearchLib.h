@@ -13,6 +13,7 @@
 
 typedef struct {
   state_t *states;
+  int *initial_samples; // count of samples required to find first good solution
   int *search_stage;
   int allocated;
   int head;

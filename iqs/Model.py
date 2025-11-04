@@ -256,7 +256,7 @@ or {self.runtime}s sampling
 		self.runtime = res[index_opt][-2]
 		self.final_state = self.global_opt
 		total_incumbent = [j for i in range(num_workers) for j in res[i][-1]]
-		print(total_incumbent)
+		# print(total_incumbent)
 		total_incumbent.sort(key = lambda x: x[1], reverse = False)
 		counter = 1
 		while True:

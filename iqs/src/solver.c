@@ -239,7 +239,8 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 
 int CSearch_opt(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
-                int depth_look_ahead, int direction, array_t *ful
+                int depth_look_ahead, int direction, array_t *ful,
+                int *samples
 ) {
     int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -247,7 +248,8 @@ int CSearch_opt(state_t *cur_sol, int j,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < 4 * j * j + 1; l++) {
+    int l;
+	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -324,9 +326,7 @@ int CSearch_opt(state_t *cur_sol, int j,
 		}
 		// if the previous loop broke earlier, determine all bit changes
 		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
-//        printf("%lld %lld\n", potentials[0], potentials[1]);
 		int as1 = (i == n);
-//		if (i == n) as1 = eval_constraints(con, new_sol, n);
 		if (as1) for (int k = 0; k < con->num_constraints; ++k) {
 		    if (con->sense[k] == EQUAL) as1 &= potentials[k] == 0;
 		    else as1 &= potentials[k] >= 0;
@@ -351,19 +351,22 @@ int CSearch_opt(state_t *cur_sol, int j,
 			free(ChangedTerms);
 			free(ChangedBits);
             free_state(new_sol, 1);
+            *samples += l;
 			return 1;
 		}
 		free(ChangedTerms);
 		free(ChangedBits);
         free_state(new_sol, 1);
 	}
+	*samples += l;
 	return 0;
 }
 
 
 int CSearch_opt_sat(state_t *cur_sol, int j,
                     new_constraints_t *con, new_constraints_t *obj,
-                    int depth_look_ahead, int direction, array_t *ful
+                    int depth_look_ahead, int direction, array_t *ful,
+                    int *samples
 ) {
     int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -371,7 +374,8 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < 4 * j * j + 1; l++) {
+    int l;
+	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -464,6 +468,7 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 		    cur_sol->vector = sw_set(new_sol->vector);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 1;
+		    *samples += l;
 		    return 1;
         }
         if (direction == -1){
@@ -483,17 +488,20 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 0;
             free_state(new_sol, 1);
+            *samples += l;
             return 1;
         }
         free_state(new_sol, 1);
 	}
+	*samples += l;
 	return 0;
 }
 
 
 int CSearch_sat(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
-                int depth_look_ahead, int direction, array_t *ful
+                int depth_look_ahead, int direction, array_t *ful,
+                int *samples
 ) {
     int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -501,7 +509,8 @@ int CSearch_sat(state_t *cur_sol, int j,
 	int64_t ret_total2[con->num_constraints];
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-	for (int l = 0; l < 4 * j * j + 1; l++) {
+    int l;
+	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -577,10 +586,12 @@ int CSearch_sat(state_t *cur_sol, int j,
 			cur_sol->branch = sw_set(new_sol->branch);
             
             free_state(new_sol, 1);
+            *samples += l;
             return 1;
         }
         free_state(new_sol, 1);
 	}
+	*samples += l;
 	return 0;
 }
 
@@ -598,7 +609,7 @@ int CSearch_sat(state_t *cur_sol, int j,
 
 
 double CSearch_opt_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error
+    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
     int64_t potentials[con->num_constraints];
@@ -607,12 +618,12 @@ double CSearch_opt_monte_carlo_sampler(
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
     
-    int counter = 0;
-    int samples = (int) pow(0.0001, -2);
-    double estimate = 0;
-    double prev = 0;
+    int counter = 1;
+    double estimate = 1. / initial_samples;
+    double prev = estimate;
+    int samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
 
-    for (int l = 0; l < samples; l++) {
+    for (int l = initial_samples; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
         
         // reset constraint rhs to initial values
@@ -697,7 +708,7 @@ double CSearch_opt_monte_carlo_sampler(
         estimate = ((double) counter) / (l + 1);
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
         if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.05)) break;
-//        printf("%f %d %d %f\n", estimate, samples, l, fabs(prev - estimate));
+//        printf("%f %d %d %f %f\n", estimate, samples, l, fabs(prev - estimate), estimate * 0.05);
         prev = estimate;
     }
     
@@ -705,7 +716,7 @@ double CSearch_opt_monte_carlo_sampler(
 }
 
 double CSearch_opt_sat_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction
+    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -714,12 +725,12 @@ double CSearch_opt_sat_monte_carlo_sampler(
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
     
-    int counter = 0;
-    int samples = (int) pow(0.0001, -2);
-    double estimate = 0;
-    double prev = 0;
+    int counter = 1;
+    double estimate = 1. / initial_samples;
+    double prev = estimate;
+    int samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
 
-	for (int l = 0; l < samples; l++) {
+	for (int l = initial_samples; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
@@ -828,7 +839,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 
 
 double CSearch_sat_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, double error
+    state_t *cur_sol, new_constraints_t *con, double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
     int64_t potentials[con->num_constraints];
@@ -837,11 +848,12 @@ double CSearch_sat_monte_carlo_sampler(
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
     
-    int counter = 0;
-    int samples = (int) pow(0.0001, -2);
-    double estimate = 0;
+    int counter = 1;
+    double estimate = 1. / initial_samples;
+    double prev = estimate;
+    int samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
     
-    for (int l = 0; l < samples; l++) {
+    for (int l = initial_samples; l < samples; l++) {
         
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
         

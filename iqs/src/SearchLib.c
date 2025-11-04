@@ -15,6 +15,7 @@ incumbents_t *init_incumbents(int n, state_t *initial){
     init->num_states = 0;
     init->search_stage = malloc(number_incumbents * sizeof(int));
     init->states = init_large_state(n, number_incumbents);
+    init->initial_samples = malloc(number_incumbents * sizeof(int));
     copy_state_inplace(&init->states[0], initial);
     return init;
 }
@@ -23,12 +24,13 @@ void increase_incumbents(incumbents_t *incumbents){
     if (incumbents->head + 1 < incumbents->allocated) return;
     incumbents->states = increse_large_state(incumbents->states, incumbents->allocated, incumbents->allocated + number_incumbents);
     incumbents->search_stage = realloc(incumbents->search_stage, (incumbents->allocated + number_incumbents) * sizeof(int));
+    incumbents->initial_samples = realloc(incumbents->initial_samples, (incumbents->allocated + number_incumbents) * sizeof(int));
     incumbents->allocated += number_incumbents;
 }
 
 void print_incumbents(incumbents_t *incumbents){
     for (int i = 0; i < incumbents->head + 1; ++i) {
-        printf("%d ", incumbents->search_stage[i]);
+        printf("%d %d | ", incumbents->search_stage[i], incumbents->initial_samples[i]);
         print_state(&incumbents->states[i]);
         printf("\n");
     }
@@ -37,6 +39,7 @@ void print_incumbents(incumbents_t *incumbents){
 void free_incumbents(incumbents_t *incumbents){
     free_state(incumbents->states, incumbents->num_states);
     free(incumbents->search_stage);
+    free(incumbents->initial_samples);
     free(incumbents);
 }
 
@@ -95,7 +98,7 @@ int ctg(
 	int rounds = 0;
 	double c = 6. / 5;
 
-	int (*search_function)(state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *);
+	int (*search_function)(state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
  
 //	size_t NTerms = obj->num_clauses[0]; // number terms
 	array_t fulfilled_objective_terms = sw_init(obj->num_clauses[0]);
@@ -127,6 +130,7 @@ int ctg(
 
 	// Start sampling after initial_state_preparation
 	double total_time = 0;
+	int samples = 0;
 	while (m_tot < M && total_time < stopping_time) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
@@ -141,7 +145,8 @@ int ctg(
 		*qtg_applications += 2 * j + 1;
 		res = search_function(
 				cur_sol, j, con, obj,
-				depth_look_ahead, direction, &fulfilled_objective_terms
+				depth_look_ahead, direction, &fulfilled_objective_terms,
+				&samples
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
@@ -158,8 +163,10 @@ int ctg(
             // add solution to incumbent list
             increase_incumbents(incumbents);
             incumbents->search_stage[incumbents->head] = stage;
+            incumbents->initial_samples[incumbents->head] = samples + 1;
             copy_state_inplace(&incumbents->states[incumbents->head + 1], cur_sol);
             incumbents->head++;
+            samples = 0;
             
 			// update global_opt if better solution is found
 			pthread_mutex_lock(&update_lock);
@@ -186,7 +193,8 @@ int ctg(
         if (solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 	incumbents->search_stage[incumbents->head] = -1; // last step, no better incumbents found
-    
+	incumbents->initial_samples[incumbents->head] = 0; // last step, no better incumbents found
+
 	sw_clear(fulfilled_objective_terms);
 	return feasible;
 }

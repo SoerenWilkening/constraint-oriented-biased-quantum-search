@@ -1,9 +1,9 @@
+import random
 import signal
 import sys
 import time
 from copy import copy
 from random import randint
-from tqdm import tqdm
 
 import numpy as np
 
@@ -91,33 +91,61 @@ cdef class incumbents:
 		print_incumbents(self.incumbent)
 		return ""
 
+	def emulate_QSearch(self, ampl):
+		if ampl == 0.: return 0
+		calls = 0
+		c = 6. / 5
+		rounds = 0
+
+		while True:
+			rounds += 1
+			m = np.ceil(c ** rounds)
+			j = randint(0, m)
+			calls += 2 * j + 1
+
+			amplified = np.sin((2 * j + 1) * np.arcsin(np.sqrt(ampl))) ** 2
+			# print(m, j, amplified, np.arcsin(np.sqrt(ampl)))
+			if amplified >= random.random():
+				return calls
+
 	def estimate_grover_iterations(self, new_constraint con, new_constraint obj, double error):
 		incumbents = []
 		total_calls = 0
 
-		for i in tqdm(range(self.incumbent[0].head)):
+		# for i in range(self.incumbent[0].head):
+		print(self.incumbent[0].head)
+		cdef state_t *st
+		cdef int init_samples = 0
+		t1 = time.time()
+		for i in range(self.incumbent[0].head):
+			st = <state_t *> &self.incumbent[0].states[i]
+			init_samples = self.incumbent[0].initial_samples[i]
 			if self.incumbent[0].search_stage[i] == 1:
-				ampl = CSearch_opt_sat_monte_carlo_sampler(
-					<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error, 1
+				with nogil:
+					ampl = CSearch_opt_sat_monte_carlo_sampler(
+						st, &con.con, &obj.con, error, 1,
+						init_samples
 				)
 			elif self.incumbent[0].search_stage[i] == 2:
-				ampl = CSearch_opt_sat_monte_carlo_sampler(
-					<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error, -1
+				with nogil:
+					ampl = CSearch_opt_sat_monte_carlo_sampler(st, &con.con, &obj.con, error, -1, init_samples
 				)
 			else:
-				ampl = CSearch_opt_monte_carlo_sampler(<state_t *> &self.incumbent[0].states[i], &con.con, &obj.con, error)
+				with nogil:
+					ampl = CSearch_opt_monte_carlo_sampler(st, &con.con, &obj.con, error, init_samples)
 
 			if ampl == 0.:
 				ampl = StateProbability(&self.incumbent[0].states[i + 1], &self.incumbent[0].states[i])
 
-			# use tightest bound for qunatum search
-			# repeat 9 times to get success probability > 99.9 %
+			# use tightest bound for quantum search
+			# print(self.emulate_QSearch(ampl))
 			total_calls += int(np.floor(9. / 2 * 1. / np.sqrt(ampl)))
+			# total_calls += self.emulate_QSearch(ampl)
 			if -self.incumbent[0].states[i + 1].tot_profit >= 0:
 				incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
 
+		print("done in ", time.time() - t1, "s")
 		return incumbents
-
 
 cdef class state_py:
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
@@ -356,7 +384,7 @@ cpdef run_sampling(
 
 	# print(inc)
 
-	incumb = inc.estimate_grover_iterations(con, obj, 0.2)
+	incumb = inc.estimate_grover_iterations(con, obj, 0.1)
 	del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
