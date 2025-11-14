@@ -108,43 +108,54 @@ cdef class incumbents:
 			if amplified >= random.random():
 				return calls
 
-	def estimate_grover_iterations(self, new_constraint con, new_constraint obj, double error):
+	def estimate_grover_iterations(self, new_constraint con, new_constraint obj, double error, int solver):
 		incumbents = []
 		total_calls = 0
 
 		# for i in range(self.incumbent[0].head):
-		print(self.incumbent[0].head)
+		# print(self.incumbent[0].head)
 		cdef state_t *st
 		cdef int init_samples = 0
 		t1 = time.time()
 		for i in range(self.incumbent[0].head):
 			st = <state_t *> &self.incumbent[0].states[i]
 			init_samples = self.incumbent[0].initial_samples[i]
-			if self.incumbent[0].search_stage[i] == 1:
-				with nogil:
-					ampl = CSearch_opt_sat_monte_carlo_sampler(
-						st, &con.con, &obj.con, error, 1,
-						init_samples
-				)
-			elif self.incumbent[0].search_stage[i] == 2:
-				with nogil:
-					ampl = CSearch_opt_sat_monte_carlo_sampler(st, &con.con, &obj.con, error, -1, init_samples
-				)
+			if solver == OPTIMIZE:
+				if self.incumbent[0].search_stage[i] == 1:
+					with nogil:
+						ampl = CSearch_opt_sat_monte_carlo_sampler(
+							st, &con.con, &obj.con, error, 1,
+							init_samples
+					)
+				elif self.incumbent[0].search_stage[i] == 2:
+					with nogil:
+						ampl = CSearch_opt_sat_monte_carlo_sampler(st, &con.con, &obj.con, error, -1, init_samples
+					)
+				else:
+					with nogil:
+						ampl = CSearch_opt_monte_carlo_sampler(st, &con.con, &obj.con, error, init_samples)
 			else:
 				with nogil:
-					ampl = CSearch_opt_monte_carlo_sampler(st, &con.con, &obj.con, error, init_samples)
+					# if (con.num_constraints)
+					ampl = CSearch_sat_monte_carlo_sampler(st, &con.con, error, init_samples)
 
 			if ampl == 0.:
 				ampl = StateProbability(&self.incumbent[0].states[i + 1], &self.incumbent[0].states[i])
 
+			if ampl == 1.:
+				m0 = 0.
+				rounds = 1
+			else:
+				m0 = 1. / np.sin(2 * np.arcsin(np.sqrt(ampl)))
+				rounds = int(np.ceil(np.log(m0) / np.log(6. / 5))) + 4 # estimate number of rounds
+
 			# use tightest bound for quantum search
-			# print(self.emulate_QSearch(ampl))
-			total_calls += int(np.floor(9. / 2 * 1. / np.sqrt(ampl)))
+			total_calls += int(np.floor( 9 * m0 )) + rounds
 			# total_calls += self.emulate_QSearch(ampl)
 			if -self.incumbent[0].states[i + 1].tot_profit >= 0:
 				incumbents.append((-self.incumbent[0].states[i + 1].tot_profit, total_calls))
 
-		print("done in ", time.time() - t1, "s")
+		# print("done in ", time.time() - t1, "s")
 		return incumbents
 
 cdef class state_py:
@@ -382,9 +393,11 @@ cpdef run_sampling(
 	for i in range(cur_sol.state[0].vector.bits):
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
-	# print(inc)
 
-	incumb = inc.estimate_grover_iterations(con, obj, 0.1)
+	if (solver == OPTIMIZE):
+		incumb = inc.estimate_grover_iterations(con, obj, 0.1, solver)
+	else:
+		incumb = [] # satisfy needs more adjustments
 	del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)

@@ -622,7 +622,7 @@ double CSearch_opt_monte_carlo_sampler(
     double estimate = 1. / initial_samples;
     double prev = estimate;
     int samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
-
+//    printf("%d %d\n", initial_samples, samples);
     for (int l = initial_samples; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
         
@@ -707,7 +707,7 @@ double CSearch_opt_monte_carlo_sampler(
         free_state(new_sol, 1);
         estimate = ((double) counter) / (l + 1);
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
-        if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.05)) break;
+        if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.01)) break;
 //        printf("%f %d %d %f %f\n", estimate, samples, l, fabs(prev - estimate), estimate * 0.05);
         prev = estimate;
     }
