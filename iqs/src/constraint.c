@@ -119,7 +119,7 @@ void preprocessing(
 		int n,
 		new_constraints_t *con
 ) {
-
+    con->sparsity = DENSE;
     int size_steps = 1 << 14;
 	uint64_t C = con->num_constraints;
 
@@ -196,8 +196,146 @@ void preprocessing(
 	}
 	con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
 	con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
-//	printf("\r");
 }
+
+
+int64_t get_index(uint32_t *columns, uint32_t *rows, int item, int cnstr, size_t nnz, int C){
+    
+    size_t left = 0;
+    size_t right = nnz;
+    uint32_t target = item * C + cnstr;
+    
+    while (left < right) {
+        size_t mid = left + (right - left) / 2;
+        
+        uint32_t key = columns[mid] * C + rows[mid];
+        
+        if (key < target) {
+            left = mid + 1;
+        } else if (key > target) {
+            right = mid;
+        } else {
+            return mid;  // found
+        }
+    }
+    
+    return -1;
+}
+
+
+void preprocessing_sparse(
+    int n,
+    new_constraints_t *con
+) {
+    con->sparsity = SPARSE;
+    int size_steps = 1 << 14;
+    uint64_t C = con->num_constraints;
+    
+    con->positive_indices = calloc(size_steps, sizeof(uint32_t));
+    con->negative_indices = calloc(size_steps, sizeof(uint32_t));
+    con->positive_offsets = malloc(size_steps * sizeof(uint32_t));
+    con->negative_offsets = malloc(size_steps * sizeof(uint32_t));
+    con->num_positive_indices = malloc(size_steps * sizeof(uint32_t));
+    con->num_negative_indices = malloc(size_steps * sizeof(uint32_t));
+    con->neg_cols = malloc(size_steps * sizeof(uint32_t));
+    con->pos_rows = malloc(size_steps * sizeof(uint32_t));
+    con->pos_cols = malloc(size_steps * sizeof(uint32_t));
+    con->neg_rows = malloc(size_steps * sizeof(uint32_t));
+    con->nnz_pos = 0;
+    con->nnz_neg = 0;
+    
+    con->positive_array_length = 0;
+    con->negative_array_length = 0;
+    con->array_length = n * C;
+    // preprocess the constraints for usage in the sampling routine
+    // go through every item and collect all the constraint indices containing the items
+    // sort indices by positive and negative coefficients
+    // an item can appear more than once in a constraint (linear + quadratic terms ...)
+    // simplifications can be made:
+    //  - in a clause, items are always sorted in ascending order
+    //  - non-linear factors only come into play, if the last non-assigned item is investigated
+    //      -> only store index of clause for last item
+    // for every constraint, for every item an array is needed to store all the clauses
+    // categorize for positive and negative constraints
+    // improvement: use 1d-array implementations:
+    //      - positive_indices      -> 1d array storing indices
+    //                              -> length not fixed
+    //      - positive_offsets      -> 1d array storing location of values in "positive_indices" given (item, cnstr)
+    //                              -> length fixed
+    //      - num_positive_indices  -> 2d array storing number of values in "positive_indices" at location from
+    //                              -> given (item, cnstr)
+    //                              -> length fixed
+    
+    size_t counter_positive = 0;
+    size_t counter_negative = 0;
+    for (int item = 0; item < n; item++) {
+//	    printf("\r %f %%", (double) item / n * 100);
+        
+        for (int cnstr = 0; cnstr < C; cnstr++) {
+            size_t clause_offset = first_clause_index(con, cnstr);
+            unsigned int npi = 0;
+            unsigned int nni = 0;
+            for (int cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+                size_t clause_index = clause_offset + cls;
+                int64_t factor = con->factors[clause_index];
+                size_t prev_var = -1;
+                for (int k = 0; k < con->clause_length[clause_index]; k++) {
+                    size_t var = con->variables[variable_index(cls, k, clause_offset)];
+                    
+                    if (item == var && var != prev_var) {
+                        if (factor < 0) {
+                            // add index to "negative_indices"
+                            if (counter_negative & (size_steps - 1) )
+                                con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
+                            con->negative_indices[counter_negative++] = cls;
+                            nni++;
+                            con->negative_array_length++;
+                        } else {
+                            // add index to "positive_indices"
+                            if (counter_positive & (size_steps - 1) )
+                                con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
+                            con->positive_indices[counter_positive++] = cls;
+                            npi++;
+                            con->positive_array_length++;
+                        }
+                    }
+                    prev_var = var;
+                }
+            }
+            if (nni != 0) {
+                if (con->nnz_neg & (size_steps - 1)){
+                    // allocate more memory
+                    con->neg_cols = realloc(con->neg_cols, (con->nnz_neg + size_steps) * sizeof(unsigned int));
+                    con->neg_rows = realloc(con->neg_rows, (con->nnz_neg + size_steps) * sizeof(unsigned int));
+                    con->num_negative_indices = realloc(con->num_negative_indices, (con->nnz_neg + size_steps) * sizeof(unsigned int));
+                    con->negative_offsets = realloc(con->negative_offsets, (con->nnz_neg + size_steps) * sizeof(unsigned int));
+                }
+                con->neg_cols[con->nnz_neg] = item;
+                con->neg_rows[con->nnz_neg] = cnstr;
+                con->num_negative_indices[con->nnz_neg] = nni;
+                con->negative_offsets[con->nnz_neg] = counter_negative - nni;
+                con->nnz_neg++;
+            }
+            if (npi != 0) {
+                if (con->nnz_pos & (size_steps - 1)){
+                    con->pos_cols = realloc(con->pos_cols, (con->nnz_pos + size_steps) * sizeof(unsigned int));
+                    con->pos_rows = realloc(con->pos_rows, (con->nnz_pos + size_steps) * sizeof(unsigned int));
+                    con->num_positive_indices = realloc(con->num_positive_indices, (con->nnz_pos + size_steps) * sizeof(unsigned int));
+                    con->positive_offsets = realloc(con->positive_offsets, (con->nnz_pos + size_steps) * sizeof(unsigned int));
+                }
+                con->pos_cols[con->nnz_pos] = item;
+                con->pos_rows[con->nnz_pos] = cnstr;
+                con->num_positive_indices[con->nnz_pos] = npi;
+                con->positive_offsets[con->nnz_pos] = counter_positive - npi;
+                con->nnz_pos++;
+            }
+        }
+    }
+    con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
+    con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+}
+
+
 
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 

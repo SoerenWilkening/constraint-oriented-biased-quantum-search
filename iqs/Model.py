@@ -24,6 +24,7 @@ from .state_sampler import approximate_state
 class Model:
 
 	def __init__(self):
+		self.sparsity = None
 		self.stgen = None
 		self.global_opt = None
 		self.gpu_imported: bool = False
@@ -149,24 +150,6 @@ or {self.runtime}s sampling
 	#                              len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
 	#                              self.solver)
 
-	def worker_process(self, shm_name, index, shape,
-	                   M, stopping_time, depth_look_ahead, stop_val, callback, max_delta, reset_delta):
-		try:
-			existing_shm = shared_memory.SharedMemory(shm_name)
-			arr = np.ndarray(shape, dtype = np.float64, buffer = existing_shm.buf)
-			set_seed(int(time() + os.getpid() * 1234) % (int(2 ** 16) - 1))
-			res = run_sampling(self.initial_state, self.constraint, self.objective, M, stopping_time, depth_look_ahead,
-			                   self.solver,
-			                   stop_val, callback, max_delta, reset_delta)
-			arr[index, 0] = res[0].objective_value()
-			arr[index, 1] = res[1]
-			arr[index, 2] = res[2]
-			counter = 3
-			for i in res[3]:
-				arr[index, counter] = i
-				counter += 1
-		except KeyboardInterrupt:
-			pass
 
 	def __del__(self):
 		if self.final_state is not None: del self.final_state
@@ -175,11 +158,10 @@ or {self.runtime}s sampling
 		del self.constraint
 		del self.circuit
 
-	def close(self):
+	def close(self, enforce_density = False):
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
-			# print("processed obj")
-			self.constraint.process(self.n)
+			self.sparsity = self.constraint.process(self.n, enforce_density)
 			# print("processed con")
 			# self.circuit = circuit()
 			# self.circuit.compile()

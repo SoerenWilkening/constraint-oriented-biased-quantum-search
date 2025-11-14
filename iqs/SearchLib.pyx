@@ -37,8 +37,19 @@ cdef class new_constraint:
 		self.num_constraints += 1
 		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)
 
-	def process(self, int n):
-		preprocessing(n, &self.con)
+	def process(self, int n, enforce_density = False):
+		tot = 0
+		for i in range(self.con.num_constraints):
+			tot += self.con.num_clauses[i]
+
+		# print(tot, n * self.con.num_constraints)
+
+		if 10 * tot > n * self.con.num_constraints or enforce_density:
+			preprocessing(n, &self.con)
+			return DENSE
+		else:
+			preprocessing_sparse(n, &self.con)
+			return SPARSE
 
 	def add_expression(self, expr: Expression):
 		self.add(expr)
@@ -378,7 +389,7 @@ cpdef run_sampling(
 				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl,
 				               cb_ptr, global_opt.state, False,
 				               inc.incumbent)
-
+			# print(stt.tot_profit, qtg_applications)
 			if stt.tot_profit == stpvl:
 				not_stop[0] = 0
 				t_total: float = time.time() - t_start

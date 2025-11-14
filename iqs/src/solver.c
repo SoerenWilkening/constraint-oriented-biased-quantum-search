@@ -3,6 +3,9 @@
 // implementations of classical sampling search and benchmarking =======================================================
 static inline int evaluation(new_constraints_t *con, int64_t *potentials, int item,
                              const unsigned int *indices,
+                             const unsigned int *rows,
+                             const unsigned int *cols,
+                             const unsigned int nnz,
                              const unsigned int *num_indices,
                              const unsigned int *offsets, state_t *cur_sol, int negative, int64_t *ret_total) {
 	size_t C = con->num_constraints;
@@ -11,26 +14,32 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
 	for (int cnstr = 0; cnstr < C; cnstr++) {
 		int64_t total = 0;
 		size_t clause_offset = first_clause_index(con, cnstr);
-		for (int cls = 0; cls < num_indices[item * C + cnstr]; cls++) {
-			int index = indices[offsets[item * C + cnstr] + cls]; // index of the clause of constraint cnstr
-			size_t clause_index = clause_offset + index;
-
-			int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-			int is_closed = 1;
-			for (int i = 0; i < con->clause_length[clause_index]; i++) {
-				size_t var = con->variables[variable_index(index, i, clause_offset)];
-				if (var < item) assigned &= sw_tstbit(cur_sol->vector, var);
-				if (var > item) {
-				    is_closed = 0;
-				    break;
-				}
-			}
-			if (negative == POSITIVE && is_closed || negative == NEGATIVE)
-				total += labs(con->factors[clause_index]) * assigned;
-		}
-		ret_total[cnstr] = total;
-		if (potentials[cnstr] < total) feasible = 0;
-	}
+        int ind = item * C + cnstr;
+        if (con->sparsity == SPARSE) ind = get_index(cols, rows, item, cnstr, nnz, C);
+        
+        if (ind != -1) {
+            for (int cls = 0; cls < num_indices[ind]; cls++) {
+                int index = indices[offsets[ind] + cls]; // index of the clause of constraint cnstr
+                size_t clause_index = clause_offset + index;
+                
+                int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
+                int is_closed = 1;
+                for (int i = 0; i < con->clause_length[clause_index]; i++) {
+                    size_t var = con->variables[variable_index(index, i, clause_offset)];
+                    if (var < item) assigned &= sw_tstbit(cur_sol->vector, var);
+                    if (var > item) {
+                        is_closed = 0;
+                        break;
+                    }
+                }
+                if (negative == POSITIVE && is_closed || negative == NEGATIVE)
+                    total += labs(con->factors[clause_index]) * assigned;
+            }
+        }
+//        printf("%d %d %d %lld\n", con->sparsity, item, cnstr, potentials[cnstr]);
+        ret_total[cnstr] = total;
+        if (potentials[cnstr] < total) feasible = 0;
+    }
     if (!feasible) return 0;
 	return 1;
 }
@@ -68,19 +77,29 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 	if (next_assignment) sw_setbit(cur_sol->vector, index); // set assignment to 1
 	else sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 
-	if (next_assignment)
-		bool_ = evaluation(con, potentials, index,
-		                   con->positive_indices,
-		                   con->num_positive_indices,
-		                   con->positive_offsets, cur_sol,
-		                   POSITIVE, ret_total);
-	else
-		bool_ = evaluation(con, potentials, index,
-		                   con->negative_indices,
-		                   con->num_negative_indices,
-		                   con->negative_offsets, cur_sol,
-		                   NEGATIVE, ret_total);
-
+	if (next_assignment) {
+        bool_ = evaluation(con, potentials, index,
+                           con->positive_indices,
+                           con->pos_rows,
+                           con->pos_cols,
+                           con->nnz_pos,
+                           con->num_positive_indices,
+                           con->positive_offsets, cur_sol,
+                           POSITIVE, ret_total);
+    }
+	else {
+        bool_ = evaluation(con, potentials, index,
+                           con->negative_indices,
+                           con->neg_rows,
+                           con->neg_cols,
+                           con->nnz_neg,
+                           con->num_negative_indices,
+                           con->negative_offsets, cur_sol,
+                           NEGATIVE, ret_total);
+    }
+    
+//    printf("\n");
+    
 	if (bool_) {
 		if (index == depth) (*count_solutions)++;
 		else {
@@ -831,7 +850,6 @@ double CSearch_opt_sat_monte_carlo_sampler(
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
         if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.05)) break;
         prev = estimate;
-//        printf("%f %d %d\n", estimate, samples, l);
         free_state(new_sol, 1);
 	}
 	return estimate;

@@ -132,6 +132,7 @@ int ctg(
 	double total_time = 0;
 	int samples = 0;
 	while (m_tot < M && total_time < stopping_time) {
+//    for (int i = 0; i < 1; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 

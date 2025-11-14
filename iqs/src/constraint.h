@@ -54,6 +54,17 @@ typedef struct{
 	uint32_t *num_negative_indices;
 	uint32_t positive_array_length;
 	uint32_t negative_array_length;
+  
+    uint32_t *neg_rows;
+    uint32_t *neg_cols;
+    uint32_t *pos_rows;
+    uint32_t *pos_cols;
+    
+    int sparsity;
+    
+    size_t nnz_pos;
+    size_t nnz_neg;
+  
 	uint32_t array_length;
 } new_constraints_t;
 
@@ -87,6 +98,10 @@ void print_new_constraint(new_constraints_t *con);
 void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
 
 void preprocessing(int n, new_constraints_t *con);
+
+int64_t get_index(uint32_t *columns, uint32_t *rows, int item, int cnstr, size_t nnz, int C);
+
+void preprocessing_sparse( int n, new_constraints_t *con);
 
 int eval_constraints(new_constraints_t *con, state_t *sol, int max_item);
 int num_satisfied_constrains(new_constraints_t *con, state_t *sol);

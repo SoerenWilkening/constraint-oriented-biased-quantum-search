@@ -76,7 +76,7 @@ cdef extern from "src/constraint.h":
 		size_t *num_clauses;  # how many clauses per constraint
 		size_t *clause_offset;  # offset, to correctly locate factor and length_clause given C and c
 		int64_t *factors;  # store the factor of a clause
-		size_t * clause_length;  # how many variables per clause
+		size_t *clause_length;  # how many variables per clause
 		size_t *variable_offset;  # where is the first index of the variables of a clause given constraint C
 		size_t * variables;
 		int * sense;
@@ -98,6 +98,8 @@ cdef extern from "src/constraint.h":
 	void print_new_constraint(new_constraints_t *con);
 
 	void preprocessing(int n, new_constraints_t *con);
+
+	void preprocessing_sparse(int n, new_constraints_t *con);
 
 	void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
 

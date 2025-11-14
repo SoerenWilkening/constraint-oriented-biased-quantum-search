@@ -37,6 +37,9 @@ typedef int solver_t;
 #define NEGATIVE 0
 #define POSITIVE 1
 
+#define SPARSE 10
+#define DENSE 11
+
 
 #define MIN(a,b)                ((a) < (b) ? (a) : (b))
 #define false 0
