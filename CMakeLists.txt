@@ -1,39 +1,39 @@
 cmake_minimum_required(VERSION 3.28)
-project(improved_quantum_search C)
+project(constraint-oriented-biased-quantum-search C)
 
 set(CMAKE_C_STANDARD 11)
 
 include_directories(iqs/src)
 
-add_executable(improved_quantum_search
-        iqs/src/Expression.c
-        iqs/src/Expression.h
-        iqs/src/test.c
-        iqs/src/constraint.h
-        iqs/src/constraint.c
-        iqs/src/intarray.c
-        iqs/src/intarray.h
-        iqs/src/state.c
-        iqs/src/SearchLib.c
-        iqs/src/SearchLib.h
-        iqs/src/Branching.c
-        iqs/src/Branching.h
-        iqs/src/solver.c
-        iqs/src/solver.h
-        iqs/src/local_search.c
-        iqs/src/local_search.h
-        iqs/src/quantum_search.c
-        iqs/src/quantum_search.h
-        iqs/src/model.c
-        iqs/src/model.h
-        iqs/src/approximate_state_sampler.c
-        iqs/src/approximate_state_sampler.h
+add_executable(constraint-oriented-biased-quantum-search
+        cbqs/src/Expression.c
+        cbqs/src/Expression.h
+        cbqs/src/test.c
+        cbqs/src/constraint.h
+        cbqs/src/constraint.c
+        cbqs/src/intarray.c
+        cbqs/src/intarray.h
+        cbqs/src/state.c
+        cbqs/src/SearchLib.c
+        cbqs/src/SearchLib.h
+        cbqs/src/Branching.c
+        cbqs/src/Branching.h
+        cbqs/src/solver.c
+        cbqs/src/solver.h
+        cbqs/src/local_search.c
+        cbqs/src/local_search.h
+        cbqs/src/quantum_search.c
+        cbqs/src/quantum_search.h
+        cbqs/src/model.c
+        cbqs/src/model.h
+        cbqs/src/approximate_state_sampler.c
+        cbqs/src/approximate_state_sampler.h
 )
 
 
 add_executable(metal_test
-        iqs/src/metal_files/exec_metal.m
-        iqs/src/metal_files/exec_metal.h
+        cbqs/src/metal_files/exec_metal.m
+        cbqs/src/metal_files/exec_metal.h
 )
 target_link_libraries(metal_test
         "-framework Metal"

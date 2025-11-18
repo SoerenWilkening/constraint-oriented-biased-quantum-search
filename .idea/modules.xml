@@ -2,8 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/improved_quantum_search.iml" filepath="$PROJECT_DIR$/.idea/improved_quantum_search.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/improved_quantum_search2.iml" filepath="$PROJECT_DIR$/.idea/improved_quantum_search2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/constraint-oriented-biased-quantum-search.iml" filepath="$PROJECT_DIR$/.idea/constraint-oriented-biased-quantum-search.iml" />
     </modules>
   </component>
 </project>
