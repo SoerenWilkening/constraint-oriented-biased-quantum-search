@@ -1,13 +1,12 @@
 .idea
 random_QOQC/test.py
 venv
-iqs/*.c
-iqs/*.so
+cbqs/*.c
+cbqs/*.so
 build
-../UNI/Promotion/Projects/QuantumAmplitudeEngineering/iqs/src/test
-../UNI/Promotion/Projects/QuantumAmplitudeEngineering/iqs/src/test.c
+cbqs/src/test.c
 cmake-build-debug
-iqs/generators/*.c
+cbqs/generators/*.c
 results.csv
 plot.py
 stores*.csv
