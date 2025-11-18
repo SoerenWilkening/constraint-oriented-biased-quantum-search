@@ -138,10 +138,15 @@ or {self.runtime}s sampling
 		expr.merge()
 		# self.con_expr.append(expr)
 		self.constraint.add_expression(expr)
-		self.con_expr.append(expr)
+		del expr
+		# self.con_expr.append(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
+		# f = self.constraint.eval_con_from_array(assignment)
+		# if not f:
+		# 	pass
 		self.initial_state = state_py(P, assignment)
+
 
 	def compile(self):
 		self.gpu_compiled = True
@@ -262,7 +267,7 @@ or {self.runtime}s sampling
 		                                    self.solver, -1,
 		                                    callback, max_worse_acceptances, stopping_condition)
 		self.runtime = time() - t1
-		self.objective_value = self.final_state.objective_value()
+		self.objective_value = self.final_state.objective_value
 
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
 		Parallel(n_jobs = num_workers, backend = "threading")(

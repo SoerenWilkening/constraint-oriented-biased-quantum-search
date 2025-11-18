@@ -26,6 +26,7 @@ cdef extern from "src/SearchLib.h":
 		double prob
 		array_t vector
 		array_t branch
+		int feasible
 
 	ctypedef struct incumbents_t:
 		state_t *states;

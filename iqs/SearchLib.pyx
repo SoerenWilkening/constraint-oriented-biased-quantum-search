@@ -178,6 +178,7 @@ cdef class state_py:
 		cdef int * ptr = <int *> calloc(arr.shape[0], sizeof(int))
 		for i in range(arr.shape[0]): ptr[i] = <int> arr[i]
 		self.state = init_state(ObjVal, ptr, arr.shape[0])
+		self.state.feasible = 1
 		free(<void *> ptr)
 
 	def __init__(self, ObjVal, array):
@@ -404,12 +405,12 @@ cpdef run_sampling(
 	for i in range(cur_sol.state[0].vector.bits):
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
-
+	incumb = []
 	if (solver == OPTIMIZE):
 		incumb = inc.estimate_grover_iterations(con, obj, 0.1, solver)
-	else:
-		incumb = [] # satisfy needs more adjustments
-	del inc
+	# else:
+	# 	incumb = [] # satisfy needs more adjustments
+	# del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
 	return cur_sol, qtg_applications, feasible, arr, t_total, incumb
@@ -494,7 +495,7 @@ cpdef run_quantum_local_search(initial: state_py,
 
 cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
 	cdef int break_item = 0;
-	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 3, &break_item)
+	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 0, &break_item)
 	return break_item
 
 def reset_c_flags():

@@ -151,8 +151,10 @@ int ctg(
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+//        printf("%d %d %d %d %lld %d\n", stage, j, res, rounds, cur_sol->tot_profit, cur_sol->feasible);
+		rounds++;
 		if (res) {
-            
+
             // first found feasible solution
             if (solver == OPTIMIZE && !feasible && cur_sol->feasible){
                 stage = 2;
@@ -177,6 +179,7 @@ int ctg(
 				if (callback && global_opt->feasible) callback(global_opt->tot_profit, *qtg_applications, total_time, 0);
 			}
 			pthread_mutex_unlock(&update_lock);
+			rounds = 0;
 
 			m_tot = 0;
 			if ((solver == SATISFY && cur_sol->tot_profit == - (int64_t) con->num_constraints) || feasible && (cur_sol->tot_profit <= stop_val && stop_val != -1)) {

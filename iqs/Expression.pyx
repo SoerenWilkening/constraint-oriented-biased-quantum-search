@@ -85,10 +85,10 @@ cdef class Expression:
 		self.rhs = -2
 
 	def __str__(self):
-		# for i in range(self.expr[0].expr_size):
-		# 	for j in range(self.expr[0].len_literal[i]):
-		# 		print(self.expr[0].literals[5 * i + j], end = " ")
-		# 	print()
+		for i in range(self.expr[0].expr_size):
+			for j in range(self.expr[0].len_literal[i]):
+				print(self.expr[0].literals[5 * i + j], end = " ")
+			print()
 		return ""
 
 	def __copy__(self):

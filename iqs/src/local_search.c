@@ -178,14 +178,17 @@ void *explore_neighbourhood(void *args) {
 		int *changed_con = calloc(MINSIZE, sizeof(int));
 		int num_con_changes = 0;
 
-		for (int i = 0; i < k; ++i) {
-			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
-			                              dat->con->positive_offsets, new_sol,
-			                              POSITIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
-			adjusted_constraint_violation(dat->con, comb[i], dat->con->negative_indices, dat->con->num_negative_indices,
-			                              dat->con->negative_offsets, new_sol,
-			                              NEGATIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
-		}
+        for (int i = 0; i < C; ++i){
+            totals[i] = constraint_violation(dat->con, new_sol, i);
+        }
+//		for (int i = 0; i < k; ++i) {
+//			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
+//			                              dat->con->positive_offsets, new_sol,
+//			                              POSITIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
+//			adjusted_constraint_violation(dat->con, comb[i], dat->con->negative_indices, dat->con->num_negative_indices,
+//			                              dat->con->negative_offsets, new_sol,
+//			                              NEGATIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
+//		}
 		free(changed_con);
 		sw_clear(inv);
 
@@ -196,6 +199,7 @@ void *explore_neighbourhood(void *args) {
 		for (int cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
 			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
+//			total_violation -= totals[cnstr] < 0 ? totals[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
 
@@ -218,7 +222,8 @@ void *explore_neighbourhood(void *args) {
 		} else {
 			int *changes = calloc(MINSIZE, sizeof(int));
 			int num_cahnges = 0;
-			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
+//			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
+            int64_t objective = objective_value(dat->obj, new_sol);
 
 			if (objective < cur_best->tot_profit && feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
@@ -383,6 +388,7 @@ int local_search(state_t *cur_sol,
 	prepare_constraints(con, cur_sol, &ful_con);
 
 	int initial_feasible = eval_constraints(con, cur_sol, n);
+	printf("init = %d\n", initial_feasible);
 	state_t *global_opt = copy_state(cur_sol);
 
 	int num_moves = 0;
@@ -417,9 +423,11 @@ int local_search(state_t *cur_sol,
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 //		printf("%p\n", callback);
-		if (callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
-//		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
-//		       neighbourhood_counter);
+//        print_state(cur_sol);
+//		printf("\n");
+//		if (callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
+		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
+		       neighbourhood_counter);
 		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
 		counter++;
 	}
@@ -483,6 +491,7 @@ state_t *quantum_local_search_states(
 			int *changed_con = calloc(MINSIZE, sizeof(int));
 			int num_con_changes = 0;
 
+
 			for (int j = 0; j < moves[i].num_flips; ++j) {
 				adjusted_constraint_violation(con, moves[i].flips[j], con->positive_indices, con->num_positive_indices,
 				                              con->positive_offsets, &st[feasible_state_counter],
@@ -510,14 +519,15 @@ state_t *quantum_local_search_states(
 			} else {
 				int *changes = calloc(MINSIZE, sizeof(int));
 				int num_cahnges = 0;
-				objective = init_val + objective_value_improved(
-						obj,
-						&st[feasible_state_counter],
-						moves[i].num_flips,
-						moves[i].flips,
-						&ful,
-						&changes,
-						&num_cahnges);
+				objective = objective_value(obj, cur_sol);
+//				objective = init_val + objective_value_improved(
+//						obj,
+//						&st[feasible_state_counter],
+//						moves[i].num_flips,
+//						moves[i].flips,
+//						&ful,
+//						&changes,
+//						&num_cahnges);
 				free(changes);
 			}
 		}
@@ -665,6 +675,7 @@ int quantum_local_search(new_constraints_t *obj,
 			} else { break; }
 		}
 		free_state(qlsqs, num_states);
+
 		// if found cur sol is better than global opt: adjust
 		int accept_global =
 				((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&

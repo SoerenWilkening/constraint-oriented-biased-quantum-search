@@ -190,9 +190,11 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
     int updated = 1;
 	for (i = 0; i < n; i++) {
+	    printf("\r%f %%", (double) i / n * 100.);
 //        int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 
 		// Initialize new bit to be 0
+
 		sw_clrbit(new_sol->vector, i);
 		sw_clrbit(new_sol->branch, i);
 		int new_bit = 0;
@@ -205,12 +207,14 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 		// look ahead to the right side
         look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
 
+//        printf("%d %d\n", count[0], count[1]);
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
 			sw_setbit(new_sol->vector, i);
 			new_bit = 1;
 			*break_item += updated;
 		} else{
+		    sw_clrbit(new_sol->vector, i);
 		    updated = 0;
 		}
 		// we are forced to go left, when only count[0] leads to a feasible solution
@@ -268,6 +272,7 @@ int CSearch_opt(state_t *cur_sol, int j,
     memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
     memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
     int l;
+//    printf("%d\n", 4 * j * j + 1);
 	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
         sw_set_ui_0(new_sol->vector);
@@ -286,6 +291,7 @@ int CSearch_opt(state_t *cur_sol, int j,
 
 		int i;
 		for (i = 0; i < n; i++) {
+//		    printf("\r%f %%", (double)i / n * 100);
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = ((double) (rand() % 123456)) / 123455.;
 
@@ -352,14 +358,15 @@ int CSearch_opt(state_t *cur_sol, int j,
 		}
 
 		int NumChangedTerms = 0;
-		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
+//		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
 		int64_t val = cur_sol->tot_profit;
 		if (as1) val = objective_value(obj, new_sol);
+//        printf("|%d %lld\n", as1, val);
 //		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
 		if (as1 && cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms
 //            for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
-            for (int term = 0; term < NumChangedTerms; term++) sw_flpbit(*ful, ChangedTerms[term]);
+//            for (int term = 0; term < NumChangedTerms; term++) sw_flpbit(*ful, ChangedTerms[term]);
 			cur_sol->tot_profit = val;
 			sw_clear(cur_sol->vector);
 			sw_clear(cur_sol->branch);
@@ -367,13 +374,13 @@ int CSearch_opt(state_t *cur_sol, int j,
 			cur_sol->branch = sw_set(new_sol->branch);
 			cur_sol->feasible = as1;
 
-			free(ChangedTerms);
+//			free(ChangedTerms);
 			free(ChangedBits);
             free_state(new_sol, 1);
             *samples += l;
 			return 1;
 		}
-		free(ChangedTerms);
+//		free(ChangedTerms);
 		free(ChangedBits);
         free_state(new_sol, 1);
 	}
