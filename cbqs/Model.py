@@ -1,6 +1,4 @@
-import os
 from copy import copy
-from multiprocessing import shared_memory
 from time import time
 from warnings import warn
 
@@ -14,7 +12,7 @@ from .SearchLib import (state_py,
                         new_constraint, run_sampling, set_seed,
                         set_bias_wrapper, run_bfs, run_local_search,
                         run_quantum_local_search, run_general_greedy,
-                        reset_c_flags)
+                        reset_c_flags, set_factors_wrapper, set_obj_dependence_wrapper)
 from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
 
@@ -138,8 +136,8 @@ or {self.runtime}s sampling
 		expr.merge()
 		# self.con_expr.append(expr)
 		self.constraint.add_expression(expr)
-		del expr
-		# self.con_expr.append(expr)
+		self.con_expr.append(expr)
+		# del expr
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		# f = self.constraint.eval_con_from_array(assignment)
@@ -181,10 +179,15 @@ or {self.runtime}s sampling
 		run_general_greedy(self.initial_state, self.constraint, self.objective)
 
 	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None,
-	          arch = "cpu",
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
 	          results = "min", bfs = False,
-	          ignore_constraint_search = False) -> list | None:
+	          ignore_constraint_search = False,
+	          manual_bias: list[float] | None = None,
+	          bias_factor = 1.,
+	          manual_bias_factor = 0.,
+	          look_ahead_factor = 0.,
+	          monte_calor_estimate = False
+	          ) -> list | None:
 		"""
 
 		:param M:
@@ -208,6 +211,8 @@ or {self.runtime}s sampling
 		if M == -1: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 		set_bias_wrapper(bias)
+		set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
+		if manual_bias is not None: set_obj_dependence_wrapper(manual_bias)
 
 		if bfs:
 			s = exact_simulator(self)
@@ -231,7 +236,8 @@ or {self.runtime}s sampling
 				stop_val, callback, max_delta, reset_delta,
 				self.global_opt,
 				not_stop,
-				ignore_constraint_search
+				ignore_constraint_search,
+				monte_calor_estimate
 			) for _ in range(num_workers)
 		)
 

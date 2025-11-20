@@ -333,7 +333,8 @@ cpdef run_sampling(
 		int reset_delta,
 		global_opt: state_py,
 		not_stop: list[int],
-		int ignore_constraint_search
+		int ignore_constraint_search,
+		int monte_carlo_estimate
 ):
 	t_start: float = time.time()
 	t_total: float = 0
@@ -406,11 +407,11 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	incumb = []
-	if (solver == OPTIMIZE):
-		incumb = inc.estimate_grover_iterations(con, obj, 0.1, solver)
-	# else:
-	# 	incumb = [] # satisfy needs more adjustments
-	# del inc
+	if monte_carlo_estimate:
+		if (solver == OPTIMIZE):
+			incumb = inc.estimate_grover_iterations(con, obj, 0.1, solver)
+
+	del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
 	return cur_sol, qtg_applications, feasible, arr, t_total, incumb

@@ -1,3 +1,3 @@
 [submodule "circuit_backend"]
 	path = circuit_backend
-	url = git@github.com:SoerenWilkening/Quantum_Assembly.git
+	url = https://github.com/SoerenWilkening/speed-oriented-quantum-circuit-backend

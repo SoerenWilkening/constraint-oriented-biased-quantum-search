@@ -27,3 +27,4 @@ Paper
 Projects
 plot_smth.py
 others
+*.egg-info
