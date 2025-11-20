@@ -8,7 +8,7 @@ Code is used to generate the data in
 Currently the code does not utilize the cicuit generator backend, but the dependency is already included.
 After cloning this repository, clone the circuit backend via
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules https://github.com/SoerenWilkening/speed-oriented-quantum-circuit-backend
 ```
 Afterwards run 
 ```bash
