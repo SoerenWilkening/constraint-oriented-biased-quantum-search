@@ -1,9 +1,6 @@
 # Source code of Constraint-oriented biased quantum search
 
-Code is used to generate the data in
-- paper 1
-- paper 2
-- pHD Thesis
+Code is used to generate the data in https://github.com/SoerenWilkening/CBQS-benchmarks
 
 Currently the code does not utilize the cicuit generator backend, but the dependency is already included.
 After cloning this repository, clone the circuit backend via
