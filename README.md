@@ -32,3 +32,16 @@ m.solve(M = 1000) # upper bound of 1000 oracle applications
 
 del m 
 ```
+
+Cite as:
+```bibtex
+@misc{wilkening2025constraintorientedbiasedquantumsearch,
+      title={Constraint-oriented biased quantum search for linear constrained combinatorial optimization problems}, 
+      author={Sören Wilkening and Timo Ziegler and Maximilian Hess},
+      year={2025},
+      eprint={2512.05205},
+      archivePrefix={arXiv},
+      primaryClass={quant-ph},
+      url={https://arxiv.org/abs/2512.05205}, 
+}
+```
