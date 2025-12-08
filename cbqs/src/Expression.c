@@ -38,6 +38,7 @@ size_t expr_index(size_t lit, int ind){
 void merge_expression(expression_t *expr){
 	// sum up all the constants
 	for (int i = 0; i < expr->expr_size; ++i) {
+	    printf("\r%f", (double) i / expr->expr_size);
 		if (expr->len_literal[i] == 1) {
 			for (int j = i + 1; j < expr->expr_size; ++j) {
 				if (expr->len_literal[j] == 1){
@@ -49,6 +50,7 @@ void merge_expression(expression_t *expr){
 			break;
 		}
 	}
+	printf("\r");
 //	sort_expression(expr);
 }
 

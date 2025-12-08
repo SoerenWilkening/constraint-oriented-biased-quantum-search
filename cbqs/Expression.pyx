@@ -87,7 +87,7 @@ cdef class Expression:
 	def __str__(self):
 		for i in range(self.expr[0].expr_size):
 			for j in range(self.expr[0].len_literal[i]):
-				print(self.expr[0].literals[5 * i + j], end = " ")
+				print(self.expr[0].literals[MAXCLAUSESIZE * i + j], end = " ")
 			print()
 		return ""
 
@@ -115,7 +115,7 @@ cdef class Expression:
 
 	cdef c_liste(self):
 		l = [
-			[self.expr[0].literals[5 * j + i] for i in range(self.expr[0].len_literal[j])]
+			[self.expr[0].literals[MAXCLAUSESIZE * j + i] for i in range(self.expr[0].len_literal[j])]
 			for j in range(self.expr[0].expr_size) if self.expr[0].len_literal[j] != 0
 		]
 		# print("l = ", l)
@@ -185,8 +185,8 @@ cdef class Expression:
 		if isinstance(other, int):
 			potential = 0
 			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[5 * i] < 0:
-					potential -= self.expr[0].literals[5 * i]
+				if self.expr[0].literals[MAXCLAUSESIZE * i] < 0:
+					potential -= self.expr[0].literals[MAXCLAUSESIZE * i]
 
 			add_sense_to_expression(self.expr, LOWER)
 			add_rhs_to_expression(self.expr, other + potential)
@@ -202,8 +202,8 @@ cdef class Expression:
 			multiply_constant(self.expr, -1)
 			# negate_expression(self.expr)
 			for i in range(self.expr[0].expr_size):
-				if self.expr[0].literals[5 * i] < 0:
-					potential -= self.expr[0].literals[5 * i]
+				if self.expr[0].literals[MAXCLAUSESIZE * i] < 0:
+					potential -= self.expr[0].literals[MAXCLAUSESIZE * i]
 
 			add_sense_to_expression(self.expr, LOWER)
 			add_rhs_to_expression(self.expr, -other + potential)

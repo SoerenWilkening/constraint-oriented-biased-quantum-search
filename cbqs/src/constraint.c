@@ -166,7 +166,7 @@ void preprocessing(
 	size_t counter_positive = 0;
 	size_t counter_negative = 0;
 	for (int item = 0; item < n; item++) {
-//	    printf("\r %f %%", (double) item / n * 100);
+	    printf("\r %f %%", (double) item / n * 100);
 
 		for (int cnstr = 0; cnstr < C; cnstr++) {
 			size_t clause_offset = first_clause_index(con, cnstr);
@@ -205,6 +205,7 @@ void preprocessing(
 			con->positive_offsets[item * C + cnstr] = counter_positive - npi;
 		}
 	}
+	printf("\r");
 	con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
 	con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
 }
@@ -365,6 +366,7 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
 	for (size_t cls = 0; cls < expr->expr_size; ++cls) {
+	    printf("\r%f", (double) cls / expr->expr_size);
 		int lenght = expr->len_literal[cls];
 		if (lenght != 0) {
 			for (int i = 1; i < lenght; ++i) {
@@ -389,6 +391,7 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 			con->total_clauses++;
 		}
 	}
+	printf("\r");
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;

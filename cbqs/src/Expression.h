@@ -7,7 +7,7 @@
 #include "definitions.h"
 
 // limit to maximum number of variables in clause
-#define MAXCLAUSESIZE 5 // maximum 4 variables in clause -> maybe overkill
+#define MAXCLAUSESIZE 2 // maximum 4 variables in clause -> maybe overkill
 
 typedef struct{
     int64_t *literals;
