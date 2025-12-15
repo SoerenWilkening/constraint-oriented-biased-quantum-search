@@ -1,6 +1,5 @@
 import random
 import signal
-import sys
 import time
 from copy import copy
 from random import randint
@@ -8,83 +7,6 @@ from random import randint
 import numpy as np
 
 from .Constants import *
-
-def set_seed(unsigned int seed):
-	srand(seed)
-
-cdef class new_constraint:
-	def __cinit__(self):
-		self.con = init_new_constraint()
-		self.num_constraints = 0
-
-	def __str__(self):
-		print_new_constraint(&self.con)
-		return ""
-
-	def __dealloc__(self):
-		free_constraints(&self.con)
-
-	def __copy__(self):
-		new_con = new_constraint()
-		new_con.con = copy_new_constraint(&self.con)
-		new_con.num_constraints = self.num_constraints
-		return new_con
-
-	def __len__(self):
-		return self.num_constraints
-
-	cdef void add(self, Expression expr):
-		self.num_constraints += 1
-		add_expression_to_constraints(&self.con, <expression_t *> expr.expr)
-
-	def process(self, int n, enforce_density = False):
-		tot = 0
-		for i in range(self.con.num_constraints):
-			tot += self.con.num_clauses[i]
-
-		# print(tot, n * self.con.num_constraints)
-
-		if 10 * tot > n * self.con.num_constraints or enforce_density:
-			preprocessing(n, &self.con)
-			return DENSE
-		else:
-			preprocessing_sparse(n, &self.con)
-			return SPARSE
-
-	def add_expression(self, expr: Expression):
-		self.add(expr)
-
-	def eval_con(self, state: state_py):
-		return eval_constraints(&self.con, state.state, state.state[0].vector.bits)
-
-	def eval_con_from_array(self, array: list):
-		st = state_py(0, array)
-		res = self.eval_con(st)
-		del st
-		return res
-
-	def eval_obj(self, state: state_py):
-		return objective_value(&self.con, state.state)
-
-def set_factors_wrapper(double objective_factor, double constraint_factor, double bias_factor, double look_factor):
-	set_factors(objective_factor, constraint_factor, bias_factor, look_factor)
-
-def set_bias_wrapper(double bias):
-	set_bias(bias)
-
-def set_obj_dependence_wrapper(dependence: list[double]):
-	arr = np.array(dependence, dtype = np.double)
-	cdef double * ptr = <double *> calloc(arr.shape[0], sizeof(double))
-	for i in range(arr.shape[0]):
-		ptr[i] = <double> arr[i]
-	set_obj_dependence(ptr, len(dependence))
-
-def set_constraint_dependence_wrapper(dependence: list[double]):
-	arr = np.array(dependence, dtype = np.double)
-	cdef double * ptr = <double *> calloc(arr.shape[0], sizeof(double))
-	for i in range(arr.shape[0]):
-		ptr[i] = <double> arr[i]
-	set_constraint_dependence(ptr, len(dependence))
 
 # Class containing all the states information and acts as wrpper for C functionality
 
@@ -169,112 +91,6 @@ cdef class incumbents:
 		# print("done in ", time.time() - t1, "s")
 		return incumbents
 
-cdef class state_py:
-	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:
-		self.num_states = 1
-		arr = np.array(array, dtype = np.int32)
-		self.arr = arr  # easier handling when list it required
-
-		cdef int * ptr = <int *> calloc(arr.shape[0], sizeof(int))
-		for i in range(arr.shape[0]): ptr[i] = <int> arr[i]
-		self.state = init_state(ObjVal, ptr, arr.shape[0])
-		self.state.feasible = 1
-		free(<void *> ptr)
-
-	def __init__(self, ObjVal, array):
-		pass
-
-	def __len__(self):
-		return self.num_states
-
-	def load(self, file):
-		f = open(file, "r").read().split()
-		return state_py(float(f[0]), list(map(int, f[1:])))
-
-	def get_x(self):
-		if self.state is NULL: self.objval = 0
-		else: self.objval = self.state[0].tot_profit
-
-	def __copy__(self) -> state_py:
-		cop_st = state_py(0, [0])
-		free_state(cop_st.state, 1)
-		cop_st.state = copy_state(self.state)
-		cop_st.get_x()
-		return cop_st
-
-	def __str__(self) -> str:
-		if self.state is NULL: return "NULL state"
-		# print_state(&self.state[])
-		for i in range(self.num_states):
-			print_state(&self.state[i])
-			print()
-		return ""
-
-	def __dealloc__(self) -> None:
-		if self.state is not NULL:
-			free_state(self.state, self.num_states)
-
-	# def __del__(self):
-	# 	del self.arr
-
-	@property
-	def objective_value(self):
-		return self.state[0].tot_profit
-
-	def __iter__(self):
-		return [sw_tstbit(self.state[0].vector, i) for i in range(self.state[0].vector.bits)].__iter__()
-	# return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
-
-	def integer_liste(self):
-		step = [[
-			self.state[0].vector.part[i] & 0xFFFFFFFF,
-			(self.state[0].vector.part[i] >> 32) & 0xFFFFFFFF
-		] for i in range(self.state[0].vector.n)]
-		return [j for i in step for j in i]
-
-	def assignment(self):
-		return list(self.arr)
-
-	def store(self, file):
-		f = open(file, "w")
-		f.write(f"{self.objval} ")
-		for i in self.arr:
-			f.write(f"{i} ")
-		f.close()
-
-	def update(self, state_py threshold, int sense) -> state_py:
-		up = state_py(0, [0])
-		free_state(up.state, up.num_states)
-		up.state = <state_t *> updated(self.state, self.num_states, &up.num_states, threshold.state, sense)
-
-		return up
-
-	def read(self, str name, int n) -> None:
-		# print(name)
-		directoy = os.path.dirname(name)
-		# print(directoy)
-		value = str(name).split("states_")[0].replace(directoy + "/", "")
-		# print(value, directoy)
-		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if
-		         value in i and "test" not in i and "states" in i]
-		# print(files)
-		# sys.stdout.flush()
-
-		num_files = len(files)
-		# print(num_files)
-		sys.stdout.flush()
-		cdef char** f = <char **> calloc(num_files, sizeof(char *))
-		for i in range(num_files):
-			# print(i)
-			sys.stdout.flush()
-			file_bytes = files[i]
-			f[i] = <char *> calloc(len(file_bytes) + 1, sizeof(char))
-			for j in range(len(file_bytes)):
-				f[i][j] = file_bytes[j]
-
-		free_state(self.state, self.num_states)
-		self.state = read_states(f, num_files, &self.num_states, n)
-
 def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	cdef size_t iterations = 0
 	cdef size_t rounds = 0
@@ -285,29 +101,6 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 	if res.state == NULL:
 		return None, iterations, rounds
 	return res, iterations, rounds
-
-import os
-
-def store(states: list[float, tuple[list[int], list[int]]], where: bytes) -> int:
-	if os.path.exists(where): return 1
-
-	file = open(where, "a")
-	for i in states:
-		file.write(f'{int(i[0])} ')
-		for j in range(len(i[1])):
-			file.write(f'{i[1][j]} {i[2][j]} ')
-		file.write("\n")
-
-	file.close()
-	return 0
-
-def read_nodes_wrapper(str name, n: int) -> int | state_py:
-	if not os.path.exists(name):
-		return 1
-
-	res = state_py(0, [0])
-	res.read(name, n)
-	return res
 
 # define callback functionality ===============================
 

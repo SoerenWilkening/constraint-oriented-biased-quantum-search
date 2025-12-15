@@ -2,7 +2,8 @@ from time import time
 import gurobipy as gp
 from .SearchLib import read_nodes_wrapper, store
 from .Constants import OPTIMIZE, SATISFY
-from .SearchLib import state_py, QSearch_wrapper
+from .SearchLib import QSearch_wrapper
+from .state import state_py
 from copy import copy
 import sys
 # from __future__ import print_function
