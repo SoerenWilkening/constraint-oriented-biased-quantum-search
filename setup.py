@@ -7,6 +7,8 @@ from setuptools.extension import Extension
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
+from cbqs import __version__
+
 # Compiler & linker flags for AddressSanitizer
 compiler_args = ["-O3", "-flto", "-pthread"]
 
@@ -81,6 +83,7 @@ extensions = [
 
 setup(
 	name = 'cbqs',
+	version = __version__,
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
 	install_requires = ["numpy", "pandas"],
