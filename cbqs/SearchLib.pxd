@@ -68,13 +68,5 @@ cdef extern from "src/local_search.h":
 	                         size_t *total_oracle_applications,
                             callback_t callback) nogil
 
-cdef extern from "src/model.h":
-	ctypedef struct model_t:
-		double runtime
-		int64_t value
-
 cdef class incumbents:
 	cdef incumbents_t *incumbent
-
-cdef class model:
-	cdef model_t c_model

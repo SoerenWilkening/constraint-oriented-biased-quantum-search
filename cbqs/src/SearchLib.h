@@ -9,7 +9,7 @@
 #include "solver.h"
 #include "constraint.h"
 #include "quantum_search.h"
-#include "model.h"
+//#include "model.h"
 
 typedef struct {
   state_t *states;

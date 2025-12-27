@@ -104,6 +104,11 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 
 # define callback functionality ===============================
 
+cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
+	cdef int break_item = 0;
+	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 0, &break_item)
+	return break_item
+
 # Python-compatible C wrapper
 cdef void my_callback_c(int64_t a, size_t b, double c, double d) with gil:
 	if python_callback is not None:
@@ -269,7 +274,6 @@ cpdef run_local_search(initial: state_py,
 		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances,
 		             stopping_condition)
 
-	new_state.get_x()
 	return new_state
 
 cpdef run_quantum_local_search(initial: state_py,
@@ -287,23 +291,5 @@ cpdef run_quantum_local_search(initial: state_py,
 	with nogil:
 		quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
 
-cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
-	cdef int break_item = 0;
-	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 0, &break_item)
-	return break_item
-
 def reset_c_flags():
 	reset_flag()
-
-cdef class model:
-	def __cinit__(self):
-		self.c_model.runtime = 0
-		self.c_model.value = 0
-
-	@property
-	def objective_value(self):
-		return self.c_model.value
-
-	@property
-	def runtime(self):
-		return self.c_model.value
