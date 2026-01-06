@@ -1,4 +1,5 @@
-
+import numpy as np
+import os, sys
 
 cdef class state_py:
 	def __cinit__(self, int64_t ObjVal, array: list | np.ndarray) -> None:

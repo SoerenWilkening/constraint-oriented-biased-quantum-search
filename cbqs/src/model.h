@@ -33,4 +33,6 @@ model_t *init_model();
 
 void free_model(model_t *mod);
 
+void print_model(model_t *mod);
+
 #endif //IMPROVED_QUANTUM_SEARCH_MODEL_H

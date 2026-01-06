@@ -1,13 +1,10 @@
 from libc.stdint cimport uint64_t, uint32_t, int64_t
 from libc.stdlib cimport calloc, free, srand
 # from .Expression cimport expression_t
-
-from .Constraint cimport new_constraint
 from .Constraint cimport new_constraints_t
 from .state cimport *
 from .branching cimport StateProbability
-from .branching import set_bias_wrapper, set_seed
-from .Constants import *
+from .Model cimport model_t
 
 # Functions to manipulate states and execute the QSearch algorithm
 #
@@ -34,8 +31,8 @@ cdef extern from "src/SearchLib.h":
 	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
 	        state_t *global_opt, int ignore_constraint_search, incumbents_t *incumbent) nogil
 
-	int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
-	        int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
+	# int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
+	#         int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
 
 	int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 	                              new_constraints_t *con,

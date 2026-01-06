@@ -1,5 +1,6 @@
 from copy import copy
-from .SearchLib import set_bias_wrapper, QSearch_wrapper
+from .SearchLib import QSearch_wrapper
+# from .branching import set_bias_wrapper
 
 cdef class approximate_state:
 
@@ -26,7 +27,7 @@ cdef class approximate_state:
 		return self.state.good_amplitude
 
 
-	def opt_sampler(self, new_constraint obj, new_constraint con, state_py cur_sol, samples):
+	def opt_sampler(self, obj: new_constraint, con: new_constraint, state_py cur_sol, samples):
 		# print(samples)
 		# self.c_opt_sampler(obj, con, cur_sol, samples)
 		cdef state_t * st = <state_t *> cur_sol.state;

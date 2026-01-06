@@ -6,49 +6,49 @@ import numpy as np
 from joblib import Parallel, delayed
 from .CircuitBackendBinder import circuit
 from .Constants import *
-from .Expression import Variable, Expression
+from .Expression import Variable
+from .Expression cimport Expression
 from .state import state_py
-from .state cimport state_t
-from Constraint import new_constraint
-from .Constraint cimport new_constraints_t
+from .Constraint import new_constraint
+from .Constraint cimport add_expression_to_constraints, process_constraints
+from .Expression cimport expression_t
 from .branching import set_seed, set_bias_wrapper, set_factors_wrapper, set_obj_dependence_wrapper
-from .SearchLib import (run_sampling, run_bfs, run_local_search, run_quantum_local_search, run_general_greedy, reset_c_flags)
+from .SearchLib import (run_sampling, run_local_search, run_quantum_local_search, run_general_greedy, reset_c_flags)
 from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
 
-
-cdef extern from "src/model.h":
-	ctypedef struct model_t:
-		double runtime
-		new_constraints_t *obj;
-		new_constraints_t *con;
-		state_t *initial_state
-		state_t *global_opt
-		size_t M
-		int n
-		int stopping_time
-		int stop_val
-		int depth_look_ahead
-		int num_workers
-		int ignore_constraint_search
-		double *manual_bias
-		double bias_factor
-		double manual_bias_factor
-		double look_ahead_factor
-		int monte_carlo_estimate
-		int reset_delta
-		int max_delta
-
-	model_t *init_model();
-
-	void free_model(model_t *mod);
-
-
 cdef class Model:
 	cdef model_t *mod
+	cdef int gpu_imported
+
+	cdef public object sparsity
+	cdef public object stgen
+	cdef public object global_opt
+	cdef public object calls
+	cdef public object met
+	cdef public object objective
+	cdef public object constraint
+	cdef public object obj_expr
+	cdef public object con_expr
+	cdef public object sense
+	cdef public object n
+	cdef public object variables
+	cdef public object initial_state
+	cdef public object solver
+	cdef public object runtime
+	cdef public object feasible
+	cdef public object grover_iterations
+	cdef public object quantum_cycles
+	cdef public object objective_value
+	cdef public object final_state
+	cdef public object improved
+	cdef public object gpu_compiled
+	cdef public object constraints_compiled
+	cdef public object circuit
 
 	def __cinit__(self):
 		self.mod = init_model()
+		self.gpu_imported = False
 
 	def __init__(self):
 		self.sparsity = None
@@ -113,9 +113,9 @@ or {self.runtime}s sampling
 		self.objective_value: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
-		del self.global_opt
+		self.global_opt = None
 
-	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> Variable | Expression:
+	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> int | Variable | Expression:
 		if bound > 1:
 			number = int(np.floor(np.log2(bound))) + 1
 			x = self.add_variables(number, name = name)
@@ -142,7 +142,7 @@ or {self.runtime}s sampling
 
 		return x
 
-	def set_objective(self, objective: Expression | int | None = None, sense: int = MAXIMIZE) -> None:
+	def set_objective(self, Expression objective = None, sense: int = MAXIMIZE) -> None:
 		if sense not in [MINIMIZE, MAXIMIZE]:
 			raise TypeError
 
@@ -156,15 +156,15 @@ or {self.runtime}s sampling
 			expr = expr >= 0
 
 		self.obj_expr.append(expr)
+		add_expression_to_constraints(self.mod.obj, <expression_t *> objective.expr)
 		self.objective.add_expression(expr)
 
-	def add_constraint(self, constraint: Expression | int | None = None) -> None:
+	def add_constraint(self, Expression constraint = None) -> None:
 		expr = constraint
 		expr.merge()
-		# self.con_expr.append(expr)
+		add_expression_to_constraints(self.mod.con, <expression_t *> constraint.expr)
 		self.constraint.add_expression(expr)
 		self.con_expr.append(expr)
-		# del expr
 
 	def manual_initial(self, P: int, assignment: list) -> None:
 		# f = self.constraint.eval_con_from_array(assignment)
@@ -183,16 +183,19 @@ or {self.runtime}s sampling
 
 	def __del__(self):
 		free_model(self.mod)
-		if self.final_state is not None: del self.final_state
-		if self.initial_state is not None: del self.initial_state
-		del self.objective
-		del self.constraint
-		del self.circuit
+		if self.final_state is not None: self.final_state = None
+		if self.initial_state is not None: self.initial_state = None
+		self.objective = None
+		self.constraint = None
+		self.circuit = None
 
 	def close(self, enforce_density = False):
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
+			process_constraints(self.mod.obj, self.n, enforce_density)
+			process_constraints(self.mod.con, self.n, enforce_density)
 			self.sparsity = self.constraint.process(self.n, enforce_density)
+			print_model(self.mod)
 			# print("processed con")
 			# self.circuit = circuit()
 			# self.circuit.compile()
@@ -202,7 +205,8 @@ or {self.runtime}s sampling
 
 	def general_greedy(self):
 		if self.initial_state is not None:
-			del self.initial_state
+			self.initial_state = None
+			# del self.initial_state
 		self.manual_initial(0, [0] * self.n)
 		run_general_greedy(self.initial_state, self.constraint, self.objective)
 
@@ -242,23 +246,25 @@ or {self.runtime}s sampling
 		set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
 		if manual_bias is not None: set_obj_dependence_wrapper(manual_bias)
 
-		if bfs:
-			s = exact_simulator(self)
-			s.generate_gurobi_model()
-			s.stategen()
-			print(len(s.bfs))
-			run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-			        stop_val, callback, max_delta, reset_delta)
-			return
+		# if bfs:
+		# 	s = exact_simulator(self)
+		# 	s.generate_gurobi_model()
+		# 	s.stategen()
+		# 	print(len(s.bfs))
+		# 	run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
+		# 	        stop_val, callback, max_delta, reset_delta)
+		# 	return
+		# self.global_opt: state_py = copy(self.initial_state)
 
-		self.global_opt: state_py = copy(self.initial_state)
 		not_stop = [1]
+
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
 			delayed(run_sampling)(
 				self.initial_state,
 				self.constraint,
 				self.objective,
-				M, stopping_time,
+				M,
+				stopping_time,
 				depth_look_ahead,
 				self.solver,
 				stop_val, callback, max_delta, reset_delta,
@@ -349,8 +355,3 @@ or {self.runtime}s sampling
 
 		inc = self.stgen.QMaxSearch(M)
 		return inc
-
-		# state = approximate_state(self.n, self.n / 4)
-		# inc =  state.exact_QSearch(self.objective, self.constraint, M, self.initial_state)
-		# del state
-		# return inc

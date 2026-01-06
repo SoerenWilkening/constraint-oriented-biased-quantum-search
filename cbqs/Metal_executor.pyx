@@ -1,4 +1,5 @@
-from .SearchLib cimport new_constraints_t, new_constraint
+from .Constraint cimport new_constraints_t
+from .Constraint cimport new_constraint
 from libc.stdint cimport int32_t
 
 cdef extern from "objc/objc.h":

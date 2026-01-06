@@ -1,7 +1,5 @@
 from libc.stdint cimport uint64_t, uint32_t, int64_t
-import numpy as np
 from libc.stdlib cimport calloc, free, srand
-import os, sys
 
 cdef extern from "src/intarray.h":
 	ctypedef struct array_t:

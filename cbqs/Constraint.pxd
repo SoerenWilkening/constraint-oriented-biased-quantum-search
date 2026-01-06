@@ -1,7 +1,6 @@
 from libc.stdint cimport uint64_t, uint32_t, int64_t
 from .Expression cimport expression_t, Expression
 from .state cimport state_py, state_t
-from .Constants import *
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:
@@ -45,3 +44,5 @@ cdef class new_constraint:
 	cdef new_constraints_t con;
 	cdef int num_constraints;
 	cdef void add(self, Expression expr)
+
+cdef process_constraints(new_constraints_t *con, int n, int enforce_density)

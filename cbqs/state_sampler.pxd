@@ -1,5 +1,8 @@
-from .SearchLib cimport new_constraints_t, state_t
-from .SearchLib cimport state_py, new_constraint, QSearch, free_state
+from .Constraint cimport new_constraints_t, state_t
+from .Constraint cimport new_constraint
+from .SearchLib cimport QSearch, free_state
+from .Constraint cimport new_constraint
+from .state cimport state_py
 # from .SearchLib import set_bias_wrapper, QSearch_wrapper
 
 cdef extern from "approximate_state_sampler.h":
