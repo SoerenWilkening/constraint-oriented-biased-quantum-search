@@ -97,7 +97,9 @@ or {self.runtime}s sampling
 			number = int(np.floor(np.log2(bound))) + 1
 			x = self.add_variables(number, name = name)
 			expr = sum(2 ** i * x[list(x.keys())[i]] for i in range(number))
+			# print(expr <= bound)
 			self.add_constraint(expr <= bound)
+			# print(expr)
 			return expr
 
 		x = Variable(max(index, self.n), f"{name}{max(index, self.n)})")
@@ -260,8 +262,9 @@ or {self.runtime}s sampling
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
 	                 stopping_condition: int = STOPATFIRST):
 		assert stopping_condition in [STOPATFIRST, STOPATBEST]
-		if not self.initial_state: self.manual_initial(0, [0] * self.n)
+		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		t1 = time()
+
 		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time,
 		                                    self.mod.solver, -1,
 		                                    callback, max_worse_acceptances, stopping_condition)
@@ -326,3 +329,11 @@ or {self.runtime}s sampling
 	@property
 	def runtime(self):
 		return self.mod[0].runtime
+
+	@property
+	def solution(self):
+		print("profit ", self.mod[0].initial_state[0].tot_profit)
+		print("feasible ", self.mod[0].initial_state[0].feasible)
+		print_state(self.mod[0].initial_state)
+		print()
+		return 0

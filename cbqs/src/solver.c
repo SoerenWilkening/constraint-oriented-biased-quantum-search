@@ -198,7 +198,7 @@ int initial_state_preparation(model_t *mod) {
 			new_bit = 0;
 		}
 		// we are forced to go right, when only count[1] leads to feasible solution
-		if (count[0] == 0 && count[1] != 0) {
+		else if (count[0] == 0 && count[1] != 0) {
 			// but if right don't lead to feasible solution: break
 			sw_setbit(mod->initial_state->vector, i);
 			new_bit = 1;

@@ -105,6 +105,8 @@ cdef class Expression:
 		add_expression(<expression_t *> self.expr, <expression_t *> other.expr)
 
 	cdef mul_expr(self, Expression other, Expression ne):
+		# print_expression(self.expr)
+		# print_expression(other.expr)
 		new = multiply_expressions(<expression_t *> self.expr, <expression_t *> other.expr)
 		add_expression(ne.expr, new)
 		free_expression(new)
