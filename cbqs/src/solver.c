@@ -44,11 +44,7 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
 	return 1;
 }
 
-int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
-                                    const unsigned int *indices,
-                                    const unsigned int *num_indices,
-                                    const unsigned int *offsets, state_t *cur_sol,
-                                    int bit, int negative, int direction, int64_t *ret_total) {
+int update_potentials(new_constraints_t *con, int64_t *potentials, int direction, int64_t *ret_total) {
 	// careful: destinction between positive and negative coefficients
 	// for non-linear clauses with negative coefficients there are two ways, s.t. potential has to be subtracted:
 	//  -> consideres item is set to 0 or previous assignments of clause are set to 0
@@ -104,18 +100,10 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 		if (index == depth) (*count_solutions)++;
 		else {
 			if (next_assignment) {
-				update_potentials(con, potentials, index,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets,
-				                  cur_sol, next_assignment, POSITIVE, PLAIN, ret_total);
+				update_potentials(con, potentials, PLAIN, ret_total);
 				sw_setbit(cur_sol->vector, index); // set assignment to 1
 			} else {
-				update_potentials(con, potentials, index,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets,
-				                  cur_sol, next_assignment, NEGATIVE, PLAIN, ret_total);
+				update_potentials(con, potentials, PLAIN, ret_total);
 				sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 			}
 
@@ -127,18 +115,8 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
             free(sub_ret2);
 //            if (!b1 && !b2) (*count_solutions)++;
 			// reset potentials for proper use in sampling algorithm
-			if (next_assignment)
-				update_potentials(con, potentials, index,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets,
-				                  cur_sol, next_assignment, POSITIVE, INVERSE, ret_total);
-			else
-				update_potentials(con, potentials, index,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets,
-				                  cur_sol, next_assignment, NEGATIVE, INVERSE, ret_total);
+			
+            update_potentials(con, potentials, INVERSE, ret_total);
 
 		}
 	}
@@ -225,18 +203,8 @@ int initial_state_preparation(model_t *mod) {
 			sw_setbit(mod->initial_state->vector, i);
 			new_bit = 1;
 		}
-		if (new_bit) {
-			update_potentials(mod->con, potentials, i,
-			                  mod->con->positive_indices,
-			                  mod->con->num_positive_indices,
-			                  mod->con->positive_offsets, mod->initial_state,
-			                  new_bit, POSITIVE, PLAIN, ret_total2);
-		} else
-			update_potentials(mod->con, potentials, i,
-			                  mod->con->negative_indices,
-			                  mod->con->num_negative_indices,
-			                  mod->con->negative_offsets, mod->initial_state,
-			                  new_bit, NEGATIVE, PLAIN, ret_total1);
+		if (new_bit) update_potentials(mod->con, potentials, PLAIN, ret_total2);
+		else update_potentials(mod->con, potentials, PLAIN, ret_total1);
 	}
 
     mod->initial_state->feasible = eval_constraints(mod->con, mod->initial_state, mod->initial_state->vector.bits);
@@ -335,18 +303,8 @@ int CSearch_opt(state_t *cur_sol, int j,
 			if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
 			int all_positive;
-			if (new_bit) {
-				update_potentials(con, potentials, i,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets, new_sol,
-				                  new_bit, POSITIVE, PLAIN, ret_total2);
-			} else
-				update_potentials(con, potentials, i,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets, new_sol,
-				                  new_bit, NEGATIVE, PLAIN, ret_total1);
+			if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+			else update_potentials(con, potentials, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
 		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
@@ -454,18 +412,8 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 				sw_setbit(new_sol->vector, i);
 				new_bit = 1;
 			}
-			if (new_bit) {
-				update_potentials(con, potentials, i,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets, new_sol,
-				                  new_bit, POSITIVE, PLAIN, ret_total2);
-			} else
-				update_potentials(con, potentials, i,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets, new_sol,
-				                  new_bit, NEGATIVE, PLAIN, ret_total1);
+			if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+			else update_potentials(con, potentials, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
 
@@ -588,18 +536,8 @@ int CSearch_sat(state_t *cur_sol, int j,
 				new_bit = 1;
 			}
 
-			if (new_bit) {
-				update_potentials(con, potentials, i,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets, new_sol,
-				                  new_bit, POSITIVE, PLAIN, ret_total2);
-			} else
-				update_potentials(con, potentials, i,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets, new_sol,
-				                  new_bit, NEGATIVE, PLAIN, ret_total1);
+			if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+			else update_potentials(con, potentials, PLAIN, ret_total1);
 		}
 		int64_t val = -num_satisfied_constrains(con, new_sol);
 		if (cur_sol->tot_profit > val) {
@@ -700,18 +638,8 @@ double CSearch_opt_monte_carlo_sampler(
             }
             
             int all_positive;
-            if (new_bit) {
-                update_potentials(con, potentials, i,
-                                  con->positive_indices,
-                                  con->num_positive_indices,
-                                  con->positive_offsets, new_sol,
-                                  new_bit, POSITIVE, PLAIN, ret_total2);
-            } else
-                update_potentials(con, potentials, i,
-                                  con->negative_indices,
-                                  con->num_negative_indices,
-                                  con->negative_offsets, new_sol,
-                                  new_bit, NEGATIVE, PLAIN, ret_total1);
+            if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+            else update_potentials(con, potentials, PLAIN, ret_total1);
         }
         // if the previous loop broke earlier, determine all bit changes
         int as1 = (i == n);
@@ -809,18 +737,8 @@ double CSearch_opt_sat_monte_carlo_sampler(
 				sw_setbit(new_sol->vector, i);
 				new_bit = 1;
 			}
-			if (new_bit) {
-				update_potentials(con, potentials, i,
-				                  con->positive_indices,
-				                  con->num_positive_indices,
-				                  con->positive_offsets, new_sol,
-				                  new_bit, POSITIVE, PLAIN, ret_total2);
-			} else
-				update_potentials(con, potentials, i,
-				                  con->negative_indices,
-				                  con->num_negative_indices,
-				                  con->negative_offsets, new_sol,
-				                  new_bit, NEGATIVE, PLAIN, ret_total1);
+			if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+			else update_potentials(con, potentials, PLAIN, ret_total1);
 		}
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
@@ -925,18 +843,8 @@ double CSearch_sat_monte_carlo_sampler(
                 new_bit = 1;
             }
             
-            if (new_bit) {
-                update_potentials(con, potentials, i,
-                                  con->positive_indices,
-                                  con->num_positive_indices,
-                                  con->positive_offsets, new_sol,
-                                  new_bit, POSITIVE, PLAIN, ret_total2);
-            } else
-                update_potentials(con, potentials, i,
-                                  con->negative_indices,
-                                  con->num_negative_indices,
-                                  con->negative_offsets, new_sol,
-                                  new_bit, NEGATIVE, PLAIN, ret_total1);
+            if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
+            else update_potentials(con, potentials, PLAIN, ret_total1);
         }
         int64_t val = -num_satisfied_constrains(con, new_sol);
         if (cur_sol->tot_profit > val) {

@@ -173,17 +173,9 @@ int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
             
             int all_positive;
             if (new_bit) {
-                update_potentials(con, potentials, i,
-                                  con->positive_indices,
-                                  con->num_positive_indices,
-                                  con->positive_offsets, new_sol,
-                                  new_bit, POSITIVE, PLAIN, ret_total2);
+                update_potentials(con, potentials, PLAIN, ret_total2);
             } else
-                update_potentials(con, potentials, i,
-                                  con->negative_indices,
-                                  con->num_negative_indices,
-                                  con->negative_offsets, new_sol,
-                                  new_bit, NEGATIVE, PLAIN, ret_total1);
+                update_potentials(con, potentials, PLAIN, ret_total1);
         }
         // if the previous loop broke earlier, determine all bit changes
         int as1 = (i == n);
