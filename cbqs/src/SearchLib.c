@@ -78,22 +78,9 @@ int bfs(
 }
 
 
-int ctg(
-		state_t *cur_sol,
-		new_constraints_t *con,
-		new_constraints_t *obj,
-		int M,
-		int stopping_time,
-		size_t *qtg_applications,
-		int depth_look_ahead,
-		solver_t solver,
-		int64_t stop_val,
-		callback_t callback,
-        state_t *global_opt,
-        int ignore_constraint_search,
-        incumbents_t *incumbents
-        ) {
+int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
 	int m_tot = 0;
+//    state_t *cur_sol = copy_state(mod->initial_state);
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
 	double c = 6. / 5;
@@ -101,27 +88,27 @@ int ctg(
 	int (*search_function)(state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
  
 //	size_t NTerms = obj->num_clauses[0]; // number terms
-	array_t fulfilled_objective_terms = sw_init(obj->num_clauses[0]);
+	array_t fulfilled_objective_terms = sw_init(mod->obj->num_clauses[0]);
 
 	struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
 	int res;
 
-    int feasible = eval_constraints(con, cur_sol, n);
+    int feasible = eval_constraints(mod->con, cur_sol, n);
 
 	int stage = 1;
-	if (solver == SATISFY) search_function = CSearch_sat;
-	if (solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
-	if (solver == OPTIMIZE && feasible) {
-	    prepare(obj, cur_sol, &fulfilled_objective_terms);
+	if (mod->solver == SATISFY) search_function = CSearch_sat;
+	if (mod->solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
+	if (mod->solver == OPTIMIZE && feasible) {
+	    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
 	    search_function = CSearch_opt;
 	}
-	if (solver == OPTIMIZE && ignore_constraint_search) {
+	if (mod->solver == OPTIMIZE && mod->ignore_constraint_search) {
 	    stage = 3;
-	    cur_sol->tot_profit = objective_value(obj, cur_sol);
-	    global_opt->tot_profit = 0;
+	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
+        mod->global_opt->tot_profit = 0;
 	    search_function = CSearch_opt;
 	}
 	int direction = 1;
@@ -131,7 +118,7 @@ int ctg(
 	// Start sampling after initial_state_preparation
 	double total_time = 0;
 	int samples = 0;
-	while (m_tot < M && total_time < stopping_time) {
+	while (m_tot < mod->M && total_time < mod->stopping_time) {
 //    for (int i = 0; i < 1; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
@@ -143,22 +130,24 @@ int ctg(
 		if (stage == 2) j = 1; // when improving constraint tightness, use only small constant number of grover iterations
 		else j = rand() % (m + 1);
 		m_tot += 2 * j + 1;
-		*qtg_applications += 2 * j + 1;
+        mod->qtg_applications += 2 * j + 1;
 		res = search_function(
-				cur_sol, j, con, obj,
-				depth_look_ahead, direction, &fulfilled_objective_terms,
+				cur_sol, j, mod->con, mod->obj,
+                mod->depth_look_ahead, direction, &fulfilled_objective_terms,
 				&samples
 		);
         clock_gettime(CLOCK_MONOTONIC, &t2);
 		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+        mod->runtime = total_time;
+		
 //        printf("%d %d %d %d %lld %d\n", stage, j, res, rounds, cur_sol->tot_profit, cur_sol->feasible);
 		rounds++;
 		if (res) {
 
             // first found feasible solution
-            if (solver == OPTIMIZE && !feasible && cur_sol->feasible){
+            if (mod->solver == OPTIMIZE && !feasible && cur_sol->feasible){
                 stage = 2;
-                cur_sol->tot_profit = objective_value(obj, cur_sol);
+                cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
                 direction = -1;
                 feasible = 1;
             }
@@ -173,28 +162,28 @@ int ctg(
             
 			// update global_opt if better solution is found
 			pthread_mutex_lock(&update_lock);
-			if (global_opt->tot_profit > cur_sol->tot_profit){
-			    copy_state_inplace(global_opt, cur_sol);
+			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
+			    copy_state_inplace(mod->global_opt, cur_sol);
 
-				if (callback && global_opt->feasible) callback(global_opt->tot_profit, *qtg_applications, total_time, 0);
+				if (callback && mod->global_opt->feasible) callback();
 			}
 			pthread_mutex_unlock(&update_lock);
 			rounds = 0;
 
 			m_tot = 0;
-			if ((solver == SATISFY && cur_sol->tot_profit == - (int64_t) con->num_constraints) || feasible && (cur_sol->tot_profit <= stop_val && stop_val != -1)) {
+			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || feasible && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1)) {
 				break;
 			}
 		}
         // improve violations before optimizing
-        if (solver == OPTIMIZE && counter > 10 && !updated) {
+        if (mod->solver == OPTIMIZE && counter > 10 && !updated) {
             stage = 3;
             search_function = CSearch_opt;
-            cur_sol->tot_profit = objective_value(obj, cur_sol);
-	        prepare(obj, cur_sol, &fulfilled_objective_terms);
+            cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
+	        prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
             updated = 1;
         }
-        if (solver == OPTIMIZE && feasible && !updated) counter++;
+        if (mod->solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 	incumbents->search_stage[incumbents->head] = -1; // last step, no better incumbents found
 	incumbents->initial_samples[incumbents->head] = 0; // last step, no better incumbents found

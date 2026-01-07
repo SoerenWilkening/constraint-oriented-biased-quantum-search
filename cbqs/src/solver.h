@@ -11,6 +11,7 @@
 #include "Branching.h"
 #include "constraint.h"
 #include "state.h"
+#include "model.h"
 
 int update_potentials(new_constraints_t *con, int64_t *potentials, int item,
                                     const unsigned int *indices,
@@ -22,11 +23,13 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total);
 
-int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
-                              new_constraints_t *con,
-                              new_constraints_t *obj,
-                              int depth_look_ahead, int *break_item
-);
+//int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
+//                              new_constraints_t *con,
+//                              new_constraints_t *obj,
+//                              int depth_look_ahead, int *break_item
+//);
+
+int initial_state_preparation(model_t *mod);
 
 int CSearch_opt(state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,

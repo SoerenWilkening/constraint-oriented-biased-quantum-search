@@ -14,6 +14,7 @@ typedef struct {
 	state_t *initial_state;
 	state_t *global_opt;
 	size_t M;
+    int break_item;
 	int n;
 	int stopping_time;
 	int stop_val;
@@ -27,6 +28,8 @@ typedef struct {
 	int monte_carlo_estimate;
 	int reset_delta;
 	int max_delta;
+    int solver;
+    int qtg_applications;
 } model_t;
 
 model_t *init_model();

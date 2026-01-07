@@ -28,7 +28,7 @@
 #define STOPATFIRST 1
 
 // define callback functionality
-typedef void (*callback_t)(int64_t, size_t, double, double);
+typedef void (*callback_t)();
 
 typedef int solver_t;
 

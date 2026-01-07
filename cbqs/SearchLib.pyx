@@ -108,36 +108,15 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 
 # define callback functionality ===============================
 
-cpdef run_general_greedy(initial: state_py, con: new_constraint, obj: new_constraint):
-	cdef int break_item = 0;
-	initial_state_preparation(initial.state, NULL, &con.con, &obj.con, 0, &break_item)
-	return break_item
-
 # Python-compatible C wrapper
-cdef void my_callback_c(int64_t a, size_t b, double c, double d) with gil:
+cdef void my_callback_c() with gil:
 	if python_callback is not None:
-		python_callback(a, b, c, d)
+		python_callback()
 
 # python function to store the callback
 cdef object python_callback = None
 
-cpdef run_sampling(
-		initial: state_py,
-		con: new_constraint,
-		obj: new_constraint,
-		M: int,
-		stopping_time: int,
-		depth_look_ahead: int,
-		solver: int,
-		int64_t stop_val,
-		object callback,
-		int max_delta,
-		int reset_delta,
-		global_opt: state_py,
-		not_stop: list[int],
-		int ignore_constraint_search,
-		int monte_carlo_estimate
-):
+cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 	t_start: float = time.time()
 	t_total: float = 0
 	set_seed(randint(0, 10000000))
@@ -146,20 +125,25 @@ cpdef run_sampling(
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	cur_sol: state_py = copy(initial)
 
-	cdef size_t qtg_applications = 0;
-	cdef int dpth = depth_look_ahead
-	cdef int slvr = solver
-	cdef int64_t stpvl = stop_val
-	cdef int M_c = M
-	cdef int stppngtm = stopping_time
-	cdef new_constraints_t *cnstrs = &con.con
-	cdef new_constraints_t *obctv = &obj.con
-	cdef int feasible;
-	cdef int n = cur_sol.state[0].vector.bits
+	n = mod.mod[0].initial_state[0].vector.bits
 
-	inc = incumbents(n, initial)
+	cur_sol: state_py = state_py(0, [0] * n)
+	free_state(cur_sol.state, 1)
+	cur_sol.state = copy_state(copy_state(mod.mod[0].initial_state))
+
+	# cdef size_t qtg_applications = 0;
+	# cdef int dpth = depth_look_ahead
+	# cdef int slvr = solver
+	# cdef int64_t stpvl = stop_val
+	# cdef int M_c = M
+	# cdef int stppngtm = stopping_time
+	# cdef new_constraints_t *cnstrs = &con.con
+	# cdef new_constraints_t *obctv = &obj.con
+	# cdef int feasible;
+	# cdef int n = cur_sol.state[0].vector.bits
+
+	inc = incumbents(n, cur_sol)
 
 	# if solver == SATISFY:
 	# 	random_array = [randint(0, 1) for _ in range(n)]
@@ -168,31 +152,30 @@ cpdef run_sampling(
 	# 			sw_flpbit(cur_sol.state[0].vector, i)
 
 	cdef state_t *stt = cur_sol.state
+	cdef model_t *mod_ptr = <model_t *> mod.mod
 
-	if solver == OPTIMIZE:
+	if mod.mod[0].solver == OPTIMIZE:
 		# Run sampling for optimization based on user input
 		with nogil:
-			feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr,
-			               stpvl, cb_ptr, global_opt.state, ignore_constraint_search,
-			               inc.incumbent)
+			feasible = ctg(mod_ptr, stt, cb_ptr, inc.incumbent)
 	else:
 		# Run satisfyability solver with increasing delta (only up to 7)
 		# delta determines M and bias
-		stpvl = -len(con)
+		stpvl = -len(mod.mod[0].con[0].num_constraints)
 		delta = 0
+		mod.mod[0].stop_val = stpvl
 		# for delta in range(1, max_delta):
-		while delta < max_delta:
+		while delta < mod.mod[0].max_delta:
 			delta += 1
 			# print(delta)
 			M_c = int((cur_sol.state[0].vector.bits / delta) ** (delta / 2) * np.exp(delta / 2))
 			# M_c = (cur_sol.state[0].vector.bits / delta) ** (delta / 2)
 			# print(cur_sol.state[0].vector.bits / delta - 1)
 			set_bias_wrapper(cur_sol.state[0].vector.bits / delta - 1)
+			mod.mod[0].M = M_c
 
 			with nogil:
-				feasible = ctg(stt, cnstrs, obctv, M_c, stppngtm, &qtg_applications, dpth, slvr, stpvl,
-				               cb_ptr, global_opt.state, False,
-				               inc.incumbent)
+				feasible = ctg(mod_ptr, stt, cb_ptr, inc.incumbent)
 			# print(stt.tot_profit, qtg_applications)
 			if stt.tot_profit == stpvl:
 				not_stop[0] = 0
@@ -209,53 +192,15 @@ cpdef run_sampling(
 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 	incumb = []
-	if monte_carlo_estimate:
-		if (solver == OPTIMIZE):
-			incumb = inc.estimate_grover_iterations(con, obj, 0.1, solver)
+	# if mod.mod[0].monte_carlo_estimate:
+	# 	if (mod.mod[0].solver == OPTIMIZE):
+	# 		incumb = inc.estimate_grover_iterations(<new_constraints_t *> mod.mod[0].con, <new_constraints_t *> mod.mod[0].obj, 0.1, mod.mod[0].solver)
 
 	del inc
 
 	cur_sol.arr = np.array(arr, dtype = np.int32)
-	return cur_sol, qtg_applications, feasible, arr, t_total, incumb
+	return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb
 
-# cpdef run_bfs(
-# 		initial: state_py,
-# 		con: new_constraint,
-# 		obj: new_constraint,
-# 		M: int,
-# 		depth_look_ahead: int,
-# 		solver: int,
-# 		int64_t stop_val,
-# 		object callback,
-# 		int max_delta,
-# 		int reset_delta):
-# 	global python_callback
-# 	python_callback = callback
-#
-# 	# python callback to c callback
-# 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-# 	cur_sol: state_py = copy(initial)
-#
-# 	cdef size_t qtg_applications = 0;
-# 	cdef int dpth = depth_look_ahead
-# 	cdef int slvr = solver
-# 	cdef int64_t stpvl = stop_val
-# 	cdef int M_c = M
-# 	cdef state_t *stt = cur_sol.state
-# 	cdef new_constraints_t *cnstrs = &con.con
-# 	cdef new_constraints_t *obctv = &obj.con
-# 	cdef int found_new;
-#
-# 	bfs(stt, cnstrs, obctv, M_c, &qtg_applications, dpth, slvr, stpvl, cb_ptr)
-#
-# 	cur_sol.get_x()
-# 	arr = []
-# 	for i in range(cur_sol.state[0].vector.bits):
-# 		arr.append(sw_tstbit(cur_sol.state[0].vector, i))
-#
-# 	cur_sol.arr = np.array(arr, dtype = np.int32)
-# 	return cur_sol, qtg_applications
-# return qtg_applications
 
 cpdef run_local_search(initial: state_py,
                        con: new_constraint,

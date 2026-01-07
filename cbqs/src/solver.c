@@ -164,30 +164,25 @@ int64_t max_value(const int64_t *arr, int n) {
 }
 
 
-int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
-                              new_constraints_t *con,
-                              new_constraints_t *obj,
-                              int depth_look_ahead,
-                              int *break_item
-) {
+int initial_state_preparation(model_t *mod) {
 
     // cur_sol is not necessary anymore
 
-	int n = new_sol->vector.bits;
-	int64_t potentials[con->num_constraints];
-
-	// reset constraint rhs to initial values
-	memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+	int n = mod->initial_state->vector.bits;
+	int64_t potentials[mod->con->num_constraints];
+    
+    // reset constraint rhs to initial values
+    memcpy(potentials, mod->con->rhs, mod->con->num_constraints * sizeof(int64_t));
 
 	// initialize new solution
-//	new_sol->tot_profit = cur_sol->tot_profit;
-//	sw_set_ui_0(new_sol->vector);
+    mod->initial_state->tot_profit = -INT32_MAX;
+	sw_set_ui_0(mod->initial_state->vector);
 
 	int i;
-	int64_t ret_total1[con->num_constraints];
-	int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+	int64_t ret_total1[mod->con->num_constraints];
+	int64_t ret_total2[mod->con->num_constraints];
+    memset(ret_total1, 0, mod->con->num_constraints * sizeof(int64_t));
+    memset(ret_total2, 0, mod->con->num_constraints * sizeof(int64_t));
     int updated = 1;
 	for (i = 0; i < n; i++) {
 	    printf("\r%f %%", (double) i / n * 100.);
@@ -195,68 +190,72 @@ int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
 
 		// Initialize new bit to be 0
 
-		sw_clrbit(new_sol->vector, i);
-		sw_clrbit(new_sol->branch, i);
+		sw_clrbit(mod->initial_state->vector, i);
+		sw_clrbit(mod->initial_state->branch, i);
 		int new_bit = 0;
 
 		// check, if assignment does not exceed potentials
 		// if depth look ahead is 0, it will check only the next assignment
 		int count[2] = {0, 0};
 		// look ahead to the left side
-		look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+		look_ahead_correct(i, 1, min(i + mod->depth_look_ahead, n - 1), &count[1], mod->con, potentials, mod->initial_state, ret_total2);
 		// look ahead to the right side
-        look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+        look_ahead_correct(i, 0, min(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1);
 
 //        printf("%d %d\n", count[0], count[1]);
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
-			sw_setbit(new_sol->vector, i);
+			sw_setbit(mod->initial_state->vector, i);
 			new_bit = 1;
-			*break_item += updated;
+            mod->break_item += updated;
 		} else{
-		    sw_clrbit(new_sol->vector, i);
+		    sw_clrbit(mod->initial_state->vector, i);
 		    updated = 0;
 		}
 		// we are forced to go left, when only count[0] leads to a feasible solution
 		// count[0] > 0 does not need to be checked, since both == 0 was checked prior
 		if (count[0] != 0 && count[1] == 0) {
 			// but if left don't lead to feasible solution: break
-			sw_clrbit(new_sol->vector, i);
+			sw_clrbit(mod->initial_state->vector, i);
 			new_bit = 0;
 		}
 		// we are forced to go right, when only count[1] leads to feasible solution
 		if (count[0] == 0 && count[1] != 0) {
 			// but if right don't lead to feasible solution: break
-			sw_setbit(new_sol->vector, i);
+			sw_setbit(mod->initial_state->vector, i);
 			new_bit = 1;
 		}
 		if (new_bit) {
-			update_potentials(con, potentials, i,
-			                  con->positive_indices,
-			                  con->num_positive_indices,
-			                  con->positive_offsets, new_sol,
+			update_potentials(mod->con, potentials, i,
+			                  mod->con->positive_indices,
+			                  mod->con->num_positive_indices,
+			                  mod->con->positive_offsets, mod->initial_state,
 			                  new_bit, POSITIVE, PLAIN, ret_total2);
 		} else
-			update_potentials(con, potentials, i,
-			                  con->negative_indices,
-			                  con->num_negative_indices,
-			                  con->negative_offsets, new_sol,
+			update_potentials(mod->con, potentials, i,
+			                  mod->con->negative_indices,
+			                  mod->con->num_negative_indices,
+			                  mod->con->negative_offsets, mod->initial_state,
 			                  new_bit, NEGATIVE, PLAIN, ret_total1);
 	}
 
-    new_sol->feasible = eval_constraints(con, new_sol, new_sol->vector.bits);
-	new_sol->tot_profit = 0;
+    mod->initial_state->feasible = eval_constraints(mod->con, mod->initial_state, mod->initial_state->vector.bits);
+	mod->initial_state->tot_profit = 0;
 
-	if (new_sol->feasible) {
-		new_sol->tot_profit = objective_value(obj, new_sol);
+	if (mod->initial_state->feasible) {
+		mod->initial_state->tot_profit = objective_value(mod->obj, mod->initial_state);
 	} else {
-		int64_t remainings[con->num_constraints];
-		for (int i = 0; i < con->num_constraints; ++i) remainings[i] = constraint_violation(con, new_sol, i);
-		new_sol->tot_profit = 0;
-		for (int i = 0; i < con->num_constraints; ++i) if (remainings[i] < 0) new_sol->tot_profit -= remainings[i];
+		int64_t remainings[mod->con->num_constraints];
+		for (int i = 0; i < mod->con->num_constraints; ++i) remainings[i] = constraint_violation(mod->con, mod->initial_state, i);
+        mod->initial_state->tot_profit = 0;
+		for (int i = 0; i < mod->con->num_constraints; ++i) if (remainings[i] < 0) mod->initial_state->tot_profit -= remainings[i];
 	}
-
-	return min_value(potentials, con->num_constraints);
+    
+    mod->global_opt->tot_profit = mod->initial_state->tot_profit;
+    mod->global_opt->feasible = mod->initial_state->feasible;
+    sw_set_inplace(mod->global_opt->vector, mod->initial_state->vector);
+    
+	return min_value(potentials, mod->con->num_constraints);
 }
 
 

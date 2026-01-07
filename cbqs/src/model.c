@@ -9,7 +9,8 @@ model_t *init_model(){
     mod->bias_factor = 1.;
     mod->manual_bias_factor = 0.;
     mod->look_ahead_factor = 0.;
-    mod->depth_look_ahead = 0.;
+    mod->depth_look_ahead = 0;
+    mod->break_item = 0;
     mod->num_workers = 12;
     mod->n = 0;
     mod->runtime = 0.;
@@ -25,7 +26,10 @@ model_t *init_model(){
     mod->con[0] = init_new_constraint();
     mod->max_delta = 7;
     mod->reset_delta = 1;
-
+    mod->solver = SATISFY;
+    mod->qtg_applications = 0;
+    mod->stop_val = -1;
+    mod->stopping_time = 1000000;
     return mod;
 }
 

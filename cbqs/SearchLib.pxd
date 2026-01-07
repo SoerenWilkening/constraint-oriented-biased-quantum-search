@@ -4,12 +4,12 @@ from libc.stdlib cimport calloc, free, srand
 from .Constraint cimport new_constraints_t
 from .state cimport *
 from .branching cimport StateProbability
-from .Model cimport model_t
+from .Model cimport Model, model_t
 
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
-	ctypedef void (*callback_t)(int64_t, size_t, double, double)
+	ctypedef void (*callback_t)()
 
 	ctypedef struct incumbents_t:
 		state_t *states;
@@ -27,24 +27,13 @@ cdef extern from "src/SearchLib.h":
 	void print_incumbents(incumbents_t *incumbents);
 	void free_incumbents(incumbents_t *incumbents);
 
-	int ctg(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, int stopping_time,
-	        size_t *qtg_applications, int depth_look_ahead, int solver, int64_t stop_val, callback_t callback,
-	        state_t *global_opt, int ignore_constraint_search, incumbents_t *incumbent) nogil
+	int ctg(model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) nogil
 
-	# int bfs(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
-	#         int depth_look_ahead, int solver, int64_t stop_val, callback_t callback) nogil
-
-	int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
-	                              new_constraints_t *con,
-	                              new_constraints_t *obj,
-	                              int depth_look_ahead,
-	                              int *break_item
-	                              );
+	int initial_state_preparation(model_t *mod);
 
 	double CSearch_opt_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int initial_samples) nogil
 	double CSearch_opt_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples) nogil
 	double CSearch_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, double error, int initial_samples) nogil
-
 
 
 cdef extern from "src/local_search.h":

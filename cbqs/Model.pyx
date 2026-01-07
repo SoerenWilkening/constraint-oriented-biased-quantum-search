@@ -9,48 +9,25 @@ from .Constants import *
 from .Expression import Variable
 from .Expression cimport Expression
 from .state import state_py
+from .state cimport init_state
 from .Constraint import new_constraint
 from .Constraint cimport add_expression_to_constraints, process_constraints
 from .Expression cimport expression_t
 from .branching import set_seed, set_bias_wrapper, set_factors_wrapper, set_obj_dependence_wrapper
-from .SearchLib import (run_sampling, run_local_search, run_quantum_local_search, run_general_greedy, reset_c_flags)
+from .SearchLib import (run_local_search, run_quantum_local_search, reset_c_flags)
+from .SearchLib import run_sampling
 from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
+from .SearchLib cimport initial_state_preparation
+from .state cimport print_state
 
 cdef class Model:
-	cdef model_t *mod
-	cdef int gpu_imported
-
-	cdef public object sparsity
-	cdef public object stgen
-	cdef public object global_opt
-	cdef public object calls
-	cdef public object met
-	cdef public object objective
-	cdef public object constraint
-	cdef public object obj_expr
-	cdef public object con_expr
-	cdef public object sense
-	cdef public object n
-	cdef public object variables
-	cdef public object initial_state
-	cdef public object solver
-	cdef public object runtime
-	cdef public object feasible
-	cdef public object grover_iterations
-	cdef public object quantum_cycles
-	cdef public object objective_value
-	cdef public object final_state
-	cdef public object improved
-	cdef public object gpu_compiled
-	cdef public object constraints_compiled
-	cdef public object circuit
-
 	def __cinit__(self):
 		self.mod = init_model()
 		self.gpu_imported = False
 
 	def __init__(self):
+		self.initialized = False
 		self.sparsity = None
 		self.stgen = None
 		self.global_opt = None
@@ -73,13 +50,13 @@ cdef class Model:
 
 		self.initial_state: state_py | None = None
 
-		self.solver = SATISFY
+		self.mod.solver = SATISFY
 
-		self.runtime: float = 0
+		# self.runtime: float = 0
 		self.feasible = 0
 		self.grover_iterations: list[int] | int = 0
 		self.quantum_cycles: list[int] | int = 0
-		self.objective_value: list[int] | int = 0
+		# self.objective_value: list[int] | int = 0
 		self.final_state: list[state_py] | state_py | list | None = None
 		self.improved: bool = False
 
@@ -94,7 +71,7 @@ cdef class Model:
 		new_m.objective = copy(self.objective)
 		new_m.constraint = copy(self.constraint)
 		new_m.initial_state = copy(self.initial_state)
-		new_m.solver = self.solver
+		new_m.mod.solver = self.mod.solver
 		new_m.sense = self.sense
 		return new_m
 
@@ -108,9 +85,9 @@ or {self.runtime}s sampling
 		"""
 
 	def reset(self):
-		self.runtime: float = 0
+		# self.runtime: float = 0
 		self.quantum_cycles: int = 0
-		self.objective_value: int = 0
+		# self.objective_value: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 		self.global_opt = None
@@ -147,7 +124,7 @@ or {self.runtime}s sampling
 			raise TypeError
 
 		self.sense = sense
-		self.solver = OPTIMIZE
+		self.mod.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
 		if sense == MINIMIZE:
@@ -167,11 +144,15 @@ or {self.runtime}s sampling
 		self.con_expr.append(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
-		# f = self.constraint.eval_con_from_array(assignment)
-		# if not f:
-		# 	pass
-		self.initial_state = state_py(P, assignment)
+		self.initialized = True
 
+		arr = np.array(assignment, dtype = np.int32)
+		cdef int * ptr = <int *> calloc(arr.shape[0], sizeof(int))
+		for i in range(arr.shape[0]): ptr[i] = <int> arr[i]
+		self.mod.initial_state = init_state(P, ptr, arr.shape[0])
+		self.mod.global_opt = init_state(P, ptr, arr.shape[0])
+		free(<void *> ptr)
+	# self.initial_state = state_py(P, assignment)
 
 	def compile(self):
 		self.gpu_compiled = True
@@ -179,7 +160,6 @@ or {self.runtime}s sampling
 	# self.gpu_executor = Executor(self.n, self.n / 4, int(time()), self.linear_con_form, self.linear_obj_form,
 	#                              len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
 	#                              self.solver)
-
 
 	def __del__(self):
 		free_model(self.mod)
@@ -195,20 +175,14 @@ or {self.runtime}s sampling
 			process_constraints(self.mod.obj, self.n, enforce_density)
 			process_constraints(self.mod.con, self.n, enforce_density)
 			self.sparsity = self.constraint.process(self.n, enforce_density)
-			print_model(self.mod)
-			# print("processed con")
-			# self.circuit = circuit()
-			# self.circuit.compile()
-			# print(self.circuit)
+			# print_model(self.mod)
 			set_bias_wrapper(self.n / 4)
 			self.constraints_compiled = True
 
 	def general_greedy(self):
-		if self.initial_state is not None:
-			self.initial_state = None
-			# del self.initial_state
-		self.manual_initial(0, [0] * self.n)
-		run_general_greedy(self.initial_state, self.constraint, self.objective)
+		if not self.initialized:
+			self.manual_initial(0, [0] * self.n)
+		initial_state_preparation(self.mod)
 
 	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None,
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
@@ -234,53 +208,39 @@ or {self.runtime}s sampling
 
 		self.calls += 1
 
-		if self.solver == SATISFY:
+		if self.mod.solver == SATISFY:
 			if M != -1: warn("Defined M will be ignored when solving SAT")
 			if bias != -1: warn("Defined bias will be ignored when solving SAT")
 			if stop_val != -1: warn("Defined stop_val will be ignored when solving SAT")
 
-		if not self.initial_state: self.manual_initial(0, [0] * self.n)
+		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		if M == -1: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
 		set_bias_wrapper(bias)
 		set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
 		if manual_bias is not None: set_obj_dependence_wrapper(manual_bias)
 
-		# if bfs:
-		# 	s = exact_simulator(self)
-		# 	s.generate_gurobi_model()
-		# 	s.stategen()
-		# 	print(len(s.bfs))
-		# 	run_bfs(self.initial_state, self.constraint, self.objective, M, depth_look_ahead, self.solver,
-		# 	        stop_val, callback, max_delta, reset_delta)
-		# 	return
-		# self.global_opt: state_py = copy(self.initial_state)
-
 		not_stop = [1]
 
+		self.mod.M = M
+		self.mod.depth_look_ahead = depth_look_ahead
+		self.mod.stop_val = stop_val
+		self.mod.stopping_time = stopping_time
+		self.mod.ignore_constraint_search = ignore_constraint_search
+		self.mod.monte_carlo_estimate = monte_calor_estimate
+		self.mod.max_delta = max_delta
+		self.mod.reset_delta = reset_delta
+
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(
-				self.initial_state,
-				self.constraint,
-				self.objective,
-				M,
-				stopping_time,
-				depth_look_ahead,
-				self.solver,
-				stop_val, callback, max_delta, reset_delta,
-				self.global_opt,
-				not_stop,
-				ignore_constraint_search,
-				monte_calor_estimate
-			) for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop) for _ in range(num_workers)
 		)
 
 		reset_c_flags()
 		obj_vals = [i[0].objective_value for i in res]
-		self.objective_value = min([i[0].objective_value for i in res])
-		index_opt = obj_vals.index(self.objective_value)
-		self.grover_iterations = res[index_opt][1]
-		self.runtime = res[index_opt][-2]
+		# self.objective_value = min([i[0].objective_value for i in res])
+		# index_opt = obj_vals.index(self.objective_value)
+		# self.grover_iterations = res[index_opt][1]
+		# self.runtime = res[index_opt][-2]
 		self.final_state = self.global_opt
 		total_incumbent = [j for i in range(num_workers) for j in res[i][-1]]
 		# print(total_incumbent)
@@ -295,7 +255,6 @@ or {self.runtime}s sampling
 			except:
 				break
 
-
 		return total_incumbent
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
@@ -304,10 +263,10 @@ or {self.runtime}s sampling
 		if not self.initial_state: self.manual_initial(0, [0] * self.n)
 		t1 = time()
 		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time,
-		                                    self.solver, -1,
+		                                    self.mod.solver, -1,
 		                                    callback, max_worse_acceptances, stopping_condition)
-		self.runtime = time() - t1
-		self.objective_value = self.final_state.objective_value
+		# self.runtime = time() - t1
+	# self.objective_value = self.final_state.objective_value
 
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
 		Parallel(n_jobs = num_workers, backend = "threading")(
@@ -343,7 +302,7 @@ or {self.runtime}s sampling
 				del threshold
 				threshold = r
 				incumbents.append((-threshold.objective_value, total_iterations))
-				# del threshold
+			# del threshold
 		del threshold
 		return total_iterations, deltas, incumbents
 
@@ -355,3 +314,15 @@ or {self.runtime}s sampling
 
 		inc = self.stgen.QMaxSearch(M)
 		return inc
+
+	@property
+	def objective_value(self):
+		return self.mod[0].global_opt[0].tot_profit * self.sense
+
+	@property
+	def oracle_calls(self):
+		return self.mod[0].qtg_applications
+
+	@property
+	def runtime(self):
+		return self.mod[0].runtime
