@@ -123,3 +123,14 @@ add_cmocka_test(test_searchlib
     ${CBQS_SRC_DIR}/intarray.c
 )
 target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
+
+add_cmocka_test(test_integration
+    test_integration.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
