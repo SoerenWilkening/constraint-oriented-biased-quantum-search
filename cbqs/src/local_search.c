@@ -678,7 +678,7 @@ int quantum_local_search(new_constraints_t *obj,
 		if (accept_global) {
 			free_state(global_opt, 1);
 			global_opt = copy_state(cur_sol);
-			if (callback) callback(-global_opt->tot_profit, *total_oracle_applications, 0, 0);
+			if (callback) callback();
 //			printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
 		}
 		clock_gettime(CLOCK_MONOTONIC, &t2);
