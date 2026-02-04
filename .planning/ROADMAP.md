@@ -32,11 +32,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Tests cover constraint evaluation, move generation, branching logic, and state management functions in the C kernel
   3. At least one integration test solves a small known-optimal problem and verifies the returned solution satisfies all constraints with the correct objective value
   4. Tests run under AddressSanitizer without triggering any warnings (establishing a clean ASan baseline)
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — CMake test infrastructure + intarray/Expression/state C tests
+- [ ] 01-02-PLAN.md — constraint/model/Branching C tests
+- [ ] 01-03-PLAN.md — solver/SearchLib C tests + integration test
+- [ ] 01-04-PLAN.md — Python pytest suite (Expression, Constraint, Model API)
+- [ ] 01-05-PLAN.md — GitHub Actions CI + ASan + local validation
 
 ### Phase 2: Critical Correctness Fixes
 **Goal**: The solver produces correct results -- no use-after-free, no excessive reallocation, and integer variable expressions behave like normal Python objects
