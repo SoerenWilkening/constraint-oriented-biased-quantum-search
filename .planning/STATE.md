@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 1 of 8 (Test Foundation)
-Plan: 2 of 5 in current phase
+Plan: 3 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-04 - Completed 01-02-PLAN.md
+Last activity: 2026-02-04 - Completed 01-03-PLAN.md
 
-Progress: [███░░░░░░░] ~15% (3 plans of ~20 total)
+Progress: [████░░░░░░] ~20% (4 plans of ~20 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: ~9m
-- Total execution time: ~0.45 hours
+- Total execution time: ~0.60 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3/5 | ~27m | ~9m |
+| 01 | 4/5 | ~36m | ~9m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~11m), 01-04 (10m), 01-02 (~6m)
-- Trend: improving
+- Last 5 plans: 01-01 (~11m), 01-04 (10m), 01-02 (~6m), 01-03 (~9m)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -50,6 +50,9 @@ Recent decisions affecting current work:
 - xfail for Expression mutation bug: Expression.__add__ mutates self and returns self, Phase 2 fix
 - Build expressions term-by-term to avoid multiply_constant pitfall (01-02)
 - Setup/teardown fixtures for BranchingStats global reset (01-02)
+- Python3 include discovery for SearchLib.c test compilation (01-03)
+- cmocka FetchContent URL switched to gitlab.com mirror (01-03)
+- free_incumbents uses num_states(0) instead of allocated(1024) -- pre-existing leak (01-03)
 
 ### Pending Todos
 
@@ -66,6 +69,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-04T23:28:37Z
-Stopped at: Completed 01-02-PLAN.md (Priority 2 C unit tests)
+Last session: 2026-02-04T23:32:47Z
+Stopped at: Completed 01-03-PLAN.md (solver, SearchLib, integration tests)
 Resume file: None
