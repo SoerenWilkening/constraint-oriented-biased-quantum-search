@@ -12,7 +12,7 @@ This roadmap takes the CBQS solver from its current state -- functional but with
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Test Foundation** - CMocka test suite establishing correctness baseline
+- [x] **Phase 1: Test Foundation** - CMocka test suite establishing correctness baseline
 - [ ] **Phase 2: Critical Correctness Fixes** - Fix bugs that produce silently wrong results
 - [ ] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
 - [ ] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
@@ -35,11 +35,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — CMake test infrastructure + intarray/Expression/state C tests
-- [ ] 01-02-PLAN.md — constraint/model/Branching C tests
-- [ ] 01-03-PLAN.md — solver/SearchLib C tests + integration test
-- [ ] 01-04-PLAN.md — Python pytest suite (Expression, Constraint, Model API)
-- [ ] 01-05-PLAN.md — GitHub Actions CI + ASan + local validation
+- [x] 01-01-PLAN.md — CMake test infrastructure + intarray/Expression/state C tests
+- [x] 01-02-PLAN.md — constraint/model/Branching C tests
+- [x] 01-03-PLAN.md — solver/SearchLib C tests + integration test
+- [x] 01-04-PLAN.md — Python pytest suite (Expression, Constraint, Model API)
+- [x] 01-05-PLAN.md — GitHub Actions CI + ASan + local validation
 
 ### Phase 2: Critical Correctness Fixes
 **Goal**: The solver produces correct results -- no use-after-free, no excessive reallocation, and integer variable expressions behave like normal Python objects
@@ -148,7 +148,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Test Foundation | 0/TBD | Not started | - |
+| 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
 | 2. Critical Correctness Fixes | 0/TBD | Not started | - |
 | 3. Solver Context Architecture | 0/TBD | Not started | - |
 | 4. Thread Isolation | 0/TBD | Not started | - |
