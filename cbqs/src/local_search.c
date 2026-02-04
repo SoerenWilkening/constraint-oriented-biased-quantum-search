@@ -475,7 +475,7 @@ state_t *quantum_local_search_states(
 		int feasible = 0;
 		int include_state = 1;
 		int64_t objective = 0;
-		if (move_is_tabu(&tabu_list, i)) include_state = 0;
+		if (move_is_tabu(tabu_list, i)) include_state = 0;
 		else {
 			int64_t total_violation = 0;
 
@@ -584,7 +584,7 @@ int quantum_local_search(new_constraints_t *obj,
                          callback_t callback) {
 	state_t *global_opt = copy_state(cur_sol);
 
-	size_t num_moves = 0;
+	int num_moves = 0;
 	move_t *moves = move_list(k, cur_sol->vector.bits, &num_moves, false);
 
 	tabu_list_t tabu_list;

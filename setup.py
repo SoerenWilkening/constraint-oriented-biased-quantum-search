@@ -1,4 +1,5 @@
 import os
+import sys
 
 from Cython.Build import cythonize
 from setuptools import setup, find_packages
@@ -52,10 +53,18 @@ extensions = [
 	Extension("cbqs.StateGenerator", [os.path.join("cbqs", "StateGenerator.py")], extra_compile_args = compiler_args),
 	Extension("cbqs.Expression", [os.path.join("cbqs", "Expression.pyx"), os.path.join("cbqs", "src", "Expression.c")],
 	          extra_compile_args = compiler_args),
-	Extension("cbqs.Metal_executor", [
-		os.path.join("cbqs", "Metal_executor.pyx"),
-		os.path.join("cbqs", "src", "metal_files", "exec_metal.m")
-	], extra_compile_args = compiler_args + ["-ObjC"], include_dirs = [os.path.join("cbqs", "src", "metal_files")]),
+]
+
+# Metal_executor requires macOS Objective-C runtime (-ObjC flag)
+if sys.platform == "darwin":
+	extensions.append(
+		Extension("cbqs.Metal_executor", [
+			os.path.join("cbqs", "Metal_executor.pyx"),
+			os.path.join("cbqs", "src", "metal_files", "exec_metal.m")
+		], extra_compile_args = compiler_args + ["-ObjC"], include_dirs = [os.path.join("cbqs", "src", "metal_files")])
+	)
+
+extensions += [
 	Extension("cbqs.Model", ["cbqs/Model.pyx"] + sources, extra_compile_args = compiler_args, include_dirs = [os.path.join("cbqs", "src")]),
 	Extension("cbqs.CircuitBackendBinder", sources_circuit,
 	          language = "c", extra_compile_args = compiler_args,
