@@ -1,0 +1,69 @@
+name: Tests
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  c-tests:
+    name: C Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Configure
+        run: mkdir build-tests && cd build-tests && cmake ../tests
+
+      - name: Build
+        run: cd build-tests && make -j$(nproc)
+
+      - name: Test
+        run: cd build-tests && ctest --output-on-failure
+
+  c-tests-asan:
+    name: C Tests (AddressSanitizer)
+    runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Configure with ASan
+        run: mkdir build-tests-asan && cd build-tests-asan && cmake ../tests -DASAN=ON
+
+      - name: Build
+        run: cd build-tests-asan && make -j$(nproc)
+
+      - name: Test
+        run: cd build-tests-asan && ctest --output-on-failure
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: pip install cython numpy setuptools
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
