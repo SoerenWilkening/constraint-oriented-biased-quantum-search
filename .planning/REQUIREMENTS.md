@@ -60,27 +60,27 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORR-01 | Phase 1 | Pending |
-| CORR-02 | Phase 1 | Pending |
-| CORR-03 | Phase 1 | Pending |
-| CORR-04 | Phase 1 | Pending |
-| THRD-01 | Phase 2 | Pending |
-| THRD-02 | Phase 2 | Pending |
-| THRD-03 | Phase 2 | Pending |
-| THRD-04 | Phase 2 | Pending |
-| MEM-01 | Phase 3 | Pending |
-| MEM-02 | Phase 3 | Pending |
-| MEM-03 | Phase 3 | Pending |
-| MEM-04 | Phase 3 | Pending |
-| RBST-01 | Phase 4 | Pending |
-| RBST-02 | Phase 4 | Pending |
-| RBST-03 | Phase 4 | Pending |
+| CORR-01 | Phase 1: Test Foundation | Pending |
+| CORR-02 | Phase 2: Critical Correctness Fixes | Pending |
+| CORR-03 | Phase 2: Critical Correctness Fixes | Pending |
+| CORR-04 | Phase 2: Critical Correctness Fixes | Pending |
+| THRD-01 | Phase 3: Solver Context Architecture | Pending |
+| THRD-02 | Phase 3: Solver Context Architecture | Pending |
+| THRD-03 | Phase 4: Thread Isolation | Pending |
+| THRD-04 | Phase 4: Thread Isolation | Pending |
+| MEM-01 | Phase 5: Memory Safety | Pending |
+| MEM-04 | Phase 5: Memory Safety | Pending |
+| MEM-02 | Phase 6: Memory Optimization | Pending |
+| MEM-03 | Phase 6: Memory Optimization | Pending |
+| RBST-01 | Phase 7: API Robustness | Pending |
+| RBST-02 | Phase 7: API Robustness | Pending |
+| RBST-03 | Phase 8: Solve Diagnostics | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
 - Mapped to phases: 15
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-04 after initial definition*
+*Last updated: 2026-02-04 after roadmap creation*
