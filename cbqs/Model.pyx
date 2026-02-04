@@ -176,7 +176,7 @@ or {self.runtime}s sampling
 			self.objective.process(self.n)
 			process_constraints(self.mod.obj, self.n, enforce_density)
 			process_constraints(self.mod.con, self.n, enforce_density)
-			self.sparsity = self.constraint.process(self.n, enforce_density)
+			# self.sparsity = self.constraint.process(self.n, enforce_density)
 			# print_model(self.mod)
 			set_bias_wrapper(self.n / 4)
 			self.constraints_compiled = True
@@ -265,9 +265,14 @@ or {self.runtime}s sampling
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		t1 = time()
 
-		self.final_state = run_local_search(self.initial_state, self.constraint, self.objective, distance, stop_time,
-		                                    self.mod.solver, -1,
-		                                    callback, max_worse_acceptances, stopping_condition)
+		self.mod[0].max_worse_acceptances = max_worse_acceptances
+		self.mod[0].stopping_condition = stopping_condition
+		self.mod[0].distance = distance
+		self.mod[0].stopping_time = stop_time
+		self.mod[0].stop_val = -1
+
+		self.final_state = run_local_search(self, callback)
+		print(self.final_state)
 		# self.runtime = time() - t1
 	# self.objective_value = self.final_state.objective_value
 

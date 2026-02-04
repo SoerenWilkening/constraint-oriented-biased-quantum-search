@@ -21,6 +21,18 @@ cdef extern from "src/constraint.h":
 		unsigned int *num_positive_indices;
 		unsigned int *num_negative_indices;
 
+		uint32_t *neg_rows;
+		uint32_t *neg_cols;
+		uint32_t *pos_rows;
+		uint32_t *pos_cols;
+
+		int sparsity;
+
+		size_t nnz_pos;
+		size_t nnz_neg;
+
+		uint32_t array_length;
+
 	new_constraints_t init_new_constraint();
 
 	new_constraints_t copy_new_constraint(new_constraints_t *con);

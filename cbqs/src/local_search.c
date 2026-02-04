@@ -27,20 +27,20 @@ update_state(state_t *cur_best, state_t *cur_best_tabu, state_t *state2, int64_t
 	cur_best_tabu->feasible = feasible;
 }
 
-static inline int aspiration(state_t *new_sol, state_t *global_opt) {
-	// for tabu moves: if better than global opt: accept
-//	int accepted = 0;
-//	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
-//	if (new_sol->feasible && !global_opt->feasible) accepted = 1;
-//	if (new_sol->feasible && global_opt->feasible && greater_objective) accepted = 1;
-//	if (!new_sol->feasible && !global_opt->feasible && greater_objective) accepted = 1;
-//	if (!accepted) return 0;
-//
-//	sw_set_inplace(global_opt->vector, new_sol->vector); // copy assignment to current best
-//	global_opt->tot_profit = new_sol->tot_profit;
-//	global_opt->feasible = new_sol->feasible;
-	return 0;
-}
+//static inline int aspiration(state_t *new_sol, state_t *global_opt) {
+//	// for tabu moves: if better than global opt: accept
+////	int accepted = 0;
+////	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
+////	if (new_sol->feasible && !global_opt->feasible) accepted = 1;
+////	if (new_sol->feasible && global_opt->feasible && greater_objective) accepted = 1;
+////	if (!new_sol->feasible && !global_opt->feasible && greater_objective) accepted = 1;
+////	if (!accepted) return 0;
+////
+////	sw_set_inplace(global_opt->vector, new_sol->vector); // copy assignment to current best
+////	global_opt->tot_profit = new_sol->tot_profit;
+////	global_opt->feasible = new_sol->feasible;
+//	return 0;
+//}
 
 static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *global_opt) {
 	int accepted = 0;
@@ -146,8 +146,8 @@ void *print_status(void *args) {
 void *explore_neighbourhood(void *args) {
 	local_search_data_t *dat = (local_search_data_t *) args;
 	int C = dat->con->num_constraints;
-	int64_t steps[C];
-	memset(steps, 0, C * sizeof(int64_t));
+//	int64_t steps[C];
+//	memset(steps, 0, C * sizeof(int64_t));
 
 	int bits[dat->d];
 
@@ -184,10 +184,10 @@ void *explore_neighbourhood(void *args) {
 //		for (int i = 0; i < k; ++i) {
 //			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
 //			                              dat->con->positive_offsets, new_sol,
-//			                              POSITIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
+//			                              POSITIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
 //			adjusted_constraint_violation(dat->con, comb[i], dat->con->negative_indices, dat->con->num_negative_indices,
 //			                              dat->con->negative_offsets, new_sol,
-//			                              NEGATIVE, totals, dat->ful_con, &changed_con, &num_con_changes, &inv);
+//			                              NEGATIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
 //		}
 		free(changed_con);
 		sw_clear(inv);
@@ -198,10 +198,11 @@ void *explore_neighbourhood(void *args) {
 
 		for (int cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
-			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
-//			total_violation -= totals[cnstr] < 0 ? totals[cnstr] : 0;
+//			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
+			total_violation += totals[cnstr] < 0 ? totals[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
+//        printf("%d %d %d\n", feasible, dat->initial_feasible, eval_constraints(dat->con, new_sol, new_sol->vector.bits));
 
 		// first try to find a feasible solution, by minimizing the constraints violation
 		if (!(dat->initial_feasible)) {
@@ -213,6 +214,7 @@ void *explore_neighbourhood(void *args) {
 			}
 			if (feasible) {
 				dat->initial_feasible = feasible;
+//                printf("obj = %lld\n", objective_value(dat->obj, new_sol));
 				update_state(cur_best, cur_best_tabu, new_sol, objective_value(dat->obj, new_sol),
 				             1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
@@ -222,7 +224,7 @@ void *explore_neighbourhood(void *args) {
 		} else {
 			int *changes = calloc(MINSIZE, sizeof(int));
 			int num_cahnges = 0;
-//			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, dat->ful, &changes, &num_cahnges);
+//			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, &dat->ful, &changes, &num_cahnges);
             int64_t objective = objective_value(dat->obj, new_sol);
 
 			if (objective < cur_best->tot_profit && feasible) {
@@ -283,10 +285,11 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].con = con;
 		data[i].obj = obj;
 		data[i].moves = moves;
-		data[i].remainings = remainings;
+		data[i].remainings = malloc(C * sizeof(int64_t));
+        memcpy(data[i].remainings, remainings, C * sizeof(int64_t));
 		data[i].initial_feasible = *initial_feasible;
-		data[i].ful_con = &ful_con;
-		data[i].ful = &ful;
+		data[i].ful_con = sw_set(ful_con);
+		data[i].ful = sw_set(ful);
 		data[i].cur_best = NULL;
 		data[i].cur_best_tabu = NULL;
 		data[i].tabu_list = tabu_list;
@@ -303,6 +306,9 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	}
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
+        free(data[i].remainings);
+        sw_clear(data[i].ful_con);
+        sw_clear(data[i].ful);
 	}
 	int accepted_index = -1;
 	for (int i = 0; i < NUMThreads; ++i) {
@@ -313,11 +319,11 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 			acc = accept_move(cur_best, data[i].cur_best, global_opt);
 			free_state(data[i].cur_best, 1);
 		}
-		if (data[i].cur_best != NULL) {
+		if (data[i].cur_best_tabu != NULL) {
 			// tabu aspiration:
 			// - gives feasible solution if others dont
 			// - gives best ever found solution
-			acc_tab = aspiration(data[i].cur_best_tabu, global_opt);
+//			acc_tab = aspiration(data[i].cur_best_tabu, global_opt);
 			if (acc_tab) acc = accept_move(cur_best, data[i].cur_best_tabu, global_opt);
 			free_state(data[i].cur_best_tabu, 1);
 		}
@@ -328,14 +334,10 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	//pthread_join(progress_thread, NULL);
 
 	int accepted = accept_move(new_sol, cur_best, global_opt);
-	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
-	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
+//	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
+//	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
 
-	int new_move_index = -1;
-	if (accepted || accepted_tabu) {
-		// determine index of move
-		new_move_index = -1;
-	} else {
+	if (!accepted) {
 		if (*accept_worse_counter == max_worse_acceptances) return 0; // stop the entire search
 		accepted = 1;
 		// no better solution found:
@@ -353,46 +355,37 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	free_state(cur_best, 1);
 	sw_clear(ful);
 	sw_clear(ful_con);
-	return accepted || accepted_tabu;
+	return accepted;
 }
 
-int local_search(state_t *cur_sol,
-                 new_constraints_t *con,
-                 new_constraints_t *obj,
-                 int distance,
-                 int stopping_time,
-                 solver_t solver,
-                 int64_t stop_val,
-                 callback_t callback,
-                 int max_worse_acceptances,
-                 int stopping_criterion) {
+int local_search(state_t *cur_sol, model_t *mod, callback_t callback) {
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 
 	int n = cur_sol->vector.bits;
-	int C = con->num_constraints;
+	int C = mod->con->num_constraints;
 
-	array_t ful = sw_init(obj->num_clauses[0]);
+	array_t ful = sw_init(mod->obj->num_clauses[0]);
 	int max_constraint_clauses = 0;
 	for (int i = 0; i < C; ++i) {
-		if (con->num_clauses[i] > max_constraint_clauses) {
-			max_constraint_clauses = con->num_clauses[i];
+		if (mod->con->num_clauses[i] > max_constraint_clauses) {
+			max_constraint_clauses = mod->con->num_clauses[i];
 		}
 	}
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
-	int64_t remainings[C];
-	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
-	prepare_constraints(con, cur_sol, &ful_con);
+//	int64_t remainings[C];
+//	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
+//	prepare_constraints(mod->con, cur_sol, &ful_con);
 
-	int initial_feasible = eval_constraints(con, cur_sol, n);
-	printf("init = %d\n", initial_feasible);
-	state_t *global_opt = copy_state(cur_sol);
+	int initial_feasible = cur_sol->feasible;
+//	printf("init = %d\n", initial_feasible);
+//	state_t *global_opt = copy_state(cur_sol);
 
 	int num_moves = 0;
-	move_t *moves = move_list(distance, n, &num_moves, true);
+	move_t *moves = move_list(mod->distance, n, &num_moves, true);
 //	for (int i = 0; i < num_moves; ++i) {
 //		printf("%d: ", moves[i].num_flips);
 //		for (int j = 0; j < moves[i].num_flips; ++j) {
@@ -409,30 +402,31 @@ int local_search(state_t *cur_sol,
 		tabu_list.moves[i] = -1;
 	}
 
-	clock_gettime(CLOCK_MONOTONIC, &t2);
-	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+//	clock_gettime(CLOCK_MONOTONIC, &t2);
+//	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
 	int counter = 0;
 	while (break_condition) {
 		int neighbourhood_counter = 0;
-		break_condition = accept_best_routine(cur_sol, global_opt, con, obj, distance, &initial_feasible,
+		break_condition = accept_best_routine(cur_sol, mod->global_opt, mod->con, mod->obj, mod->distance, &initial_feasible,
 		                                      max_constraint_clauses, moves, num_moves, &tabu_list,
-		                                      &worse_acceptance_counter, max_worse_acceptances,
-		                                      stopping_criterion, &neighbourhood_counter);
+		                                      &worse_acceptance_counter, mod->max_worse_acceptances,
+                                              mod->stopping_condition, &neighbourhood_counter);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+        mod->runtime = time;
 //		printf("%p\n", callback);
 //        print_state(cur_sol);
 //		printf("\n");
-//		if (callback) callback(cur_sol->tot_profit, 0, time, preprocessing_time);
-		printf("%d %d %lld %lld %f %d,\n", counter, break_condition, cur_sol->tot_profit, global_opt->tot_profit, time,
-		       neighbourhood_counter);
-		if (time > stopping_time || (cur_sol->tot_profit <= stop_val) && (stop_val != -1)) return 0;
+		if (callback) callback();
+//		printf("%d %d %lld %lld %f %d,\n", worse_acceptance_counter, break_condition,
+//               cur_sol->tot_profit, mod->global_opt->tot_profit, time, neighbourhood_counter);
+		if (time > mod->stopping_time || (cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)) break;
 		counter++;
 	}
 
-	accept_move(cur_sol, global_opt, global_opt);
+	accept_move(cur_sol, mod->global_opt, mod->global_opt);
 
 	free_move_list(moves, num_moves);
 	sw_clear(ful_con);

@@ -37,16 +37,7 @@ cdef extern from "src/SearchLib.h":
 
 
 cdef extern from "src/local_search.h":
-	int local_search(state_t *cur_sol,
-	                 new_constraints_t *con,
-	                 new_constraints_t *obj,
-	                 int distance,
-	                 int stopping_time,
-	                 int solver,
-	                 int64_t stop_val,
-	                 callback_t callback,
-	                 int max_worse_acceptances,
-	                 int stopping_criterion) nogil
+	int local_search(state_t *cur_sol, model_t *mod, callback_t callback) nogil
 
 	int quantum_local_search(new_constraints_t *obj,
 	                         new_constraints_t *con,

@@ -30,6 +30,9 @@ model_t *init_model(){
     mod->qtg_applications = 0;
     mod->stop_val = -1;
     mod->stopping_time = 1000000;
+    mod->max_worse_acceptances = 10;
+    mod->stopping_condition = STOPATFIRST;
+    mod->distance = 2;
     return mod;
 }
 

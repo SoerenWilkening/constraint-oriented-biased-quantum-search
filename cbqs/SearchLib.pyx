@@ -202,28 +202,20 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 	return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb
 
 
-cpdef run_local_search(initial: state_py,
-                       con: new_constraint,
-                       obj: new_constraint,
-                       int distance,
-                       int stopping_time,
-                       int solver,
-                       int64_t stop_val,
-                       object callback,
-                       int max_worse_acceptances,
-                       int stopping_condition):
-	new_state: state_py = copy(initial)
-	cdef state_t *st = new_state.state
+cpdef run_local_search(Model mod, object callback):
+	cur_sol: state_py = state_py(0, [0] * mod.mod[0].initial_state[0].vector.bits)
+	free_state(cur_sol.state, 1)
+	cur_sol.state = copy_state(copy_state(mod.mod[0].initial_state))
+
+	cdef state_t *st = cur_sol.state
 	global python_callback
 	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
-	with nogil:
-		local_search(st, &con.con, &obj.con, distance, stopping_time, solver, stop_val, cb_ptr, max_worse_acceptances,
-		             stopping_condition)
+	with nogil: local_search(st, mod.mod, cb_ptr)
 
-	return new_state
+	return cur_sol
 
 cpdef run_quantum_local_search(initial: state_py,
                                con: new_constraint,

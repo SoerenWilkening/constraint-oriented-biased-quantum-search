@@ -18,6 +18,7 @@
 #include "constraint.h"
 #include "state.h"
 #include "solver.h"
+#include "model.h"
 #include "quantum_search.h"
 
 typedef struct {
@@ -36,7 +37,7 @@ typedef struct {
 	new_constraints_t *con, *obj;
 	int d, size_ful, initial_feasible, start_move, end_move;
 	move_t *moves;
-	array_t *ful, *ful_con;
+	array_t ful, ful_con;
 	int64_t *remainings;
 	state_t *cur_best;
 	state_t *cur_best_tabu;
@@ -52,16 +53,7 @@ typedef struct {
 
 #define NUMThreads 6
 
-int local_search(state_t *cur_sol,
-                 new_constraints_t *con,
-                 new_constraints_t *obj,
-				 int distance,
-                 int stopping_time,
-                 solver_t solver,
-                 int64_t stop_val,
-                 callback_t callback,
-                 int max_worse_acceptances,
-                 int stopping_criterion);
+int local_search(state_t *cur_sol, model_t *mod, callback_t callback);
 
 
 int quantum_local_search(new_constraints_t *obj,

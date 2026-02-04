@@ -13,9 +13,11 @@ cdef process_constraints(new_constraints_t *con, int n, int enforce_density):
 
 	if 10 * tot > n * con[0].num_constraints or enforce_density:
 		preprocessing(n, con)
+		con[0].sparsity = DENSE
 		return DENSE
 	else:
 		preprocessing_sparse(n, con)
+		con[0].sparsity = SPARSE
 		return SPARSE
 
 

@@ -27,6 +27,9 @@ cdef extern from "src/model.h":
 		int max_delta;
 		int solver
 		int qtg_applications
+		int max_worse_acceptances;
+		int stopping_condition;
+		int distance;
 
 	model_t *init_model();
 

@@ -554,6 +554,7 @@ int adjusted_constraint_violation(
 		int64_t total = 0;
 		size_t clause_offset = first_clause_index(con, cnstr);
 		int ind = item * C + cnstr;
+//        printf("%d %d\n", con->sparsity, SPARSE);
         if (con->sparsity == SPARSE) {
             if (negative == NEGATIVE){
                 ind = get_index(con->neg_cols, con->neg_rows, item, cnstr, con->nnz_neg, C);
@@ -576,25 +577,25 @@ int adjusted_constraint_violation(
 		    		if (negative == POSITIVE) {
 		    			if (assigned == 1 && sw_tstbit(*ful, clause_index) == 0) {
 		    				total += labs(con->factors[clause_index]);
-		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-		    				(*changes)[count++] = clause_index;
+//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+//		    				(*changes)[count++] = clause_index;
 		    			}
 		    			if (assigned == 0 && sw_tstbit(*ful, clause_index) == 1) {
 		    				total -= labs(con->factors[clause_index]);
-		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-		    				(*changes)[count++] = clause_index;
+//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+//		    				(*changes)[count++] = clause_index;
 		    			}
 		    		}
 		    		if (negative == NEGATIVE) {
 		    			if ((1 - assigned) == 1 && sw_tstbit(*ful, clause_index) == 0) {
 		    				total += labs(con->factors[clause_index]);
-		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-		    				(*changes)[count++] = clause_index;
+//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+//		    				(*changes)[count++] = clause_index;
 		    			}
 		    			if ((1 - assigned) == 0 && sw_tstbit(*ful, clause_index) == 1) {
 		    				total -= labs(con->factors[clause_index]);
-		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-		    				(*changes)[count++] = clause_index;
+//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
+//		    				(*changes)[count++] = clause_index;
 		    			}
 		    		}
 		    	}
