@@ -12,7 +12,7 @@ set(UNIT_TESTING ON CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
     cmocka
-    GIT_REPOSITORY https://git.cryptomilk.org/projects/cmocka.git
+    GIT_REPOSITORY https://gitlab.com/cmocka/cmocka.git
     GIT_TAG cmocka-1.1.7
 )
 FetchContent_MakeAvailable(cmocka)
@@ -60,3 +60,66 @@ add_cmocka_test(test_state
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
+
+add_cmocka_test(test_constraint
+    test_constraint.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
+add_cmocka_test(test_model
+    test_model.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
+add_cmocka_test(test_branching
+    test_branching.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
+# --- Plan 01-03 tests: solver, searchlib, integration ---
+
+add_cmocka_test(test_solver
+    test_solver.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
+# SearchLib.c includes Python.h -- find Python for include path
+find_package(Python3 COMPONENTS Development)
+if(Python3_FOUND)
+    set(PYTHON_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
+else()
+    execute_process(
+        COMMAND python3 -c "import sysconfig; print(sysconfig.get_path('include'))"
+        OUTPUT_VARIABLE PYTHON_INCLUDE_DIRS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+endif()
+
+add_cmocka_test(test_searchlib
+    test_searchlib.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
