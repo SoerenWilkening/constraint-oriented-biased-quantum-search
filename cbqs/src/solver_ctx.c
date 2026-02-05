@@ -10,9 +10,11 @@
 #define _GNU_SOURCE
 
 #include "solver_ctx.h"
+#include "prng.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>  /* for sysconf */
 
 /* ============================================================
  * Lifecycle Functions
@@ -41,6 +43,13 @@ solver_ctx_t *solver_ctx_create(void) {
 
     /* Check CBQS_DEBUG environment variable */
     ctx->debug_enabled = (getenv("CBQS_DEBUG") != NULL);
+
+    /* Initialize PRNG-related fields */
+    ctx->seed = 0;
+    ctx->seed_used = 0;
+    ctx->num_threads = 0;
+    ctx->num_threads_used = 0;
+    memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */
     clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
@@ -196,4 +205,54 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
             ctx->branching_stats.look_factor,
             (unsigned long long)ctx->timeout_ms,
             atomic_load(&ctx->stop) ? "true" : "false");
+}
+
+/* ============================================================
+ * PRNG and Thread Configuration
+ * ============================================================ */
+
+int solver_ctx_get_default_threads(void) {
+    /* Check CBQS_THREADS env var first */
+    const char *env_threads = getenv("CBQS_THREADS");
+    if (env_threads != NULL) {
+        int threads = atoi(env_threads);
+        if (threads > 0) {
+            return threads;
+        }
+    }
+
+    /* Try to detect CPU count */
+    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (nprocs > 0) {
+        return (int)nprocs;
+    }
+
+    /* Fallback to 4 threads */
+    return 4;
+}
+
+void solver_ctx_init_prng(solver_ctx_t *ctx) {
+    if (ctx == NULL) {
+        return;
+    }
+
+    /* Resolve seed */
+    if (ctx->seed == 0) {
+        ctx->seed_used = prng_get_entropy_seed();
+    } else {
+        ctx->seed_used = ctx->seed;
+    }
+
+    /* Initialize master PRNG */
+    prng_seed_from_state(&ctx->master_prng, ctx->seed_used);
+
+    /* Resolve thread count */
+    if (ctx->num_threads <= 0) {
+        ctx->num_threads_used = solver_ctx_get_default_threads();
+    } else {
+        ctx->num_threads_used = ctx->num_threads;
+    }
+
+    /* Initialize thread-local PRNG for main thread (thread 0) */
+    prng_seed_thread(&ctx->master_prng, 0);
 }

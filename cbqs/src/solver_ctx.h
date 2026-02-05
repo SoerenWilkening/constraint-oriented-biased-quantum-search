@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "Branching.h"
+#include "prng.h"
 
 /**
  * @brief Solver context carrying all per-solve mutable state
@@ -41,6 +42,21 @@ struct solver_ctx {
 
     /** Debug output enabled (checked from CBQS_DEBUG env var at init) */
     int debug_enabled;
+
+    /** Master seed for PRNG (0 = auto-generate from entropy) */
+    uint64_t seed;
+
+    /** Actual seed used (stored after resolution, for reproducibility) */
+    uint64_t seed_used;
+
+    /** Number of threads for parallel operations (0 = auto-detect) */
+    int num_threads;
+
+    /** Actual thread count used (stored after resolution) */
+    int num_threads_used;
+
+    /** Master PRNG state for deriving thread-specific states */
+    prng_state_t master_prng;
 };
 typedef struct solver_ctx solver_ctx_t;
 
@@ -160,5 +176,27 @@ void solver_ctx_set_constraint_dependence(solver_ctx_t *ctx, double *dep, int n)
  * @param ctx Solver context
  */
 void solver_ctx_debug_stats(solver_ctx_t *ctx);
+
+/* ============================================================
+ * PRNG and Thread Configuration
+ * ============================================================ */
+
+/**
+ * @brief Initialize PRNG and resolve thread count
+ *
+ * Must be called after setting ctx->seed and ctx->num_threads.
+ * - If seed == 0, generates from entropy
+ * - If num_threads == 0, auto-detects CPU count
+ * - Initializes master_prng from resolved seed
+ *
+ * @param ctx Solver context
+ */
+void solver_ctx_init_prng(solver_ctx_t *ctx);
+
+/**
+ * @brief Get default thread count from env or CPU detection
+ * @return Thread count (minimum 1)
+ */
+int solver_ctx_get_default_threads(void);
 
 #endif /* SOLVER_CTX_H */
