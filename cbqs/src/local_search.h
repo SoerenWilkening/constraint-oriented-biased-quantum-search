@@ -51,6 +51,11 @@ typedef struct {
 	int stopping_condition;
 	int count_states;
 	solver_ctx_t *ctx;  /* Solver context for stop flag checking */
+
+	/* Per-thread scratch buffers (replaces VLAs) */
+	int64_t *thread_totals;     /* Replaces totals[C] in explore_neighbourhood */
+	int *thread_bits;           /* Replaces bits[d] in explore_neighbourhood */
+	size_t num_constraints;     /* C value for buffer sizing */
 } local_search_data_t;
 
 int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback);
