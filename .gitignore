@@ -1,4 +1,5 @@
 .idea
+.claude/
 .DS_Store
 __pycache__/
 random_QOQC/test.py
