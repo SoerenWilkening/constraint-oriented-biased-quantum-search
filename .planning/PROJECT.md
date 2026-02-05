@@ -75,6 +75,11 @@ This project uses **Git Flow**:
 
 All phase work is done on feature branches. Features merge to `develop`. Releases merge `develop` to `main`.
 
+**Release strategy:**
+- Milestone completion → formal release (v1.0, v2.0, etc.)
+- On-demand tags for checkpoints (v1.0-alpha.1, etc.) — no formal release process
+- This keeps overhead low while solo, scales when other developers/users join
+
 ## Constraints
 
 - **Language**: Must maintain Python/Cython/C architecture — core performance lives in C
