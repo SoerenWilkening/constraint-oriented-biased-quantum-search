@@ -70,11 +70,14 @@ Plans:
   2. The global stop flag (signal.raise_signal pattern) is replaced with an atomic boolean in solver_ctx_t, checked by all worker threads
   3. Two independent Model instances can solve concurrently in separate threads without interfering with each other's branching statistics or stop conditions
   4. ThreadSanitizer reports zero data races on a multi-threaded solve
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Create solver_ctx.h/c foundation with ctx struct and lifecycle
+- [ ] 03-02-PLAN.md — Migrate solver functions (CSearch_*, monte carlo samplers) to use ctx
+- [ ] 03-03-PLAN.md — Migrate entry points (ctg, local_search) and stop flag to ctx
+- [ ] 03-04-PLAN.md — Update Cython layer and C tests for ctx lifecycle
+- [ ] 03-05-PLAN.md — ThreadSanitizer verification and debug output testing
 
 ### Phase 4: Thread Isolation
 **Goal**: Each worker thread operates with fully isolated random state and the user controls parallelism at runtime
@@ -154,7 +157,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 |-------|----------------|--------|-----------|
 | 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
 | 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
-| 3. Solver Context Architecture | 0/TBD | Not started | - |
+| 3. Solver Context Architecture | 0/5 | Planned | - |
 | 4. Thread Isolation | 0/TBD | Not started | - |
 | 5. Memory Safety | 0/TBD | Not started | - |
 | 6. Memory Optimization | 0/TBD | Not started | - |
