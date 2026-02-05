@@ -164,3 +164,15 @@ add_cmocka_test(test_thread_safety
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
+
+# --- Plan 04-01: PRNG unit tests ---
+# Tests xoshiro256** PRNG implementation:
+# - Seeding produces valid non-zero state
+# - prng_next_double in [0.0, 1.0)
+# - prng_next_int in [0, max)
+# - Determinism with same seed
+# - Jump function produces distinct streams
+add_cmocka_test(test_prng
+    test_prng.c
+    ${CBQS_SRC_DIR}/prng.c
+)
