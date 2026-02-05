@@ -18,6 +18,8 @@ add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/SearchLib.h
         cbqs/src/Branching.c
         cbqs/src/Branching.h
+        cbqs/src/solver_ctx.c
+        cbqs/src/solver_ctx.h
         cbqs/src/solver.c
         cbqs/src/solver.h
         cbqs/src/local_search.c
