@@ -53,8 +53,6 @@ typedef struct {
 	solver_ctx_t *ctx;  /* Solver context for stop flag checking */
 } local_search_data_t;
 
-#define NUMThreads 6
-
 int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback);
 
 

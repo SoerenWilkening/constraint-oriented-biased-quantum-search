@@ -4,6 +4,7 @@
 
 #include "local_search.h"
 #include "solver_ctx.h"
+#include "prng.h"
 
 static inline int move_is_tabu(tabu_list_t *tabu_list, int move) {
 	if (tabu_list->head == -1) return 0;
@@ -112,7 +113,7 @@ move_t *move_list(int d, int n, int *num_moves, int with_shuffle) {
 	if (with_shuffle) {
 		// Shuffle with Fisher-Yates algorithm
 		for (int i = count - 1; i > 0; i--) {
-			int j = rand() % (i + 1);  // random index from 0..i
+			int j = prng_next_int(i + 1);  // random index from 0..i
 			move_t temp = moves[i];
 			moves[i] = moves[j];
 			moves[j] = temp;
@@ -128,7 +129,8 @@ void free_move_list(move_t *move_list, int num_moves) {
 }
 
 typedef struct {
-	double progress[NUMThreads];
+	double *progress;  /* Dynamically allocated based on num_threads */
+	int num_threads;   /* Number of threads for progress display */
 	int stat;
 } dat_t;
 
@@ -136,7 +138,7 @@ void *print_status(void *args) {
 	dat_t *progress = (dat_t *) args;
 	while (!progress->stat) {
 		printf("\r");
-		for (int i = 0; i < NUMThreads; i++) {
+		for (int i = 0; i < progress->num_threads; i++) {
 			printf("| %6.1f%% |", progress->progress[i] * 100);
 		}
 		usleep(1000000);
@@ -146,6 +148,12 @@ void *print_status(void *args) {
 
 void *explore_neighbourhood(void *args) {
 	local_search_data_t *dat = (local_search_data_t *) args;
+
+	/* Initialize thread-local PRNG from master state */
+	if (dat->ctx != NULL) {
+		prng_seed_thread(&dat->ctx->master_prng, dat->id);
+	}
+
 	int C = dat->con->num_constraints;
 //	int64_t steps[C];
 //	memset(steps, 0, C * sizeof(int64_t));
@@ -278,15 +286,22 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	prepare_constraints(con, new_sol, &ful_con);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
+	/* Get thread count from solver context (default to 4 if no ctx) */
+	int num_threads = (ctx != NULL) ? ctx->num_threads_used : 4;
+
 	dat_t prog_data;
-	// memset(prog_data.progress, 0, NUMThreads * sizeof(double));
-	// prog_data.stat = 0;
+	prog_data.progress = malloc(num_threads * sizeof(double));
+	prog_data.num_threads = num_threads;
+	memset(prog_data.progress, 0, num_threads * sizeof(double));
+	prog_data.stat = 0;
 	// pthread_t progress_thread;
 	// pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
-	local_search_data_t data[NUMThreads];
-	pthread_t threads[NUMThreads];
+
+	/* Dynamically allocate thread data arrays */
+	local_search_data_t *data = malloc(num_threads * sizeof(local_search_data_t));
+	pthread_t *threads = malloc(num_threads * sizeof(pthread_t));
 	int stop_at_first = 0;
-	for (int i = 0; i < NUMThreads; ++i) {
+	for (int i = 0; i < num_threads; ++i) {
 		data[i].con = con;
 		data[i].obj = obj;
 		data[i].moves = moves;
@@ -301,8 +316,8 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		data[i].sol = new_sol;
 		data[i].size_ful = size_ful;
 		data[i].d = d;
-		data[i].start_move = i * num_moves / NUMThreads;
-		data[i].end_move = (i + 1) * num_moves / NUMThreads;
+		data[i].start_move = i * num_moves / num_threads;
+		data[i].end_move = (i + 1) * num_moves / num_threads;
 		data[i].progress = prog_data.progress;
 		data[i].id = i;
 		data[i].stopping_criterion = &stop_at_first;
@@ -311,11 +326,11 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		data[i].ctx = ctx;  /* Pass solver context to thread worker */
 	}
 	// Create all threads first - data must remain valid while threads run
-	for (int i = 0; i < NUMThreads; ++i) {
+	for (int i = 0; i < num_threads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
 	}
 	int accepted_index = -1;
-	for (int i = 0; i < NUMThreads; ++i) {
+	for (int i = 0; i < num_threads; ++i) {
 		pthread_join(threads[i], NULL);
 
 		// NOW safe to cleanup - thread has completed
@@ -342,6 +357,11 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	}
 	//prog_data.stat = 1;
 	//pthread_join(progress_thread, NULL);
+
+	/* Free dynamic allocations */
+	free(data);
+	free(threads);
+	free(prog_data.progress);
 
 	int accepted = accept_move(new_sol, cur_best, global_opt);
 //	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
