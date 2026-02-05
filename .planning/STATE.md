@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Phase 3 complete, verified — ready for Phase 4
+**Current focus:** Phase 4 in progress (Thread Isolation)
 
 ## Current Position
 
-Phase: 3 of 8 (Solver Context Architecture) — ✓ VERIFIED
-Plan: 5 of 5 in current phase
-Status: Phase complete
-Last activity: 2026-02-05 - Phase 3 verified (4/4 must-haves passed)
+Phase: 4 of 8 (Thread Isolation)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-05 - Completed 04-01-PLAN.md (PRNG Module)
 
-Progress: [████████░░] ~74% (17 plans of ~23 total)
+Progress: [████████░░] ~78% (18 plans of ~23 total)
 
 ## Performance Metrics
 
@@ -30,10 +30,11 @@ Progress: [████████░░] ~74% (17 plans of ~23 total)
 | 01 | 5/5 | ~46m | ~9m |
 | 02 | 6/6 | ~39m | ~6m |
 | 03 | 5/5 | ~47m | ~9.4m |
+| 04 | 1/4 | ~5m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (~6m), 03-02 (~5m), 03-03 (~3m), 03-05 (~9m), 03-04 (~24m)
-- Trend: Phase 3 complete, ctx migration done
+- Last 5 plans: 03-03 (~3m), 03-05 (~9m), 03-04 (~24m), 04-01 (~5m)
+- Trend: Phase 4 started, PRNG module complete
 
 *Updated after each plan completion*
 
@@ -83,6 +84,10 @@ Recent decisions affecting current work:
 - approximate_state class owns its ctx (created in __cinit__, freed in __del__) (03-04)
 - state.pyx update() creates temporary ctx for single call (03-04)
 - branching.pyx unchanged - uses deprecated global setters for backward compatibility (03-04)
+- __thread keyword for thread-local PRNG storage (faster than pthread_key_t) (04-01)
+- SplitMix64 for xoshiro256** seeding (recommended by algorithm authors) (04-01)
+- Jump function (2^128 steps) for parallel stream derivation (04-01)
+- _POSIX_C_SOURCE 199309L for clock_gettime/CLOCK_MONOTONIC (04-01)
 
 ### Pending Todos
 
@@ -100,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T14:15:00Z
-Stopped at: Phase 3 complete and verified. Ready for Phase 4 (Thread Isolation)
+Last session: 2026-02-05T15:06:00Z
+Stopped at: Completed 04-01-PLAN.md (PRNG Module)
 Resume file: None
