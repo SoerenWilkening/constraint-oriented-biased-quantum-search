@@ -304,15 +304,19 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].stopping_condition = stopping_criterion;
 		data[i].count_states = 0;
 	}
+	// Create all threads first - data must remain valid while threads run
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
-        free(data[i].remainings);
-        sw_clear(data[i].ful_con);
-        sw_clear(data[i].ful);
 	}
 	int accepted_index = -1;
 	for (int i = 0; i < NUMThreads; ++i) {
 		pthread_join(threads[i], NULL);
+
+		// NOW safe to cleanup - thread has completed
+		free(data[i].remainings);
+		sw_clear(data[i].ful_con);
+		sw_clear(data[i].ful);
+
 		int acc = 0;
 		int acc_tab = 0;
 		if (data[i].cur_best != NULL) {
