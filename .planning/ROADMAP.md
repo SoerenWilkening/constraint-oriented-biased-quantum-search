@@ -13,7 +13,7 @@ This roadmap takes the CBQS solver from its current state -- functional but with
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Test Foundation** - CMocka test suite establishing correctness baseline
-- [ ] **Phase 2: Critical Correctness Fixes** - Fix bugs that produce silently wrong results
+- [x] **Phase 2: Critical Correctness Fixes** - Fix bugs that produce silently wrong results
 - [ ] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
 - [ ] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
 - [ ] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
@@ -54,12 +54,12 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Fix C-level memory bugs (use-after-free, realloc condition)
-- [ ] 02-02-PLAN.md — Add C helper for Expression deep copy
-- [ ] 02-03-PLAN.md — Implement Expression immutability (standard operators)
-- [ ] 02-04-PLAN.md — Implement in-place operators (__iadd__, __imul__, etc.)
-- [ ] 02-05-PLAN.md — Deprecation warning + Variable operator fixes + regression tests
-- [ ] 02-06-PLAN.md — Valgrind CI + stress tests
+- [x] 02-01-PLAN.md — Fix C-level memory bugs (use-after-free, realloc condition)
+- [x] 02-02-PLAN.md — Add C helper for Expression deep copy
+- [x] 02-03-PLAN.md — Implement Expression immutability (standard operators)
+- [x] 02-04-PLAN.md — Implement in-place operators (__iadd__, __imul__, etc.)
+- [x] 02-05-PLAN.md — Deprecation warning + Variable operator fixes + regression tests
+- [x] 02-06-PLAN.md — Valgrind CI + stress tests
 
 ### Phase 3: Solver Context Architecture
 **Goal**: All per-solve mutable state lives in an explicit solver_ctx_t struct passed through call chains, eliminating global variables that cause data races
@@ -153,7 +153,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
-| 2. Critical Correctness Fixes | 0/6 | Planned | - |
+| 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
 | 3. Solver Context Architecture | 0/TBD | Not started | - |
 | 4. Thread Isolation | 0/TBD | Not started | - |
 | 5. Memory Safety | 0/TBD | Not started | - |

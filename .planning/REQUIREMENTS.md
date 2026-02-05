@@ -8,9 +8,9 @@
 ### Correctness
 
 - [ ] **CORR-01**: C unit test suite using CMocka covering core functions (constraint evaluation, move generation, branching, state management)
-- [ ] **CORR-02**: Fix use-after-free in `accept_best_routine` — thread data freed before threads consume it (`local_search.c:307-311`)
-- [ ] **CORR-03**: Fix inverted realloc condition in preprocessing — triggers on nearly every iteration instead of every `size_steps` iterations
-- [ ] **CORR-04**: Fix Expression mutation — operations must return new expressions, not mutate in-place; integer variable reuse must work without manual copying
+- [x] **CORR-02**: Fix use-after-free in `accept_best_routine` — thread data freed before threads consume it (`local_search.c:307-311`)
+- [x] **CORR-03**: Fix inverted realloc condition in preprocessing — triggers on nearly every iteration instead of every `size_steps` iterations
+- [x] **CORR-04**: Fix Expression mutation — operations must return new expressions, not mutate in-place; integer variable reuse must work without manual copying
 
 ### Thread Safety
 
@@ -61,9 +61,9 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CORR-01 | Phase 1: Test Foundation | Complete |
-| CORR-02 | Phase 2: Critical Correctness Fixes | Pending |
-| CORR-03 | Phase 2: Critical Correctness Fixes | Pending |
-| CORR-04 | Phase 2: Critical Correctness Fixes | Pending |
+| CORR-02 | Phase 2: Critical Correctness Fixes | Complete |
+| CORR-03 | Phase 2: Critical Correctness Fixes | Complete |
+| CORR-04 | Phase 2: Critical Correctness Fixes | Complete |
 | THRD-01 | Phase 3: Solver Context Architecture | Pending |
 | THRD-02 | Phase 3: Solver Context Architecture | Pending |
 | THRD-03 | Phase 4: Thread Isolation | Pending |
@@ -83,4 +83,4 @@
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-04 after roadmap creation*
+*Last updated: 2026-02-05 after Phase 2 completion*
