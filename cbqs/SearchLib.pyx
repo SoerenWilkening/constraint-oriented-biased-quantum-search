@@ -138,6 +138,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
+	cdef unsigned long long seed_used_val = 0
 
 	n = mod.mod[0].initial_state[0].vector.bits
 
@@ -210,8 +211,11 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 
 		cur_sol.arr = np.array(arr, dtype = np.int32)
 		# Store actual seed used back to model for reproducibility tracking
-		if hasattr(mod, '_seed_used'):
-			mod._seed_used = ctx.seed_used
+		seed_used_val = ctx.seed_used
+		try:
+			mod._seed_used = seed_used_val
+		except AttributeError:
+			pass  # Model doesn't have _seed_used attribute (old code path)
 
 		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb
 	finally:
@@ -224,6 +228,7 @@ cpdef run_local_search(Model mod, object callback):
 	cur_sol.state = copy_state(copy_state(mod.mod[0].initial_state))
 
 	cdef state_t *st = cur_sol.state
+	cdef unsigned long long seed_used_local = 0
 	global python_callback
 	python_callback = callback
 
@@ -249,8 +254,11 @@ cpdef run_local_search(Model mod, object callback):
 			local_search(ctx, st, mod.mod, cb_ptr)
 
 		# Store actual seed used back to model for reproducibility tracking
-		if hasattr(mod, '_seed_used'):
-			mod._seed_used = ctx.seed_used
+		seed_used_local = ctx.seed_used
+		try:
+			mod._seed_used = seed_used_local
+		except AttributeError:
+			pass  # Model doesn't have _seed_used attribute (old code path)
 
 		return cur_sol
 	finally:

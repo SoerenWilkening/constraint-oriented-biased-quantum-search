@@ -66,3 +66,8 @@ cdef class Model:
 	cdef public object gpu_compiled
 	cdef public object constraints_compiled
 	cdef public object circuit
+
+	# Thread isolation (Phase 4): seed and thread configuration
+	cdef public object _seed
+	cdef public object _num_threads
+	cdef public object _seed_used

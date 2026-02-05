@@ -47,6 +47,7 @@ sources = [
 	os.path.join("cbqs", "src", "quantum_search.c"),
 	os.path.join("cbqs", "src", "approximate_state_sampler.c"),
 	os.path.join("cbqs", "src", "solver_ctx.c"),
+	os.path.join("cbqs", "src", "prng.c"),  # Phase 4: xoshiro256** PRNG
 ]
 
 extensions = [

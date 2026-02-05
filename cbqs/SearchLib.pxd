@@ -8,12 +8,14 @@ from .Model cimport Model, model_t
 
 # Solver context for per-solve state management
 cdef extern from "src/solver_ctx.h":
-	ctypedef struct solver_ctx_t:
-		# Expose fields needed for seed/thread configuration from Python
+	# Match the C definition: struct solver_ctx {...}; typedef struct solver_ctx solver_ctx_t;
+	cdef struct solver_ctx:
+		# Only expose fields we need to access from Cython
 		unsigned long long seed  # uint64_t - Master seed (0 = auto-generate)
 		unsigned long long seed_used  # uint64_t - Actual seed used after init
 		int num_threads  # Thread count (0 = auto-detect)
 		int num_threads_used  # Actual thread count used after init
+	ctypedef solver_ctx solver_ctx_t
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
 	void solver_ctx_request_stop(solver_ctx_t* ctx)
