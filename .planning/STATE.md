@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Phase 6 Memory Optimization in progress
+**Current focus:** Phase 6 Memory Optimization COMPLETE
 
 ## Current Position
 
 Phase: 6 of 8 (Memory Optimization)
-Plan: 4 of 4 complete (06-01, 06-02, 06-03, 06-04 done)
-Status: Phase 6 complete
-Last activity: 2026-02-05 - Completed 06-04-PLAN.md (benchmark suite)
+Plan: 5 of 5 complete (06-01, 06-02, 06-03, 06-04, 06-05 done)
+Status: Phase 6 COMPLETE
+Last activity: 2026-02-05 - Completed 06-05-PLAN.md (dyn_expr integration)
 
-Progress: [████████████] 91% (29 plans of 32 total through Phase 6)
+Progress: [█████████████] 94% (30 plans of 32 total through Phase 6)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 30
 - Average duration: ~7m
-- Total execution time: ~3 hours
+- Total execution time: ~3.5 hours
 
 **By Phase:**
 
@@ -32,11 +32,11 @@ Progress: [████████████] 91% (29 plans of 32 total throu
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
 | 05 | 5/5 | ~106m | ~21m |
-| 06 | 4/4 | ~16m | ~4m |
+| 06 | 5/5 | ~28m | ~5.6m |
 
 **Recent Trend:**
-- Last 5 plans: 05-05 (~12m), 06-01 (~3m), 06-02 (~4m), 06-03 (~4m), 06-04 (~5m)
-- Trend: Phase 6 Memory Optimization COMPLETE - arena allocator, dynamic expression, solver context arena, and benchmark suite all done
+- Last 5 plans: 06-01 (~3m), 06-02 (~4m), 06-03 (~4m), 06-04 (~5m), 06-05 (~12m)
+- Trend: Phase 6 Memory Optimization COMPLETE - arena allocator, dynamic expression, solver context arena, benchmark suite, and dyn_expr integration all done
 
 *Updated after each plan completion*
 
@@ -127,6 +127,9 @@ Recent decisions affecting current work:
 - Seeded random (seed=42) for reproducible benchmark problems (06-04)
 - Pedantic mode for controlled benchmark iterations/rounds (06-04)
 - Benchmark job depends on python-tests in CI (06-04)
+- Pointer aliasing for SOO backward compatibility: expr->literals always points to valid storage (06-05)
+- CONSTRAINT_VARS_PER_CLAUSE replaces MAXCLAUSESIZE in constraint.h for semantic clarity (06-05)
+- Expression.c delegates to dyn_expr API rather than managing memory directly (06-05)
 
 ### Pending Todos
 
@@ -143,6 +146,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T19:36:15Z
-Stopped at: Completed 06-04-PLAN.md (benchmark suite) - Phase 6 COMPLETE
+Last session: 2026-02-05T22:33:34Z
+Stopped at: Completed 06-05-PLAN.md (dyn_expr integration) - Phase 6 COMPLETE
 Resume file: None
