@@ -66,13 +66,6 @@ if sys.platform == "darwin":
 
 extensions += [
 	Extension("cbqs.Model", ["cbqs/Model.pyx"] + sources, extra_compile_args = compiler_args, include_dirs = [os.path.join("cbqs", "src")]),
-	Extension("cbqs.CircuitBackendBinder", sources_circuit,
-	          language = "c", extra_compile_args = compiler_args,
-	          include_dirs = [
-		          os.path.join("circuit_backend", "Backend", "include"),
-		          os.path.join("circuit_backend", "Assembly", "include"),
-		          os.path.join("circuit_backend", "Execution", "include"),
-	          ]),
 	Extension("cbqs.SearchLib", ["cbqs/SearchLib.pyx"] + sources, extra_compile_args = compiler_args,
 	          include_dirs = [os.path.join("cbqs", "src")]),
 	Extension("cbqs.state_sampler", ["cbqs/state_sampler.pyx"] + sources, extra_compile_args = compiler_args,
