@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 5 of 8 (Memory Safety) - IN PROGRESS
-Plan: 1 of 5 complete
+Plan: 2 of 5 complete (05-05 done, 05-02/03/04 skipped - covered by 05-05)
 Status: In progress
-Last activity: 2026-02-05 - Completed 05-01-PLAN.md
+Last activity: 2026-02-05 - Completed 05-05-PLAN.md
 
-Progress: [████████░░] ~88% (21 plans of ~24 total)
+Progress: [████████░░] ~92% (22 plans of ~24 total)
 
 ## Performance Metrics
 
@@ -31,11 +31,11 @@ Progress: [████████░░] ~88% (21 plans of ~24 total)
 | 02 | 6/6 | ~39m | ~6m |
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
-| 05 | 1/5 | ~8m | ~8m |
+| 05 | 2/5 | ~20m | ~10m |
 
 **Recent Trend:**
-- Last 5 plans: 04-01 (~5m), 04-02 (~6m), 04-03 (~20m), 05-01 (~8m)
-- Trend: Phase 5 Memory Safety started, preprocessing leak fixed
+- Last 5 plans: 04-02 (~6m), 04-03 (~20m), 05-01 (~8m), 05-05 (~12m)
+- Trend: Phase 5 Memory Safety progressing, Cython layer audited
 
 *Updated after each plan completion*
 
@@ -98,6 +98,9 @@ Recent decisions affecting current work:
 - try/except for backward-compatible attribute access in Cython (04-03)
 - Explicit free() for zero-length realloc instead of realloc(ptr, 0) - C11 impl-defined behavior (05-01)
 - Use positive_offsets as guard in free_constraints() - always allocated if preprocessing ran (05-01)
+- free(ptr) immediately after set_*_dependence() since C function copies data (05-05)
+- Free char** in reverse order: strings first, then array (05-05)
+- Suppress Python 3.13 internal allocations in Valgrind (debug symbols stripped) (05-05)
 
 ### Pending Todos
 
@@ -115,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T17:30:00Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-02-05T17:40:00Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
