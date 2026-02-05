@@ -1,0 +1,110 @@
+# Valgrind suppression file for Python/numpy/Cython
+# These are known benign allocations that persist for interpreter lifetime
+
+# Python allocator false positives
+{
+   PythonMalloc
+   Memcheck:Leak
+   ...
+   fun:PyObject_Malloc
+}
+
+{
+   PythonRealloc
+   Memcheck:Leak
+   ...
+   fun:PyObject_Realloc
+}
+
+{
+   PythonCalloc
+   Memcheck:Leak
+   ...
+   fun:PyObject_Calloc
+}
+
+# Python GC and internal allocations
+{
+   PythonGC
+   Memcheck:Leak
+   ...
+   fun:_PyObject_GC_*
+}
+
+{
+   PythonArena
+   Memcheck:Leak
+   ...
+   fun:PyArena_*
+}
+
+# Python type/module initialization
+{
+   PythonTypeInit
+   Memcheck:Leak
+   ...
+   fun:PyType_Ready
+}
+
+{
+   PythonModuleCreate
+   Memcheck:Leak
+   ...
+   fun:PyModule_Create*
+}
+
+# NumPy initialization leaks (benign)
+{
+   NumpyInit
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   obj:*/numpy/*.so
+}
+
+{
+   NumpyUFunc
+   Memcheck:Leak
+   ...
+   fun:*ufunc*
+   obj:*/numpy/*.so
+}
+
+# Cython generated code
+{
+   CythonPyxImport
+   Memcheck:Leak
+   ...
+   fun:__pyx_*
+}
+
+{
+   CythonModuleInit
+   Memcheck:Leak
+   ...
+   fun:PyInit_*
+   obj:*/cbqs/*.so
+}
+
+# Python thread state
+{
+   PythonThreadState
+   Memcheck:Leak
+   ...
+   fun:PyThreadState_*
+}
+
+{
+   PythonGILState
+   Memcheck:Leak
+   ...
+   fun:PyGILState_*
+}
+
+# Standard library leaks
+{
+   PythonImport
+   Memcheck:Leak
+   ...
+   fun:PyImport_*
+}
