@@ -7,6 +7,7 @@
 
 #include "state.h"
 #include "constraint.h"
+#include "solver_ctx.h"
 #include "solver.h"
 
 #define STATE_BLOCK 16384
@@ -26,13 +27,13 @@ typedef struct {
 } approximate_state_t;
 
 
-approximate_state_t *init_approximete_state(int n, double bias);
+approximate_state_t *init_approximete_state(solver_ctx_t *ctx, int n, double bias);
 
 void print_approximate_state(approximate_state_t *state);
 
 void free_approximate_state(approximate_state_t *state);
 
-int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
+int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *cur_sol,
                         int samples,
                         new_constraints_t *con, new_constraints_t *obj,
                         int depth_look_ahead);

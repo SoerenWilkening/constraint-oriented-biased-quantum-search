@@ -1,6 +1,7 @@
 
 
 #include "Branching.h"
+#include "solver_ctx.h"
 
 BranchingStats_t BranchingStats = {
     // objective dependent bias
@@ -95,19 +96,19 @@ void set_constraint_dependence(double *dependence, int n){
 //    return total_bias;
 //}
 
-double StateProbability(state_t *state, state_t *threshold){
+double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold){
     state->prob = 1.;
-//    printf("%f\n", BranchingStats.bias);
+//    printf("%f\n", ctx->branching_stats.bias);
     int count0 = 0;
     int count1 = 0;
     for (size_t j = 0; j < state->vector.bits; ++j) {
         if (sw_tstbit(state->branch, j) == 1) {
-            
+
             state->prob *= BranchingFunction(
                 j,
                 sw_tstbit(state->vector, j),
                 sw_tstbit(threshold->vector, j),
-                0, &BranchingStats
+                0, &ctx->branching_stats
             );
 //            if (sw_tstbit(state->vector, j) != sw_tstbit(threshold->vector, j)){
 //                printf("%d -> 0 -> %f\n", j, BranchingFunction(
@@ -132,9 +133,9 @@ double StateProbability(state_t *state, state_t *threshold){
     return state->prob;
 }
 
-state_t *updated(state_t *bnb, size_t number_states,
+state_t *updated(solver_ctx_t *ctx, state_t *bnb, size_t number_states,
                 size_t *new_number, state_t *threshold, int sense) {
-//    printf("%f\n", BranchingStats.bias);
+//    printf("%f\n", ctx->branching_stats.bias);
     state_t *up = calloc(number_states, sizeof(state_t));
     size_t a = 0;
 
@@ -145,7 +146,7 @@ state_t *updated(state_t *bnb, size_t number_states,
             sw_clear(up[a].branch);
             up[a].vector = sw_set(bnb[i].vector);
             up[a].branch = sw_set(bnb[i].branch);
-            StateProbability(&up[a], threshold);
+            StateProbability(ctx, &up[a], threshold);
 
             a++;
         }

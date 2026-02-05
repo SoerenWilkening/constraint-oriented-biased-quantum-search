@@ -10,6 +10,10 @@
 #include "definitions.h"
 #include "state.h"
 
+/* Forward declaration for solver context (avoids circular include) */
+struct solver_ctx;
+typedef struct solver_ctx solver_ctx_t;
+
 typedef struct {
     double objective_factor;
     double *obj_dependent;
@@ -25,12 +29,16 @@ typedef struct {
 
 extern BranchingStats_t BranchingStats; // branching stats as global variable
 
+/* DEPRECATED: Use solver_ctx_set_* functions instead. Will be removed in future version. */
 void set_factors(double objective_factor, double constraint_factor, double bias_factor, double look_factor);
 
+/* DEPRECATED: Use solver_ctx_set_bias instead. Will be removed in future version. */
 void set_bias(double bias);
 
+/* DEPRECATED: Use solver_ctx_set_obj_dependence instead. Will be removed in future version. */
 void set_obj_dependence(double *dependence, int n);
 
+/* DEPRECATED: Use solver_ctx_set_constraint_dependence instead. Will be removed in future version. */
 void set_constraint_dependence(double *dependence, int n);
 
 //double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats);
@@ -96,9 +104,9 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
     return total_bias;
 }
 
-double StateProbability(state_t *state, state_t *threshold);
+double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold);
 
-//state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense);
+state_t *updated(solver_ctx_t *ctx, state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense);
 /* TODO:
      -> all the other branching rules
 */

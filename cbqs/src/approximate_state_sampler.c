@@ -3,9 +3,10 @@
 //
 
 #include "approximate_state_sampler.h"
+#include "solver_ctx.h"
 
-approximate_state_t *init_approximete_state(int n, double bias) {
-    BranchingStats.bias = bias;
+approximate_state_t *init_approximete_state(solver_ctx_t *ctx, int n, double bias) {
+    ctx->branching_stats.bias = bias;
     approximate_state_t *appr = malloc(sizeof(approximate_state_t));
     
     appr->good = init_large_state(n, STATE_BLOCK);
@@ -98,7 +99,7 @@ int state_is_contained_in_bad_list(approximate_state_t *appr, state_t *state){
     return 0;
 }
 
-int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
+int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *cur_sol,
                         int samples,
                         new_constraints_t *con, new_constraints_t *obj,
                         int depth_look_ahead
@@ -147,11 +148,11 @@ int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-                if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+                if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }
-                
+
             }else sw_clrbit(new_sol->branch, i);
             if (count[0] == 0 && count[1] == 0) break;
             // we are forced to go left, when only count[0] leads to a feasible solution
@@ -191,7 +192,7 @@ int CSearch_opt_sampler(approximate_state_t *state, state_t *cur_sol,
         if (as1) val = objective_value(obj, new_sol);
         new_sol->feasible = as1;
         new_sol->tot_profit = val;
-        StateProbability(new_sol, cur_sol);
+        StateProbability(ctx, new_sol, cur_sol);
 
         if (as1 && cur_sol->tot_profit > val) {
             // put good state into list of good states
