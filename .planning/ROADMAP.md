@@ -102,13 +102,14 @@ Plans:
   1. Valgrind/ASan reports zero memory leaks after a complete solve-and-exit cycle (all allocations in explore_neighbourhood are freed)
   2. VLAs sized by problem input (e.g., totals[C], remainings[C]) are replaced with heap or pre-allocated buffers
   3. Solving a problem with 10,000+ constraints does not segfault due to stack overflow from large VLAs
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
 - [ ] 05-01-PLAN.md — Fix preprocessing leaks + create Valgrind suppression file
 - [ ] 05-02-PLAN.md — Replace VLAs in local_search.c with per-thread heap buffers
 - [ ] 05-03-PLAN.md — Replace VLAs in solver.c, SearchLib.c, approximate_state_sampler.c
 - [ ] 05-04-PLAN.md — Enable ASan leak detection + add memory stress tests
+- [ ] 05-05-PLAN.md — Audit Cython layer for memory management (Py_INCREF/DECREF, calloc/free)
 
 ### Phase 6: Memory Optimization
 **Goal**: Hot-path allocations are eliminated through pre-allocation and arena allocation, and expression storage scales with actual term count
@@ -164,7 +165,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
 | 3. Solver Context Architecture | 5/5 | ✓ Complete | 2026-02-05 |
 | 4. Thread Isolation | 3/3 | ✓ Complete | 2026-02-05 |
-| 5. Memory Safety | 0/4 | Planned | - |
+| 5. Memory Safety | 0/5 | Planned | - |
 | 6. Memory Optimization | 0/TBD | Not started | - |
 | 7. API Robustness | 0/TBD | Not started | - |
 | 8. Solve Diagnostics | 0/TBD | Not started | - |
