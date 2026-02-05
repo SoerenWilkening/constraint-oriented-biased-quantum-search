@@ -152,6 +152,18 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 
 	# Create solver context for this solve - manages per-solve state
 	cdef solver_ctx_t *ctx = solver_ctx_create()
+
+	# Configure seed from model (if exposed)
+	if hasattr(mod, '_seed') and mod._seed is not None:
+		ctx.seed = mod._seed
+
+	# Configure num_threads from model (if exposed)
+	if hasattr(mod, '_num_threads') and mod._num_threads is not None:
+		ctx.num_threads = mod._num_threads
+
+	# Initialize PRNG with configured seed/threads
+	solver_ctx_init_prng(ctx)
+
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)
 
@@ -197,6 +209,10 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 		del inc
 
 		cur_sol.arr = np.array(arr, dtype = np.int32)
+		# Store actual seed used back to model for reproducibility tracking
+		if hasattr(mod, '_seed_used'):
+			mod._seed_used = ctx.seed_used
+
 		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb
 	finally:
 		solver_ctx_free(ctx)
@@ -216,9 +232,26 @@ cpdef run_local_search(Model mod, object callback):
 
 	# Create solver context for this local search
 	cdef solver_ctx_t *ctx = solver_ctx_create()
+
+	# Configure seed from model (if exposed)
+	if hasattr(mod, '_seed') and mod._seed is not None:
+		ctx.seed = mod._seed
+
+	# Configure num_threads from model (if exposed)
+	if hasattr(mod, '_num_threads') and mod._num_threads is not None:
+		ctx.num_threads = mod._num_threads
+
+	# Initialize PRNG with configured seed/threads
+	solver_ctx_init_prng(ctx)
+
 	try:
 		with nogil:
 			local_search(ctx, st, mod.mod, cb_ptr)
+
+		# Store actual seed used back to model for reproducibility tracking
+		if hasattr(mod, '_seed_used'):
+			mod._seed_used = ctx.seed_used
+
 		return cur_sol
 	finally:
 		solver_ctx_free(ctx)

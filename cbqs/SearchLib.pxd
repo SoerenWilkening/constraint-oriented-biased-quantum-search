@@ -9,7 +9,11 @@ from .Model cimport Model, model_t
 # Solver context for per-solve state management
 cdef extern from "src/solver_ctx.h":
 	ctypedef struct solver_ctx_t:
-		pass  # Opaque to Cython - we don't need to see internal fields
+		# Expose fields needed for seed/thread configuration from Python
+		unsigned long long seed  # uint64_t - Master seed (0 = auto-generate)
+		unsigned long long seed_used  # uint64_t - Actual seed used after init
+		int num_threads  # Thread count (0 = auto-detect)
+		int num_threads_used  # Actual thread count used after init
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
 	void solver_ctx_request_stop(solver_ctx_t* ctx)
@@ -17,6 +21,7 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_bias(solver_ctx_t* ctx, double bias)
 	void solver_ctx_set_obj_dependence(solver_ctx_t* ctx, double* dep, int n)
 	void solver_ctx_set_constraint_dependence(solver_ctx_t* ctx, double* dep, int n)
+	void solver_ctx_init_prng(solver_ctx_t* ctx)
 
 # Functions to manipulate states and execute the QSearch algorithm
 #
