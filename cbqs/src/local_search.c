@@ -5,6 +5,27 @@
 #include "local_search.h"
 #include "solver_ctx.h"
 #include "prng.h"
+#include "arena.h"
+
+/**
+ * Arena-based array_t initialization.
+ * Like sw_init but allocates from arena instead of malloc.
+ * Falls back to sw_init if arena is NULL.
+ */
+static inline array_t sw_init_arena(size_t B, arena_t *arena) {
+    if (arena == NULL) {
+        return sw_init(B);
+    }
+    array_t A;
+    A.bits = B;
+    size_t numbits = (B >> 6) + 1;
+    A.n = numbits;
+    A.part = (part_length_t*)arena_alloc(arena, A.n * sizeof(part_length_t), 8);
+    if (A.part != NULL) {
+        memset(A.part, 0, A.n * sizeof(part_length_t));
+    }
+    return A;
+}
 
 static inline int move_is_tabu(tabu_list_t *tabu_list, int move) {
 	if (tabu_list->head == -1) return 0;
@@ -188,9 +209,20 @@ void *explore_neighbourhood(void *args) {
 
 		/* Use pre-allocated per-thread scratch buffer instead of VLA */
 		int64_t *totals = dat->thread_totals;
-		array_t inv = sw_init(C * dat->size_ful);
 		memset(totals, 0, C * sizeof(int64_t));
-		int *changed_con = calloc(MINSIZE, sizeof(int));
+
+		/* Arena-based allocations for hot-path (avoid malloc/free per move) */
+		array_t inv;
+		int *changed_con;
+		int use_arena = (dat->ctx != NULL && dat->ctx->arena != NULL);
+		if (use_arena) {
+			inv = sw_init_arena(C * dat->size_ful, dat->ctx->arena);
+			changed_con = (int*)arena_alloc(dat->ctx->arena, MINSIZE * sizeof(int), 4);
+			if (changed_con) memset(changed_con, 0, MINSIZE * sizeof(int));
+		} else {
+			inv = sw_init(C * dat->size_ful);
+			changed_con = calloc(MINSIZE, sizeof(int));
+		}
 		int num_con_changes = 0;
 
         for (int i = 0; i < C; ++i){
@@ -204,8 +236,12 @@ void *explore_neighbourhood(void *args) {
 //			                              dat->con->negative_offsets, new_sol,
 //			                              NEGATIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
 //		}
-		free(changed_con);
-		sw_clear(inv);
+		/* Free only if not using arena */
+		if (!use_arena) {
+			free(changed_con);
+			sw_clear(inv);
+		}
+		/* Arena allocations are freed by arena_reset between iterations */
 
 		// compute with new solution
 		// is the new solution feasible ?
@@ -237,7 +273,14 @@ void *explore_neighbourhood(void *args) {
 //				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 		} else {
-			int *changes = calloc(MINSIZE, sizeof(int));
+			/* Arena-based allocation for changes array */
+			int *changes;
+			if (use_arena) {
+				changes = (int*)arena_alloc(dat->ctx->arena, MINSIZE * sizeof(int), 4);
+				if (changes) memset(changes, 0, MINSIZE * sizeof(int));
+			} else {
+				changes = calloc(MINSIZE, sizeof(int));
+			}
 			int num_cahnges = 0;
 //			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, &dat->ful, &changes, &num_cahnges);
             int64_t objective = objective_value(dat->obj, new_sol);
@@ -248,7 +291,10 @@ void *explore_neighbourhood(void *args) {
 				else dat->move_index = mov;
 //				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
-			free(changes);
+			/* Free only if not using arena */
+			if (!use_arena) {
+				free(changes);
+			}
 		}
 
 		// if cur_best is better than sol: stop all threads
@@ -385,6 +431,11 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	}
 	//prog_data.stat = 1;
 	//pthread_join(progress_thread, NULL);
+
+	/* Reset arena for next iteration - reclaims all arena allocations */
+	if (ctx != NULL) {
+		solver_ctx_arena_reset(ctx);
+	}
 
 	/* Free dynamic allocations */
 	free(data);
