@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "Cython>=3.0", "numpy>=1.20"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cbqs"
+version = "1.0.1"
+description = "Constraint-Oriented Biased Quantum Search"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pandas",
+    "joblib",
+]
