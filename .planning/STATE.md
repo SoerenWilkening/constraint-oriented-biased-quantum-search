@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 3 of 8 (Solver Context Architecture)
-Plan: 1 of 3 in current phase
+Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-05 - Completed 03-01-PLAN.md (Solver Context Struct)
+Last activity: 2026-02-05 - Completed 03-02-PLAN.md (Leaf Function Migration)
 
-Progress: [████████░░] ~60% (13 plans of ~21 total)
+Progress: [████████░░] ~62% (14 plans of ~23 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: ~7m
-- Total execution time: ~1.6 hours
+- Total execution time: ~1.7 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [████████░░] ~60% (13 plans of ~21 total)
 |-------|-------|-------|----------|
 | 01 | 5/5 | ~46m | ~9m |
 | 02 | 6/6 | ~39m | ~6m |
-| 03 | 1/3 | ~6m | ~6m |
+| 03 | 2/5 | ~11m | ~5.5m |
 
 **Recent Trend:**
-- Last 5 plans: 02-03 (~6m), 02-04 (~7m), 02-05 (~5m), 02-06 (~2m), 03-01 (~6m)
+- Last 5 plans: 02-04 (~7m), 02-05 (~5m), 02-06 (~2m), 03-01 (~6m), 03-02 (~5m)
 - Trend: consistent
 
 *Updated after each plan completion*
@@ -71,6 +71,8 @@ Recent decisions affecting current work:
 - atomic_bool for stop signal - lower overhead than mutex for single flag (03-01)
 - CLOCK_MONOTONIC for timeout - not affected by system time changes (03-01)
 - _GNU_SOURCE for BSD type compatibility with intarray.h u_int64_t (03-01)
+- Forward declaration in Branching.h to avoid circular include with solver_ctx.h (03-02)
+- Preserve global BranchingStats and setters with DEPRECATED comments for backward compatibility (03-02)
 
 ### Pending Todos
 
@@ -84,9 +86,10 @@ None yet.
 - SATISFY mode crashes: run_sampling in SearchLib.pyx calls len() on int when solver == SATISFY
 - preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2) - PARTIALLY ADDRESSED by 02-01 realloc fix
 - Root CMakeLists.txt test.c has pre-existing API mismatch with quantum_local_search (tests/CMakeLists.txt works correctly)
+- Code will not compile until Plan 03-03 updates callers to pass ctx (expected intermediate state)
 
 ## Session Continuity
 
-Last session: 2026-02-05T13:24:27Z
-Stopped at: Completed 03-01-PLAN.md (Solver Context Struct)
+Last session: 2026-02-05T13:31:26Z
+Stopped at: Completed 03-02-PLAN.md (Leaf Function Migration)
 Resume file: None
