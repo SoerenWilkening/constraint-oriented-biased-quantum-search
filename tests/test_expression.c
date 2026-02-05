@@ -168,6 +168,50 @@ static void test_sense_and_rhs(void **state) {
     free_expression(expr);
 }
 
+/* test_copy_expression_contents: verify deep copy creates independent arrays */
+static void test_copy_expression_contents(void **state) {
+    (void)state;
+
+    // Create source expression: 3*x0 + 5
+    expression_t *src = init_expression();
+    add_variable(src, 0);           // [1, 0]
+    multiply_constant(src, 3);      // [3, 0]
+    add_constant(src, 5);           // [3, 0], [5]
+    src->sense = 1;
+    src->rhs = 10;
+
+    // Create destination and copy
+    expression_t *dest = init_expression();
+    copy_expression_contents(dest, src);
+
+    // Verify scalar fields copied
+    assert_int_equal(dest->expr_size, src->expr_size);
+    assert_int_equal(dest->sense, src->sense);
+    assert_int_equal(dest->rhs, src->rhs);
+
+    // Verify arrays have same content
+    for (size_t i = 0; i < src->expr_size; i++) {
+        assert_int_equal(dest->len_literal[i], src->len_literal[i]);
+        for (int j = 0; j < src->len_literal[i]; j++) {
+            assert_int_equal(dest->literals[expr_index(i, j)],
+                           src->literals[expr_index(i, j)]);
+        }
+    }
+
+    // Verify arrays are NOT aliased (different pointers)
+    assert_ptr_not_equal(dest->literals, src->literals);
+    assert_ptr_not_equal(dest->len_literal, src->len_literal);
+
+    // Verify modification to dest doesn't affect src
+    size_t orig_src_size = src->expr_size;
+    add_constant(dest, 100);
+    assert_int_not_equal(dest->expr_size, orig_src_size);
+    assert_int_equal(src->expr_size, orig_src_size);
+
+    free_expression(src);
+    free_expression(dest);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_init_expression),
@@ -179,6 +223,7 @@ int main(void) {
         cmocka_unit_test(test_multiply_variable),
         cmocka_unit_test(test_sub_constant),
         cmocka_unit_test(test_sense_and_rhs),
+        cmocka_unit_test(test_copy_expression_contents),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
