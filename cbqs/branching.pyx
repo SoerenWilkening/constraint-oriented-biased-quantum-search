@@ -1,3 +1,4 @@
+import numpy as np
 
 
 def set_seed(unsigned int seed):
