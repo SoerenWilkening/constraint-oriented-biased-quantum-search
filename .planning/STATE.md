@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 6 of 8 (Memory Optimization)
-Plan: 1 of 4 complete (06-01 done)
+Plan: 2 of 4 complete (06-01, 06-02 done)
 Status: In progress
-Last activity: 2026-02-05 - Completed 06-01-PLAN.md
+Last activity: 2026-02-05 - Completed 06-02-PLAN.md
 
-Progress: [██████████░░] 81% (26 plans of 32 total through Phase 6)
+Progress: [██████████░░] 84% (27 plans of 32 total through Phase 6)
 
 ## Performance Metrics
 
@@ -32,11 +32,11 @@ Progress: [██████████░░] 81% (26 plans of 32 total throu
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
 | 05 | 5/5 | ~106m | ~21m |
-| 06 | 1/4 | ~3m | ~3m |
+| 06 | 2/4 | ~7m | ~3.5m |
 
 **Recent Trend:**
-- Last 5 plans: 05-02 (~50m), 05-03 (~30m), 05-04 (~6m), 05-05 (~12m), 06-01 (~3m)
-- Trend: Phase 6 Memory Optimization started - arena allocator foundation in place
+- Last 5 plans: 05-03 (~30m), 05-04 (~6m), 05-05 (~12m), 06-01 (~3m), 06-02 (~4m)
+- Trend: Phase 6 Memory Optimization progressing - arena allocator and dynamic expression with SOO complete
 
 *Updated after each plan completion*
 
@@ -115,6 +115,10 @@ Recent decisions affecting current work:
 - Alignment via padding formula: (-(ptrdiff_t)ptr) & (align - 1) (06-01)
 - Non-power-of-2 alignment defaults to 8 bytes (06-01)
 - Flexible array member for zero-overhead chunk storage (06-01)
+- capacity==0 indicates inline mode, capacity>0 indicates heap mode (06-02)
+- Initial heap capacity 32 terms when exceeding 8-term inline threshold (06-02)
+- Zero constants skipped in dyn_expr_add_constant (matches Expression.c) (06-02)
+- Accessor functions hide storage mode: dyn_expr_literals() returns correct array (06-02)
 
 ### Pending Todos
 
@@ -131,6 +135,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T19:19:20Z
-Stopped at: Completed 06-01-PLAN.md (arena allocator foundation)
+Last session: 2026-02-05T19:21:14Z
+Stopped at: Completed 06-02-PLAN.md (dynamic expression with SOO)
 Resume file: None
