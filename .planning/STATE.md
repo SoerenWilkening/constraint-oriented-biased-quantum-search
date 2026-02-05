@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 6 of 8 (Memory Optimization)
-Plan: 2 of 4 complete (06-01, 06-02 done)
+Plan: 3 of 4 complete (06-01, 06-02, 06-03 done)
 Status: In progress
-Last activity: 2026-02-05 - Completed 06-02-PLAN.md
+Last activity: 2026-02-05 - Completed 06-03-PLAN.md
 
-Progress: [██████████░░] 84% (27 plans of 32 total through Phase 6)
+Progress: [███████████░] 87% (28 plans of 32 total through Phase 6)
 
 ## Performance Metrics
 
@@ -32,11 +32,11 @@ Progress: [██████████░░] 84% (27 plans of 32 total throu
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
 | 05 | 5/5 | ~106m | ~21m |
-| 06 | 2/4 | ~7m | ~3.5m |
+| 06 | 3/4 | ~11m | ~3.7m |
 
 **Recent Trend:**
-- Last 5 plans: 05-03 (~30m), 05-04 (~6m), 05-05 (~12m), 06-01 (~3m), 06-02 (~4m)
-- Trend: Phase 6 Memory Optimization progressing - arena allocator and dynamic expression with SOO complete
+- Last 5 plans: 05-04 (~6m), 05-05 (~12m), 06-01 (~3m), 06-02 (~4m), 06-03 (~4m)
+- Trend: Phase 6 Memory Optimization progressing - arena allocator, dynamic expression with SOO, and solver context arena integration complete
 
 *Updated after each plan completion*
 
@@ -119,6 +119,11 @@ Recent decisions affecting current work:
 - Initial heap capacity 32 terms when exceeding 8-term inline threshold (06-02)
 - Zero constants skipped in dyn_expr_add_constant (matches Expression.c) (06-02)
 - Accessor functions hide storage mode: dyn_expr_literals() returns correct array (06-02)
+- Arena owned by solver_ctx_t, created at ctx creation, freed at ctx destruction (06-03)
+- Fallback to malloc/calloc when ctx or arena is NULL for backward compatibility (06-03)
+- Arena reset after pthread_join in accept_best_routine between iterations (06-03)
+- sw_init_arena helper for arena-based array_t allocation (06-03)
+- Alignment 8 for part_length_t, 4 for int arrays in arena allocations (06-03)
 
 ### Pending Todos
 
@@ -135,6 +140,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T19:21:14Z
-Stopped at: Completed 06-02-PLAN.md (dynamic expression with SOO)
+Last session: 2026-02-05T19:28:23Z
+Stopped at: Completed 06-03-PLAN.md (solver context arena integration)
 Resume file: None
