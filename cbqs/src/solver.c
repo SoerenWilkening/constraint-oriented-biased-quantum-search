@@ -148,20 +148,28 @@ int initial_state_preparation(model_t *mod) {
     // cur_sol is not necessary anymore
 
 	int n = mod->initial_state->vector.bits;
-	int64_t potentials[mod->con->num_constraints];
-    
+	size_t C = mod->con->num_constraints;
+
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+		free(potentials);
+		free(ret_total1);
+		free(ret_total2);
+		return -1;  /* allocation failure */
+	}
+
     // reset constraint rhs to initial values
-    memcpy(potentials, mod->con->rhs, mod->con->num_constraints * sizeof(int64_t));
+    memcpy(potentials, mod->con->rhs, C * sizeof(int64_t));
 
 	// initialize new solution
     mod->initial_state->tot_profit = -INT32_MAX;
 	sw_set_ui_0(mod->initial_state->vector);
 
 	int i;
-	int64_t ret_total1[mod->con->num_constraints];
-	int64_t ret_total2[mod->con->num_constraints];
-    memset(ret_total1, 0, mod->con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, mod->con->num_constraints * sizeof(int64_t));
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
     int updated = 1;
 	for (i = 0; i < n; i++) {
 	    printf("\r%f %%", (double) i / n * 100.);
@@ -214,17 +222,28 @@ int initial_state_preparation(model_t *mod) {
 	if (mod->initial_state->feasible) {
 		mod->initial_state->tot_profit = objective_value(mod->obj, mod->initial_state);
 	} else {
-		int64_t remainings[mod->con->num_constraints];
-		for (int i = 0; i < mod->con->num_constraints; ++i) remainings[i] = constraint_violation(mod->con, mod->initial_state, i);
+		int64_t *remainings = malloc(C * sizeof(int64_t));
+		if (remainings == NULL) {
+			free(potentials);
+			free(ret_total1);
+			free(ret_total2);
+			return -1;  /* allocation failure */
+		}
+		for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, mod->initial_state, i);
         mod->initial_state->tot_profit = 0;
-		for (int i = 0; i < mod->con->num_constraints; ++i) if (remainings[i] < 0) mod->initial_state->tot_profit -= remainings[i];
+		for (int i = 0; i < C; ++i) if (remainings[i] < 0) mod->initial_state->tot_profit -= remainings[i];
+		free(remainings);
 	}
-    
+
     mod->global_opt->tot_profit = mod->initial_state->tot_profit;
     mod->global_opt->feasible = mod->initial_state->feasible;
     sw_set_inplace(mod->global_opt->vector, mod->initial_state->vector);
-    
-	return min_value(potentials, mod->con->num_constraints);
+
+	int64_t result = min_value(potentials, C);
+	free(potentials);
+	free(ret_total1);
+	free(ret_total2);
+	return result;
 }
 
 
@@ -234,11 +253,18 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 int *samples
 ) {
     int n = cur_sol->vector.bits;
-	int64_t potentials[con->num_constraints];
-	int64_t ret_total1[con->num_constraints];
-	int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+	size_t C = con->num_constraints;
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+		free(potentials);
+		free(ret_total1);
+		free(ret_total2);
+		return 0;  /* allocation failure - treat as no improvement found */
+	}
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
     int l;
 //    printf("%d\n", 4 * j * j + 1);
 	for (l = 0; l < 4 * j * j + 1; l++) {
@@ -336,6 +362,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			free(ChangedBits);
             free_state(new_sol, 1);
             *samples += l;
+			free(potentials);
+			free(ret_total1);
+			free(ret_total2);
 			return 1;
 		}
 //		free(ChangedTerms);
@@ -343,6 +372,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
         free_state(new_sol, 1);
 	}
 	*samples += l;
+	free(potentials);
+	free(ret_total1);
+	free(ret_total2);
 	return 0;
 }
 
@@ -353,11 +385,18 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
                     int *samples
 ) {
     int n = cur_sol->vector.bits;
-	int64_t potentials[con->num_constraints];
-	int64_t ret_total1[con->num_constraints];
-	int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+	size_t C = con->num_constraints;
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+		free(potentials);
+		free(ret_total1);
+		free(ret_total2);
+		return 0;  /* allocation failure */
+	}
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
     int l;
 	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
@@ -443,6 +482,9 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 1;
 		    *samples += l;
+			free(potentials);
+			free(ret_total1);
+			free(ret_total2);
 		    return 1;
         }
         if (direction == -1){
@@ -463,11 +505,17 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    cur_sol->feasible = 0;
             free_state(new_sol, 1);
             *samples += l;
+			free(potentials);
+			free(ret_total1);
+			free(ret_total2);
             return 1;
         }
         free_state(new_sol, 1);
 	}
 	*samples += l;
+	free(potentials);
+	free(ret_total1);
+	free(ret_total2);
 	return 0;
 }
 
@@ -478,11 +526,18 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 int *samples
 ) {
     int n = cur_sol->vector.bits;
-	int64_t potentials[con->num_constraints];
-	int64_t ret_total1[con->num_constraints];
-	int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+	size_t C = con->num_constraints;
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+		free(potentials);
+		free(ret_total1);
+		free(ret_total2);
+		return 0;  /* allocation failure */
+	}
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
     int l;
 	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
@@ -551,11 +606,17 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
             
             free_state(new_sol, 1);
             *samples += l;
+			free(potentials);
+			free(ret_total1);
+			free(ret_total2);
             return 1;
         }
         free_state(new_sol, 1);
 	}
 	*samples += l;
+	free(potentials);
+	free(ret_total1);
+	free(ret_total2);
 	return 0;
 }
 
@@ -577,12 +638,19 @@ double CSearch_opt_monte_carlo_sampler(
     double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
-    int64_t potentials[con->num_constraints];
-    int64_t ret_total1[con->num_constraints];
-    int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-    
+	size_t C = con->num_constraints;
+    int64_t *potentials = malloc(C * sizeof(int64_t));
+    int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+    int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+    if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+        free(potentials);
+        free(ret_total1);
+        free(ret_total2);
+        return 0.0;  /* allocation failure */
+    }
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
+
     int counter = 1;
     double estimate = 1. / initial_samples;
     double prev = estimate;
@@ -666,7 +734,10 @@ double CSearch_opt_monte_carlo_sampler(
 //        printf("%f %d %d %f %f\n", estimate, samples, l, fabs(prev - estimate), estimate * 0.05);
         prev = estimate;
     }
-    
+
+    free(potentials);
+    free(ret_total1);
+    free(ret_total2);
     return estimate;
 }
 
@@ -675,12 +746,19 @@ double CSearch_opt_sat_monte_carlo_sampler(
     double error, int direction, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
-	int64_t potentials[con->num_constraints];
-	int64_t ret_total1[con->num_constraints];
-	int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-    
+	size_t C = con->num_constraints;
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+		free(potentials);
+		free(ret_total1);
+		free(ret_total2);
+		return 0.0;  /* allocation failure */
+	}
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
+
     int counter = 1;
     double estimate = 1. / initial_samples;
     double prev = estimate;
@@ -779,6 +857,9 @@ double CSearch_opt_sat_monte_carlo_sampler(
         prev = estimate;
         free_state(new_sol, 1);
 	}
+	free(potentials);
+	free(ret_total1);
+	free(ret_total2);
 	return estimate;
 }
 
@@ -787,12 +868,19 @@ double CSearch_sat_monte_carlo_sampler(
     solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
-    int64_t potentials[con->num_constraints];
-    int64_t ret_total1[con->num_constraints];
-    int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
-    
+	size_t C = con->num_constraints;
+    int64_t *potentials = malloc(C * sizeof(int64_t));
+    int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+    int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+    if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+        free(potentials);
+        free(ret_total1);
+        free(ret_total2);
+        return 0.0;  /* allocation failure */
+    }
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
+
     int counter = 1;
     double estimate = 1. / initial_samples;
     double prev = estimate;
@@ -858,5 +946,8 @@ double CSearch_sat_monte_carlo_sampler(
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
         free_state(new_sol, 1);
     }
+    free(potentials);
+    free(ret_total1);
+    free(ret_total2);
     return estimate;
 }
