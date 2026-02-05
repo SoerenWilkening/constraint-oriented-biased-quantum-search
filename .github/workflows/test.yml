@@ -129,3 +129,57 @@ jobs:
 
       - name: Run stress tests
         run: pytest tests/test_stress.py -v --timeout=180
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: python-tests  # Run after Python tests pass
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: pip install cython numpy setuptools
+
+      - name: Install package
+        run: pip install --no-build-isolation -e .
+
+      - name: Install benchmark dependencies
+        run: pip install pytest pytest-benchmark joblib
+
+      - name: Run benchmarks
+        run: |
+          pytest benchmarks/ \
+            --benchmark-json=benchmark-results.json \
+            --benchmark-columns=min,max,mean,stddev,rounds \
+            -v
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+
+      - name: Display benchmark summary
+        if: always()
+        run: |
+          echo "=== Benchmark Results Summary ==="
+          python3 -c "
+          import json
+          import sys
+          try:
+              with open('benchmark-results.json') as f:
+                  data = json.load(f)
+              for bench in data.get('benchmarks', []):
+                  name = bench['name']
+                  mean = bench['stats']['mean']
+                  stddev = bench['stats']['stddev']
+                  print(f'{name}: {mean:.4f}s (+/- {stddev:.4f}s)')
+          except FileNotFoundError:
+              print('No benchmark results file found')
+              sys.exit(0)
+          "
