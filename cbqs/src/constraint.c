@@ -182,14 +182,14 @@ void preprocessing(
 					if (item == var && var != prev_var) {
 						if (factor < 0) {
 							// add index to "negative_indices"
-							if (counter_negative & (size_steps - 1) )
+							if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
 							    con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
 							con->negative_indices[counter_negative++] = cls;
 							nni++;
 							con->negative_array_length++;
 						} else {
 							// add index to "positive_indices"
-							if (counter_positive & (size_steps - 1) )
+							if ((counter_positive & (size_steps - 1)) == 0 && counter_positive > 0)
 							    con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
 							con->positive_indices[counter_positive++] = cls;
 							npi++;
@@ -297,14 +297,14 @@ void preprocessing_sparse(
                     if (item == var && var != prev_var) {
                         if (factor < 0) {
                             // add index to "negative_indices"
-                            if (counter_negative & (size_steps - 1) )
+                            if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
                                 con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
                             con->negative_indices[counter_negative++] = cls;
                             nni++;
                             con->negative_array_length++;
                         } else {
                             // add index to "positive_indices"
-                            if (counter_positive & (size_steps - 1) )
+                            if ((counter_positive & (size_steps - 1)) == 0 && counter_positive > 0)
                                 con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
                             con->positive_indices[counter_positive++] = cls;
                             npi++;
@@ -315,7 +315,7 @@ void preprocessing_sparse(
                 }
             }
             if (nni != 0) {
-                if (con->nnz_neg & (size_steps - 1)){
+                if ((con->nnz_neg & (size_steps - 1)) == 0 && con->nnz_neg > 0){
                     // allocate more memory
                     con->neg_cols = realloc(con->neg_cols, (con->nnz_neg + size_steps) * sizeof(unsigned int));
                     con->neg_rows = realloc(con->neg_rows, (con->nnz_neg + size_steps) * sizeof(unsigned int));
@@ -329,7 +329,7 @@ void preprocessing_sparse(
                 con->nnz_neg++;
             }
             if (npi != 0) {
-                if (con->nnz_pos & (size_steps - 1)){
+                if ((con->nnz_pos & (size_steps - 1)) == 0 && con->nnz_pos > 0){
                     con->pos_cols = realloc(con->pos_cols, (con->nnz_pos + size_steps) * sizeof(unsigned int));
                     con->pos_rows = realloc(con->pos_rows, (con->nnz_pos + size_steps) * sizeof(unsigned int));
                     con->num_positive_indices = realloc(con->num_positive_indices, (con->nnz_pos + size_steps) * sizeof(unsigned int));
