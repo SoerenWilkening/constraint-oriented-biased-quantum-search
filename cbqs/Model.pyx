@@ -70,6 +70,11 @@ cdef class Model:
 
 		self.circuit: circuit | None = None
 
+		# Thread isolation (Phase 4): seed and thread configuration
+		self._seed = None  # None = auto-generate
+		self._num_threads = None  # None = auto-detect
+		self._seed_used = None  # Populated after solve() by SearchLib
+
 	def __copy__(self):
 		new_m = Model()
 		new_m.objective = copy(self.objective)
@@ -346,3 +351,48 @@ or {self.runtime}s sampling
 		print_state(self.mod[0].initial_state)
 		print()
 		return 0
+
+	# ============================================================
+	# Thread Isolation Properties (Phase 4)
+	# ============================================================
+
+	@property
+	def seed(self):
+		"""Get/set the random seed for reproducibility.
+
+		Set before calling solve(). If None (default), a random seed is generated.
+		After solve(), use seed_used to get the actual seed that was used.
+		"""
+		return self._seed
+
+	@seed.setter
+	def seed(self, value):
+		if value is not None and not isinstance(value, int):
+			raise TypeError("seed must be an integer or None")
+		self._seed = value
+
+	@property
+	def seed_used(self):
+		"""Get the actual seed used in the most recent solve() call.
+
+		This is especially useful when no seed was set (auto-generated),
+		as it allows reproducing results by setting seed = seed_used.
+		Returns None if solve() has not been called.
+		"""
+		return self._seed_used
+
+	@property
+	def num_threads(self):
+		"""Get/set the number of threads for parallel solving.
+
+		Set before calling solve(). If None (default), auto-detects CPU cores.
+		Can also be set via CBQS_THREADS environment variable.
+		"""
+		return self._num_threads
+
+	@num_threads.setter
+	def num_threads(self, value):
+		if value is not None:
+			if not isinstance(value, int) or value < 1:
+				raise ValueError("num_threads must be a positive integer or None")
+		self._num_threads = value
