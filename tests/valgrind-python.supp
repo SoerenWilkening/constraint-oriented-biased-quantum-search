@@ -108,3 +108,57 @@
    ...
    fun:PyImport_*
 }
+
+# NumPy CPU dispatch trace (initialization, benign)
+{
+   NumpyCpuDispatchTrace
+   Memcheck:Leak
+   ...
+   fun:npy_cpu_dispatch_trace
+}
+
+{
+   NumpyInitOperators
+   Memcheck:Leak
+   ...
+   fun:InitOperators
+}
+
+{
+   NumpyInitUmath
+   Memcheck:Leak
+   ...
+   fun:initumath
+}
+
+# NumPy multiarray module init
+{
+   NumpyMultiarrayExec
+   Memcheck:Leak
+   ...
+   fun:_multiarray_umath_exec
+}
+
+# Python 3.13 internal allocations (debug symbols stripped)
+{
+   Python313InternalMalloc
+   Memcheck:Leak
+   ...
+   obj:/usr/bin/python3.13
+}
+
+# Pytest and plugin initialization
+{
+   PytestInit
+   Memcheck:Leak
+   ...
+   obj:*/_pytest/*.so
+}
+
+# Pluggy initialization
+{
+   PluggyInit
+   Memcheck:Leak
+   ...
+   obj:*/pluggy/*.so
+}
