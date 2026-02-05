@@ -227,7 +227,7 @@ int initial_state_preparation(model_t *mod) {
 }
 
 
-int CSearch_opt(state_t *cur_sol, int j,
+int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful,
                 int *samples
@@ -279,7 +279,7 @@ int CSearch_opt(state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -346,7 +346,7 @@ int CSearch_opt(state_t *cur_sol, int j,
 }
 
 
-int CSearch_opt_sat(state_t *cur_sol, int j,
+int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
                     new_constraints_t *con, new_constraints_t *obj,
                     int depth_look_ahead, int direction, array_t *ful,
                     int *samples
@@ -393,7 +393,7 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0 || count[0] == 0 && count[1] == 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -471,7 +471,7 @@ int CSearch_opt_sat(state_t *cur_sol, int j,
 }
 
 
-int CSearch_sat(state_t *cur_sol, int j,
+int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful,
                 int *samples
@@ -517,7 +517,7 @@ int CSearch_sat(state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -572,7 +572,8 @@ int CSearch_sat(state_t *cur_sol, int j,
 
 
 double CSearch_opt_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int initial_samples
+    solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj,
+    double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
     int64_t potentials[con->num_constraints];
@@ -616,11 +617,11 @@ double CSearch_opt_monte_carlo_sampler(
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
-                if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+                if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }
-                
+
             }else sw_clrbit(new_sol->branch, i);
             if (count[0] == 0 && count[1] == 0) break;
             // we are forced to go left, when only count[0] leads to a feasible solution
@@ -669,7 +670,8 @@ double CSearch_opt_monte_carlo_sampler(
 }
 
 double CSearch_opt_sat_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples
+    solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj,
+    double error, int direction, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
 	int64_t potentials[con->num_constraints];
@@ -718,7 +720,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0 || count[0] == 0 && count[1] == 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -781,7 +783,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 
 
 double CSearch_sat_monte_carlo_sampler(
-    state_t *cur_sol, new_constraints_t *con, double error, int initial_samples
+    solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, double error, int initial_samples
 ) {
     int n = cur_sol->vector.bits;
     int64_t potentials[con->num_constraints];
@@ -824,7 +826,7 @@ double CSearch_sat_monte_carlo_sampler(
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-                if (random_num > BranchingFunction(i, bit, 0, 0, &BranchingStats)) {
+                if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }
@@ -842,7 +844,7 @@ double CSearch_sat_monte_carlo_sampler(
                 sw_setbit(new_sol->vector, i);
                 new_bit = 1;
             }
-            
+
             if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
             else update_potentials(con, potentials, PLAIN, ret_total1);
         }
