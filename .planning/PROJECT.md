@@ -61,6 +61,20 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - Integer variables return expressions (binary decomposition) but operations mutate the expression in-place, requiring manual copying — this is the most user-facing bug
 - CONCERNS.md from codebase mapping identifies thread safety, memory management, and missing tests as primary issues
 
+## Git Workflow
+
+This project uses **Git Flow**:
+
+- `main` — production-ready releases
+- `develop` — integration branch for features (if used)
+- `feature/*` — feature development branches
+- `release/*` — release preparation
+- `hotfix/*` — urgent production fixes
+
+**Current branch:** `feature/feature_branch`
+
+All phase work is done on feature branches. Merge to main via pull request after phase completion.
+
 ## Constraints
 
 - **Language**: Must maintain Python/Cython/C architecture — core performance lives in C
