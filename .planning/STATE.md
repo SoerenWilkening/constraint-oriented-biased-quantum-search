@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 Phase: 2 of 8 (Critical Correctness Fixes)
 Plan: 6 of 6 in current phase
 Status: Phase 2 complete
-Last activity: 2026-02-05 - Completed 02-06-PLAN.md
+Last activity: 2026-02-05 - Completed 02-05-PLAN.md (all Phase 2 plans done)
 
 Progress: [████████░░] ~55% (12 plans of ~20 total)
 
@@ -62,6 +62,8 @@ Recent decisions affecting current work:
 - copy_expression_contents added for deep copying (02-02)
 - Standard operators return new objects, in-place operators mutate self (02-03)
 - In-place operators match Python int behavior: mutate and return self (02-04)
+- Deprecation warning is informational, respects CBQS_SUPPRESS_DEPRECATION env var (02-05)
+- Made CircuitBackendBinder and Model imports optional (02-05)
 - Valgrind tests subset of critical tests due to performance overhead (02-06)
 - Stress tests run separately from unit tests in CI for visibility (02-06)
 
@@ -79,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T10:34:29Z
-Stopped at: Completed 02-06-PLAN.md (Valgrind CI and stress tests) - Phase 2 complete
+Last session: 2026-02-05T10:38:55Z
+Stopped at: Completed 02-05-PLAN.md (Deprecation warning and Variable fix) - Phase 2 complete
 Resume file: None
