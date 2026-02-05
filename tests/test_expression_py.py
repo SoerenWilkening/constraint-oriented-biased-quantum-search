@@ -223,3 +223,114 @@ class TestExpressionConstraintOperators:
         terms = list(c)
         assert EQUAL in terms
         assert 2 in terms
+
+
+class TestExpressionImmutability:
+    """Tests verifying Expression immutability fix (CORR-04).
+
+    These tests ensure that standard operators (+, *, etc.) return new
+    Expression objects without modifying the original, while in-place
+    operators (+=, *=) correctly mutate self.
+    """
+
+    def test_add_does_not_mutate(self):
+        """expr + 5 does not modify expr."""
+        x = Variable(0)
+        expr1 = x + 3
+        terms_before = list(expr1)
+        expr2 = expr1 + 5
+        terms_after = list(expr1)
+
+        assert terms_before == terms_after, "expr1 was mutated by expr1 + 5"
+        assert expr1 is not expr2, "expr1 + 5 should return new object"
+
+    def test_mul_does_not_mutate(self):
+        """expr * 2 does not modify expr."""
+        x = Variable(0)
+        expr1 = x + 3
+        terms_before = list(expr1)
+        expr2 = expr1 * 2
+        terms_after = list(expr1)
+
+        assert terms_before == terms_after, "expr1 was mutated by expr1 * 2"
+
+    def test_iadd_does_mutate(self):
+        """expr += 5 mutates expr in place."""
+        x = Variable(0)
+        expr = x + 3
+        original_id = id(expr)
+        expr += 5
+
+        assert id(expr) == original_id, "+= should return same object"
+        terms = list(expr)
+        assert [5] in terms, "5 should be in expr after +="
+
+    def test_variable_reuse_independence(self):
+        """Same variable in multiple expressions doesn't cause cross-talk."""
+        x = Variable(0)
+        expr1 = x + 3
+        expr2 = x + 5
+
+        terms1 = list(expr1)
+        terms2 = list(expr2)
+
+        # expr1 should have constant 3, not 5
+        assert [3] in terms1
+        assert [5] not in terms1
+        # expr2 should have constant 5, not 3
+        assert [5] in terms2
+        assert [3] not in terms2
+
+    def test_deepcopy_creates_independent_copy(self):
+        """copy.deepcopy(expr) creates fully independent Expression."""
+        x = Variable(0)
+        expr1 = x + 3
+        expr2 = deepcopy(expr1)
+
+        # Modify expr2
+        expr2 += 10
+
+        # expr1 should be unchanged
+        terms1 = list(expr1)
+        assert [10] not in terms1
+
+    def test_variable_add_expression_does_not_mutate(self):
+        """Variable + Expression does not mutate the Expression."""
+        x = Variable(0)
+        y = Variable(1)
+        expr1 = x + 3
+        terms_before = list(expr1)
+        expr2 = y + expr1  # Should NOT mutate expr1
+
+        terms_after = list(expr1)
+        assert terms_before == terms_after, "expr1 was mutated by y + expr1"
+        assert expr1 is not expr2
+
+    def test_variable_mul_expression_does_not_mutate(self):
+        """Variable * Expression does not mutate the Expression."""
+        x = Variable(0)
+        y = Variable(1)
+        expr1 = x + 3
+        terms_before = list(expr1)
+        expr2 = y * expr1  # Should NOT mutate expr1
+
+        terms_after = list(expr1)
+        assert terms_before == terms_after, "expr1 was mutated by y * expr1"
+        assert expr1 is not expr2
+
+    def test_chained_operations_independence(self):
+        """Chained operations don't affect intermediate expressions."""
+        x = Variable(0)
+        y = Variable(1)
+        z = Variable(2)
+
+        e1 = x + 3
+        e2 = e1 + y
+        e3 = e2 + z
+        e4 = e3 * 2
+
+        # All intermediate expressions should be independent
+        assert [1, 1] not in list(e1), "e1 should not contain y"
+        assert [1, 2] not in list(e2), "e2 should not contain z"
+        # e3 should have terms doubled in e4, but e3 itself unchanged
+        assert [6] not in list(e3), "e3 should not be doubled"
