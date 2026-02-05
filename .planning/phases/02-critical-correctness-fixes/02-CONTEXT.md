@@ -43,7 +43,7 @@ Fix bugs that produce silently wrong results: use-after-free in accept_best_rout
 
 ### Git Workflow
 - Work on `feature/feature_branch` per Git Flow
-- Merge to `main` via pull request after phase completion
+- Features merge to `develop`, releases merge `develop` to `main`
 
 ### Claude's Discretion
 - Exact copy strategy for standard operators (always-copy vs copy-on-write)

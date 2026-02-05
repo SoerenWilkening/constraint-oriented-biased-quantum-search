@@ -65,15 +65,15 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 This project uses **Git Flow**:
 
-- `main` — production-ready releases
-- `develop` — integration branch for features (if used)
+- `main` — production-ready releases only
+- `develop` — integration branch for feature work
 - `feature/*` — feature development branches
-- `release/*` — release preparation
+- `release/*` — release preparation (develop → main)
 - `hotfix/*` — urgent production fixes
 
 **Current branch:** `feature/feature_branch`
 
-All phase work is done on feature branches. Merge to main via pull request after phase completion.
+All phase work is done on feature branches. Features merge to `develop`. Releases merge `develop` to `main`.
 
 ## Constraints
 
