@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Phase 4 complete, Phase 5 next (Memory Safety)
+**Current focus:** Phase 5 in progress (Memory Safety)
 
 ## Current Position
 
-Phase: 4 of 8 (Thread Isolation) - COMPLETE
-Plan: 3 of 3 complete
-Status: Complete
-Last activity: 2026-02-05 - Phase 4 verified
+Phase: 5 of 8 (Memory Safety) - IN PROGRESS
+Plan: 1 of 5 complete
+Status: In progress
+Last activity: 2026-02-05 - Completed 05-01-PLAN.md
 
-Progress: [████████░░] ~87% (20 plans of ~23 total)
+Progress: [████████░░] ~88% (21 plans of ~24 total)
 
 ## Performance Metrics
 
@@ -31,10 +31,11 @@ Progress: [████████░░] ~87% (20 plans of ~23 total)
 | 02 | 6/6 | ~39m | ~6m |
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
+| 05 | 1/5 | ~8m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 03-04 (~24m), 04-01 (~5m), 04-02 (~6m), 04-03 (~20m)
-- Trend: Phase 4 Cython API complete, one plan remaining
+- Last 5 plans: 04-01 (~5m), 04-02 (~6m), 04-03 (~20m), 05-01 (~8m)
+- Trend: Phase 5 Memory Safety started, preprocessing leak fixed
 
 *Updated after each plan completion*
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - cdef struct + ctypedef pattern for proper Cython field access (04-03)
 - Model.pxd declarations required for cdef class attributes (04-03)
 - try/except for backward-compatible attribute access in Cython (04-03)
+- Explicit free() for zero-length realloc instead of realloc(ptr, 0) - C11 impl-defined behavior (05-01)
+- Use positive_offsets as guard in free_constraints() - always allocated if preprocessing ran (05-01)
 
 ### Pending Todos
 
@@ -106,12 +109,12 @@ None yet.
 - Phase 6: Incremental constraint evaluation (adjusted_constraint_violation) was commented out for unknown reasons -- investigate git history during planning
 - GCC 15 compilation: Most type mismatches fixed, some warnings remain (non-fatal)
 - SATISFY mode crashes: run_sampling in SearchLib.pyx calls len() on int when solver == SATISFY
-- preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2) - PARTIALLY ADDRESSED by 02-01 realloc fix
+- preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2) - FIXED in 05-01
 - Root CMakeLists.txt test.c has pre-existing API mismatch with quantum_local_search (tests/CMakeLists.txt works correctly)
 - C tests couldn't run in 03-04 due to network issues - verify in CI
 
 ## Session Continuity
 
-Last session: 2026-02-05T17:00:00Z
-Stopped at: Phase 4 verified and complete
+Last session: 2026-02-05T17:30:00Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
