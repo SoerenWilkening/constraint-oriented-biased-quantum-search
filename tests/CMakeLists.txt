@@ -53,6 +53,7 @@ add_cmocka_test(test_intarray
 add_cmocka_test(test_expression
     test_expression.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
 )
 
 add_cmocka_test(test_state
@@ -65,6 +66,7 @@ add_cmocka_test(test_constraint
     test_constraint.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -74,6 +76,7 @@ add_cmocka_test(test_model
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -95,6 +98,7 @@ add_cmocka_test(test_solver
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -119,6 +123,7 @@ add_cmocka_test(test_searchlib
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/quantum_search.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
@@ -132,6 +137,7 @@ add_cmocka_test(test_integration
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -149,6 +155,7 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c

@@ -116,9 +116,7 @@ dyn_expression_t *dyn_expr_init(void) {
         return NULL;
     }
 
-    /* Start in inline mode */
-    expr->literals = NULL;
-    expr->len_literal = NULL;
+    /* Start in inline mode - point to inline storage for backward compatibility */
     expr->expr_size = 0;
     expr->capacity = 0;  /* 0 = inline mode */
     expr->sense = 0;
@@ -132,6 +130,10 @@ dyn_expression_t *dyn_expr_init(void) {
         expr->inline_len_literal[i] = 0;
     }
 
+    /* Point literals/len_literal to inline storage for backward compatibility */
+    expr->literals = expr->inline_literals;
+    expr->len_literal = expr->inline_len_literal;
+
     return expr;
 }
 
@@ -140,7 +142,9 @@ void dyn_expr_free(dyn_expression_t *expr) {
         return;
     }
 
-    /* Free heap arrays if allocated */
+    /* Free heap arrays if allocated (capacity > 0 means heap mode) */
+    /* In heap mode, literals/len_literal point to heap-allocated memory */
+    /* In inline mode, they point to inline_literals/inline_len_literal (don't free) */
     if (expr->capacity > 0) {
         free(expr->literals);
         free(expr->len_literal);
@@ -170,8 +174,6 @@ void dyn_expr_copy(dyn_expression_t *dest, const dyn_expression_t *src) {
             /* Dest was heap, switch to inline */
             free(dest->literals);
             free(dest->len_literal);
-            dest->literals = NULL;
-            dest->len_literal = NULL;
             dest->capacity = 0;
         }
         /* Copy inline data */
@@ -179,6 +181,9 @@ void dyn_expr_copy(dyn_expression_t *dest, const dyn_expression_t *src) {
                EXPR_INLINE_CAPACITY * MAX_VARS_PER_TERM * sizeof(int64_t));
         memcpy(dest->inline_len_literal, src->inline_len_literal,
                EXPR_INLINE_CAPACITY * sizeof(int));
+        /* Point to inline storage for backward compatibility */
+        dest->literals = dest->inline_literals;
+        dest->len_literal = dest->inline_len_literal;
     } else {
         /* Source is heap */
         /* Ensure dest has enough heap capacity */
