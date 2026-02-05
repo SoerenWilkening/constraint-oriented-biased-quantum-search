@@ -149,3 +149,17 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
+
+# --- Plan 03-05: Thread safety test ---
+# Tests that solver_ctx_t enables safe concurrent usage:
+# - Independent contexts don't interfere
+# - Atomic stop flag visibility across threads
+# - Timeout mechanism works correctly
+# - Debug output doesn't crash
+add_cmocka_test(test_thread_safety
+    test_thread_safety.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
