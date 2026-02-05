@@ -40,6 +40,7 @@ sources = [
 	os.path.join("cbqs", "src", "Branching.c"),
 	os.path.join("cbqs", "src", "intarray.c"),
 	os.path.join("cbqs", "src", "Expression.c"),
+	os.path.join("cbqs", "src", "dyn_expr.c"),  # Phase 6: Dynamic expression storage
 	os.path.join("cbqs", "src", "state.c"),
 	os.path.join("cbqs", "src", "model.c"),
 	os.path.join("cbqs", "src", "local_search.c"),
@@ -48,13 +49,14 @@ sources = [
 	os.path.join("cbqs", "src", "approximate_state_sampler.c"),
 	os.path.join("cbqs", "src", "solver_ctx.c"),
 	os.path.join("cbqs", "src", "prng.c"),  # Phase 4: xoshiro256** PRNG
+	os.path.join("cbqs", "src", "arena.c"),  # Phase 6: Arena allocator
 ]
 
 extensions = [
 	Extension("cbqs.Constants", [os.path.join("cbqs", "Constants.py")], extra_compile_args = compiler_args),
 	Extension("cbqs.StateGenerator", [os.path.join("cbqs", "StateGenerator.py")], extra_compile_args = compiler_args),
-	Extension("cbqs.Expression", [os.path.join("cbqs", "Expression.pyx"), os.path.join("cbqs", "src", "Expression.c")],
-	          extra_compile_args = compiler_args),
+	Extension("cbqs.Expression", [os.path.join("cbqs", "Expression.pyx"), os.path.join("cbqs", "src", "Expression.c"), os.path.join("cbqs", "src", "dyn_expr.c")],
+	          extra_compile_args = compiler_args, include_dirs = [os.path.join("cbqs", "src")]),
 ]
 
 # Metal_executor requires macOS Objective-C runtime (-ObjC flag)
