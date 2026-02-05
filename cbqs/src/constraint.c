@@ -68,10 +68,11 @@ void free_constraints(new_constraints_t *con) {
 	free(con->sense);
 	free(con->rhs);
 
-	if (con->positive_indices != NULL) {
-		free(con->positive_indices);
+	/* Use positive_offsets as guard: always allocated if preprocessing() ran */
+	if (con->positive_offsets != NULL) {
+		free(con->positive_indices);  /* May be NULL if array_length was 0 */
 		free(con->positive_offsets);
-		free(con->negative_indices);
+		free(con->negative_indices);  /* May be NULL if array_length was 0 */
 		free(con->negative_offsets);
 		free(con->num_positive_indices);
 		free(con->num_negative_indices);
@@ -206,8 +207,26 @@ void preprocessing(
 		}
 	}
 	printf("\r");
-	con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
-	con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+	if (con->positive_array_length == 0) {
+		free(con->positive_indices);
+		con->positive_indices = NULL;
+	} else {
+		uint32_t *new_pos = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
+		if (new_pos != NULL) {
+			con->positive_indices = new_pos;
+		}
+		/* If realloc fails, keep original (over-allocated but not leaked) */
+	}
+
+	if (con->negative_array_length == 0) {
+		free(con->negative_indices);
+		con->negative_indices = NULL;
+	} else {
+		uint32_t *new_neg = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+		if (new_neg != NULL) {
+			con->negative_indices = new_neg;
+		}
+	}
 }
 
 
@@ -344,8 +363,26 @@ void preprocessing_sparse(
         }
     }
 //    printf("\r");
-    con->positive_indices = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
-    con->negative_indices = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+    if (con->positive_array_length == 0) {
+        free(con->positive_indices);
+        con->positive_indices = NULL;
+    } else {
+        uint32_t *new_pos = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
+        if (new_pos != NULL) {
+            con->positive_indices = new_pos;
+        }
+        /* If realloc fails, keep original (over-allocated but not leaked) */
+    }
+
+    if (con->negative_array_length == 0) {
+        free(con->negative_indices);
+        con->negative_indices = NULL;
+    } else {
+        uint32_t *new_neg = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
+        if (new_neg != NULL) {
+            con->negative_indices = new_neg;
+        }
+    }
 }
 
 
