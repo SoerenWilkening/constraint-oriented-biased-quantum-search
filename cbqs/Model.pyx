@@ -4,7 +4,11 @@ from warnings import warn
 
 import numpy as np
 from joblib import Parallel, delayed
-from .CircuitBackendBinder import circuit
+# CircuitBackendBinder is optional - requires circuit_backend directory
+try:
+	from .CircuitBackendBinder import circuit
+except ImportError:
+	circuit = None
 from .Constants import *
 from .Expression import Variable
 from .Expression cimport Expression

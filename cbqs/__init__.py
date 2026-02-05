@@ -1,4 +1,11 @@
-from .Model import Model, set_seed
+# Optional imports - some dependencies may not be available
+try:
+    from .Model import Model, set_seed
+except ImportError as e:
+    # Model requires optional dependencies (gurobipy, etc.)
+    Model = None
+    set_seed = None
+
 from .Constants import *
 
 
