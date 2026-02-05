@@ -3,6 +3,7 @@
 //
 
 #include "SearchLib.h"
+#include "solver_ctx.h"
 #include <pthread.h>
 #include <Python.h>
 
@@ -43,14 +44,15 @@ void free_incumbents(incumbents_t *incumbents){
     free(incumbents);
 }
 
-volatile sig_atomic_t stop_flag = 0;
+/* Global pointer to active solver context for signal handler access.
+ * This is needed because signal handlers cannot receive user data.
+ * Only one solve can be active with signal handling at a time. */
+static solver_ctx_t *g_active_ctx = NULL;
 
-void handle_signal(int signum) {
-	stop_flag = 1;
-}
-
-void reset_flag(){
-    stop_flag = 0;
+static void handle_signal(int signum) {
+    if (g_active_ctx != NULL) {
+        solver_ctx_request_stop(g_active_ctx);
+    }
 }
 
 int bfs(
@@ -78,14 +80,15 @@ int bfs(
 }
 
 
-int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
+int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
 	int m_tot = 0;
 //    state_t *cur_sol = copy_state(mod->initial_state);
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
 	double c = 6. / 5;
 
-	int (*search_function)(state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
+	/* Function pointer for CSearch_* functions - all now take ctx as first parameter */
+	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
  
 //	size_t NTerms = obj->num_clauses[0]; // number terms
 	array_t fulfilled_objective_terms = sw_init(mod->obj->num_clauses[0]);
@@ -118,12 +121,19 @@ int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incu
 	// Start sampling after initial_state_preparation
 	double total_time = 0;
 	int samples = 0;
+
+	/* Register this context for signal handler access */
+	g_active_ctx = ctx;
+
 	while (m_tot < mod->M && total_time < mod->stopping_time) {
 //    for (int i = 0; i < 1; ++i) {
 		signal(SIGINT, handle_signal);
 		signal(SIGTERM, handle_signal);
 
-		if (stop_flag) return 0;
+		if (solver_ctx_should_stop(ctx)) {
+			g_active_ctx = NULL;
+			return 0;
+		}
 
 		int m = ceil(pow(c, rounds));
 		int j;
@@ -132,7 +142,7 @@ int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incu
 		m_tot += 2 * j + 1;
         mod->qtg_applications += 2 * j + 1;
 		res = search_function(
-				cur_sol, j, mod->con, mod->obj,
+				ctx, cur_sol, j, mod->con, mod->obj,
                 mod->depth_look_ahead, direction, &fulfilled_objective_terms,
 				&samples
 		);
@@ -142,6 +152,10 @@ int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incu
 		
 //        printf("%d %d %d %d %lld %d\n", stage, j, res, rounds, cur_sol->tot_profit, cur_sol->feasible);
 		rounds++;
+
+		/* Periodic stop check (every 256 iterations) */
+		if ((rounds & 255) == 0 && solver_ctx_should_stop(ctx)) break;
+
 		if (res) {
 
             // first found feasible solution
@@ -189,5 +203,9 @@ int ctg( model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incu
 	incumbents->initial_samples[incumbents->head] = 0; // last step, no better incumbents found
 
 	sw_clear(fulfilled_objective_terms);
+
+	/* Clear signal handler context */
+	g_active_ctx = NULL;
+
 	return feasible;
 }
