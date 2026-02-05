@@ -1,0 +1,199 @@
+/**
+ * @file solver_ctx.c
+ * @brief Solver context lifecycle implementation
+ */
+
+/* Feature test macros for POSIX clock_gettime, CLOCK_MONOTONIC, and BSD types
+ * This must be defined before any includes to take effect.
+ * The codebase uses GNU extensions (u_int64_t in intarray.h) so we use _GNU_SOURCE.
+ */
+#define _GNU_SOURCE
+
+#include "solver_ctx.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+/* ============================================================
+ * Lifecycle Functions
+ * ============================================================ */
+
+solver_ctx_t *solver_ctx_create(void) {
+    solver_ctx_t *ctx = malloc(sizeof(solver_ctx_t));
+    if (ctx == NULL) {
+        return NULL;
+    }
+
+    /* Initialize branching_stats with same defaults as global BranchingStats */
+    ctx->branching_stats.objective_factor = 0;
+    ctx->branching_stats.obj_dependent = NULL;
+    ctx->branching_stats.constraint_factor = 0;
+    ctx->branching_stats.constraint_dependent = NULL;
+    ctx->branching_stats.bias_factor = 1;
+    ctx->branching_stats.bias = 5;
+    ctx->branching_stats.look_factor = 0.0;
+
+    /* Initialize atomic stop flag */
+    atomic_init(&ctx->stop, false);
+
+    /* No timeout by default */
+    ctx->timeout_ms = 0;
+
+    /* Check CBQS_DEBUG environment variable */
+    ctx->debug_enabled = (getenv("CBQS_DEBUG") != NULL);
+
+    /* Record start time */
+    clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
+
+    return ctx;
+}
+
+void solver_ctx_free(solver_ctx_t *ctx) {
+    if (ctx == NULL) {
+        return;
+    }
+
+    /* Free dependence arrays if allocated */
+    if (ctx->branching_stats.obj_dependent != NULL) {
+        free(ctx->branching_stats.obj_dependent);
+        ctx->branching_stats.obj_dependent = NULL;
+    }
+    if (ctx->branching_stats.constraint_dependent != NULL) {
+        free(ctx->branching_stats.constraint_dependent);
+        ctx->branching_stats.constraint_dependent = NULL;
+    }
+
+    free(ctx);
+}
+
+/* ============================================================
+ * Stop Signal API
+ * ============================================================ */
+
+void solver_ctx_request_stop(solver_ctx_t *ctx) {
+    if (ctx == NULL) {
+        return;
+    }
+    atomic_store(&ctx->stop, true);
+}
+
+int solver_ctx_should_stop(solver_ctx_t *ctx) {
+    if (ctx == NULL) {
+        return 0;
+    }
+
+    /* Check atomic stop flag first */
+    if (atomic_load(&ctx->stop)) {
+        return 1;
+    }
+
+    /* Check timeout if configured */
+    if (ctx->timeout_ms > 0) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+
+        /* Calculate elapsed time in milliseconds */
+        uint64_t elapsed_ms = (uint64_t)(now.tv_sec - ctx->start_time.tv_sec) * 1000;
+        elapsed_ms += (uint64_t)(now.tv_nsec - ctx->start_time.tv_nsec) / 1000000;
+
+        if (elapsed_ms >= ctx->timeout_ms) {
+            /* Set stop flag for subsequent checks */
+            atomic_store(&ctx->stop, true);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/* ============================================================
+ * Context-aware Setters
+ * ============================================================ */
+
+void solver_ctx_set_factors(solver_ctx_t *ctx, double obj, double con, double bias, double look) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->branching_stats.objective_factor = obj;
+    ctx->branching_stats.constraint_factor = con;
+    ctx->branching_stats.bias_factor = bias;
+    ctx->branching_stats.look_factor = look;
+}
+
+void solver_ctx_set_bias(solver_ctx_t *ctx, double bias) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->branching_stats.bias = bias;
+}
+
+void solver_ctx_set_obj_dependence(solver_ctx_t *ctx, double *dep, int n) {
+    if (ctx == NULL || dep == NULL || n <= 0) {
+        return;
+    }
+
+    /* Free existing array if present */
+    if (ctx->branching_stats.obj_dependent != NULL) {
+        free(ctx->branching_stats.obj_dependent);
+    }
+
+    /* Allocate and copy */
+    ctx->branching_stats.obj_dependent = calloc((size_t)n, sizeof(double));
+    if (ctx->branching_stats.obj_dependent != NULL) {
+        memcpy(ctx->branching_stats.obj_dependent, dep, (size_t)n * sizeof(double));
+    }
+}
+
+void solver_ctx_set_constraint_dependence(solver_ctx_t *ctx, double *dep, int n) {
+    if (ctx == NULL || dep == NULL || n <= 0) {
+        return;
+    }
+
+    /* Free existing array if present */
+    if (ctx->branching_stats.constraint_dependent != NULL) {
+        free(ctx->branching_stats.constraint_dependent);
+    }
+
+    /* Allocate and copy */
+    ctx->branching_stats.constraint_dependent = calloc((size_t)n, sizeof(double));
+    if (ctx->branching_stats.constraint_dependent != NULL) {
+        memcpy(ctx->branching_stats.constraint_dependent, dep, (size_t)n * sizeof(double));
+    }
+}
+
+/* ============================================================
+ * Debug Output
+ * ============================================================ */
+
+void solver_ctx_debug_stats(solver_ctx_t *ctx) {
+    if (ctx == NULL || !ctx->debug_enabled) {
+        return;
+    }
+
+    /* Calculate elapsed time */
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    double elapsed_sec = (double)(now.tv_sec - ctx->start_time.tv_sec);
+    elapsed_sec += (double)(now.tv_nsec - ctx->start_time.tv_nsec) / 1e9;
+
+    /* Output JSON to stderr */
+    fprintf(stderr,
+            "{\"type\":\"solve_stats\","
+            "\"elapsed_sec\":%.3f,"
+            "\"bias\":%.2f,"
+            "\"bias_factor\":%.2f,"
+            "\"objective_factor\":%.2f,"
+            "\"constraint_factor\":%.2f,"
+            "\"look_factor\":%.2f,"
+            "\"timeout_ms\":%llu,"
+            "\"stopped\":%s}\n",
+            elapsed_sec,
+            ctx->branching_stats.bias,
+            ctx->branching_stats.bias_factor,
+            ctx->branching_stats.objective_factor,
+            ctx->branching_stats.constraint_factor,
+            ctx->branching_stats.look_factor,
+            (unsigned long long)ctx->timeout_ms,
+            atomic_load(&ctx->stop) ? "true" : "false");
+}
