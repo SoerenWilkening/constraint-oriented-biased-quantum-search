@@ -21,10 +21,10 @@
 
 ### Memory & Data Structures
 
-- [ ] **MEM-01**: Fix memory leak in move list generation — ensure all allocations in `explore_neighbourhood` are freed
+- [x] **MEM-01**: Fix memory leak in move list generation — ensure all allocations in `explore_neighbourhood` are freed
 - [ ] **MEM-02**: Replace fixed-size expression arrays (MAXCLAUSESIZE) with dynamically allocated variable-length storage
 - [ ] **MEM-03**: Implement arena/pool allocator for hot-path allocations in `explore_neighbourhood` inner loop
-- [ ] **MEM-04**: Replace VLAs sized by problem input with heap allocation to prevent stack overflow on large instances
+- [x] **MEM-04**: Replace VLAs sized by problem input with heap allocation to prevent stack overflow on large instances
 
 ### Robustness
 
@@ -68,8 +68,8 @@
 | THRD-02 | Phase 3: Solver Context Architecture | Complete |
 | THRD-03 | Phase 4: Thread Isolation | Complete |
 | THRD-04 | Phase 4: Thread Isolation | Complete |
-| MEM-01 | Phase 5: Memory Safety | Pending |
-| MEM-04 | Phase 5: Memory Safety | Pending |
+| MEM-01 | Phase 5: Memory Safety | Complete |
+| MEM-04 | Phase 5: Memory Safety | Complete |
 | MEM-02 | Phase 6: Memory Optimization | Pending |
 | MEM-03 | Phase 6: Memory Optimization | Pending |
 | RBST-01 | Phase 7: API Robustness | Pending |
@@ -83,4 +83,4 @@
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-05 after Phase 4 completion*
+*Last updated: 2026-02-05 after Phase 5 completion*

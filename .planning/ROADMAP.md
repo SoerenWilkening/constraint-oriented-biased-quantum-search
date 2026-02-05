@@ -105,11 +105,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Fix preprocessing leaks + create Valgrind suppression file
-- [ ] 05-02-PLAN.md — Replace VLAs in local_search.c with per-thread heap buffers
-- [ ] 05-03-PLAN.md — Replace VLAs in solver.c, SearchLib.c, approximate_state_sampler.c
-- [ ] 05-04-PLAN.md — Enable ASan leak detection + add memory stress tests
-- [ ] 05-05-PLAN.md — Audit Cython layer for memory management (Py_INCREF/DECREF, calloc/free)
+- [x] 05-01-PLAN.md — Fix preprocessing leaks + create Valgrind suppression file
+- [x] 05-02-PLAN.md — Replace VLAs in local_search.c with per-thread heap buffers
+- [x] 05-03-PLAN.md — Replace VLAs in solver.c, SearchLib.c, approximate_state_sampler.c
+- [x] 05-04-PLAN.md — Enable ASan leak detection + add memory stress tests
+- [x] 05-05-PLAN.md — Audit Cython layer for memory management (Py_INCREF/DECREF, calloc/free)
 
 ### Phase 6: Memory Optimization
 **Goal**: Hot-path allocations are eliminated through pre-allocation and arena allocation, and expression storage scales with actual term count
@@ -165,7 +165,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
 | 3. Solver Context Architecture | 5/5 | ✓ Complete | 2026-02-05 |
 | 4. Thread Isolation | 3/3 | ✓ Complete | 2026-02-05 |
-| 5. Memory Safety | 0/5 | Planned | - |
+| 5. Memory Safety | 5/5 | ✓ Complete | 2026-02-05 |
 | 6. Memory Optimization | 0/TBD | Not started | - |
 | 7. API Robustness | 0/TBD | Not started | - |
 | 8. Solve Diagnostics | 0/TBD | Not started | - |
