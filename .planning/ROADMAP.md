@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Critical Correctness Fixes** - Fix bugs that produce silently wrong results
 - [x] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
 - [x] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
-- [ ] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
+- [x] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
 - [ ] **Phase 6: Memory Optimization** - Dynamic arrays and arena allocator for hot paths
 - [ ] **Phase 7: API Robustness** - Input validation and solution verification
 - [ ] **Phase 8: Solve Diagnostics** - Structured result object with timing and history
@@ -120,11 +120,13 @@ Plans:
   2. The explore_neighbourhood inner loop contains zero malloc/calloc/free calls -- all scratch memory comes from a pre-allocated arena
   3. Arena memory is correctly reset between iterations and freed after solve completes (no leaks)
   4. Benchmark on a representative problem shows measurable improvement in solve time compared to Phase 5 baseline
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Create arena allocator module (arena.h/c) with bump allocation and chained overflow
+- [ ] 06-02-PLAN.md — Create dynamic expression with small-object optimization (dyn_expr.h/c)
+- [ ] 06-03-PLAN.md — Integrate arena into solver_ctx, replace hot-path allocations in local_search.c
+- [ ] 06-04-PLAN.md — Create benchmark suite with pytest-benchmark, CI integration
 
 ### Phase 7: API Robustness
 **Goal**: The solver rejects invalid inputs with clear error messages and verifies that returned solutions are actually correct
@@ -161,11 +163,11 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
-| 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
-| 3. Solver Context Architecture | 5/5 | ✓ Complete | 2026-02-05 |
-| 4. Thread Isolation | 3/3 | ✓ Complete | 2026-02-05 |
-| 5. Memory Safety | 5/5 | ✓ Complete | 2026-02-05 |
-| 6. Memory Optimization | 0/TBD | Not started | - |
+| 1. Test Foundation | 5/5 | Complete | 2026-02-04 |
+| 2. Critical Correctness Fixes | 6/6 | Complete | 2026-02-05 |
+| 3. Solver Context Architecture | 5/5 | Complete | 2026-02-05 |
+| 4. Thread Isolation | 3/3 | Complete | 2026-02-05 |
+| 5. Memory Safety | 5/5 | Complete | 2026-02-05 |
+| 6. Memory Optimization | 0/4 | Planned | - |
 | 7. API Robustness | 0/TBD | Not started | - |
 | 8. Solve Diagnostics | 0/TBD | Not started | - |
