@@ -25,9 +25,8 @@ class Variable:
 			add_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Expression):
-			other += self
-			# add_variable(<expression_t *>other.expr, self.index)
-			return other
+			# Return new Expression, don't mutate other
+			return other + self
 
 	def __radd__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
@@ -42,8 +41,8 @@ class Variable:
 			add_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Expression):
-			other += self
-			return other
+			# Return new Expression, don't mutate other
+			return other + self
 
 	def __mul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
@@ -58,8 +57,8 @@ class Variable:
 			multiply_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Expression):
-			other *= self
-			return other
+			# Return new Expression, don't mutate other
+			return other * self
 
 	def __rmul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
@@ -74,8 +73,8 @@ class Variable:
 			multiply_variable(expr.expr, self.index)
 			return expr
 		if isinstance(other, Expression):
-			other *= self
-			return other
+			# Return new Expression, don't mutate other
+			return other * self
 
 
 cdef class Expression:
@@ -143,30 +142,38 @@ cdef class Expression:
 		return self.c_liste().__iter__()
 
 	def __add__(self, other):
-		# cdef expression_t *temp
+		"""Return new Expression with other added. Does not modify self."""
 		if isinstance(other, float): raise TypeError("Not allowed type!")
+
+		cdef Expression result = self._deep_copy()
+
 		if isinstance(other, int):
-			add_constant(self.expr, other)
-			return self
+			add_constant(result.expr, other)
+			return result
 		if isinstance(other, Variable):
-			add_variable(self.expr, other.index)
-			return self
+			add_variable(result.expr, other.index)
+			return result
 		if isinstance(other, Expression):
-			self.add_expr(other)
-			return self
+			result.add_expr(other)
+			return result
+		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __radd__(self, other):
-		# cdef expression_t *temp
+		"""Return new Expression with other added (reverse). Does not modify self."""
 		if isinstance(other, float): raise TypeError("Not allowed type!")
+
+		cdef Expression result = self._deep_copy()
+
 		if isinstance(other, int):
-			add_constant(self.expr, other)
-			return self
+			add_constant(result.expr, other)
+			return result
 		if isinstance(other, Variable):
-			add_variable(self.expr, other.index)
-			return self
+			add_variable(result.expr, other.index)
+			return result
 		if isinstance(other, Expression):
-			self.add_expr(other)
-			return self
+			result.add_expr(other)
+			return result
+		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __iadd__(self, other):
 		"""Mutate self in place by adding other. Returns self.
@@ -187,22 +194,72 @@ cdef class Expression:
 			return self
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
-	def __mul__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+	def __isub__(self, other):
+		"""Mutate self in place by subtracting other. Returns self.
+
+		Matches Python int behavior: x -= 3 mutates x.
+		Use this for performance when you don't need the original.
+		"""
+		if isinstance(other, float):
+			raise TypeError("Not allowed type!")
 		if isinstance(other, int):
-			multiply_constant(self.expr, other)
+			sub_constant(self.expr, other)
 			return self
 		if isinstance(other, Variable):
-			multiply_variable(self.expr, other.index)
+			sub_variable(self.expr, other.index)
 			return self
 		if isinstance(other, Expression):
+			sub_expression(<expression_t *>self.expr, <expression_t *>other.expr)
+			return self
+		raise TypeError(f"Unsupported operand type: {type(other)}")
+
+	def __mul__(self, other):
+		"""Return new Expression with other multiplied. Does not modify self."""
+		cdef Expression result
+		if isinstance(other, float): raise TypeError("Not allowed type!")
+
+		if isinstance(other, int):
+			result = self._deep_copy()
+			multiply_constant(result.expr, other)
+			return result
+		if isinstance(other, Variable):
+			result = self._deep_copy()
+			multiply_variable(result.expr, other.index)
+			return result
+		if isinstance(other, Expression):
+			# Expression * Expression creates new via mul_expr
 			ne = Expression()
 			self.mul_expr(other, ne)
-			del self
 			return ne
+		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __rmul__(self, other):
+		"""Return new Expression with other multiplied (reverse). Does not modify self."""
+		cdef Expression result
 		if isinstance(other, float): raise TypeError("Not allowed type!")
+
+		if isinstance(other, int):
+			result = self._deep_copy()
+			multiply_constant(result.expr, other)
+			return result
+		if isinstance(other, Variable):
+			result = self._deep_copy()
+			multiply_variable(result.expr, other.index)
+			return result
+		if isinstance(other, Expression):
+			# Expression * Expression creates new via mul_expr
+			ne = Expression()
+			self.mul_expr(other, ne)
+			return ne
+		raise TypeError(f"Unsupported operand type: {type(other)}")
+
+	def __imul__(self, other):
+		"""Mutate self in place by multiplying other. Returns self.
+
+		Use this for performance when you don't need the original.
+		"""
+		if isinstance(other, float):
+			raise TypeError("Not allowed type!")
 		if isinstance(other, int):
 			multiply_constant(self.expr, other)
 			return self
@@ -210,10 +267,13 @@ cdef class Expression:
 			multiply_variable(self.expr, other.index)
 			return self
 		if isinstance(other, Expression):
+			# For Expression * Expression, we need to create new result
 			ne = Expression()
 			self.mul_expr(other, ne)
-			del self
-			return ne
+			# Copy the result back to self
+			copy_expression_contents(self.expr, ne.expr)
+			return self
+		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __le__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
