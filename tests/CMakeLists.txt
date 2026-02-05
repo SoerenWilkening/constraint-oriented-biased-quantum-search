@@ -85,6 +85,8 @@ add_cmocka_test(test_branching
     test_branching.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -101,6 +103,7 @@ add_cmocka_test(test_solver
     ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
 )
 
 # SearchLib.c includes Python.h -- find Python for include path
@@ -127,6 +130,9 @@ add_cmocka_test(test_searchlib
     ${CBQS_SRC_DIR}/quantum_search.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
 )
 target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
 
@@ -140,6 +146,7 @@ add_cmocka_test(test_integration
     ${CBQS_SRC_DIR}/dyn_expr.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
 )
 
 # --- Plan 02-01: local_search regression test ---
@@ -172,6 +179,8 @@ add_cmocka_test(test_local_search
 add_cmocka_test(test_thread_safety
     test_thread_safety.c
     ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c

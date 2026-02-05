@@ -415,7 +415,7 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 				}
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
-			con->total_variables += MAXCLAUSESIZE - 1;
+			con->total_variables += CONSTRAINT_VARS_PER_CLAUSE - 1;
 			if (con->allocated_factors <= clause_offset + clause_counter) {
 				con->clause_length = realloc(con->clause_length,
 				                             (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
