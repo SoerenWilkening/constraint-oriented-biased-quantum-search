@@ -192,3 +192,15 @@ add_cmocka_test(test_arena
     test_arena.c
     ${CBQS_SRC_DIR}/arena.c
 )
+
+# --- Plan 06-02: Dynamic expression unit tests ---
+# Tests dynamic expression with small-object optimization:
+# - Inline storage for <=8 terms
+# - Inline-to-heap transition at 9 terms
+# - 2x capacity growth for heap storage
+# - Memory efficiency (small vs large expressions)
+# - Copy operations for inline and heap
+add_cmocka_test(test_dyn_expr
+    test_dyn_expr.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+)
