@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 2 of 8 (Critical Correctness Fixes)
-Plan: 2 of 4 in current phase
+Plan: 1 of 4 in current phase
 Status: In progress
-Last activity: 2026-02-05 - Completed 02-02-PLAN.md
+Last activity: 2026-02-05 - Completed 02-01-PLAN.md
 
-Progress: [███████░░░] ~35% (7 plans of ~20 total)
+Progress: [██████░░░░] ~30% (6 plans of ~20 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 6
 - Average duration: ~9m
-- Total execution time: ~1 hour
+- Total execution time: ~0.9 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5/5 | ~46m | ~9m |
-| 02 | 2/4 | ~16m | ~8m |
+| 02 | 1/4 | ~8m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-05 (~10m), 02-01 (~8m), 02-02 (~8m)
+- Last 5 plans: 01-04 (10m), 01-05 (~10m), 02-01 (~8m)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -57,8 +57,8 @@ Recent decisions affecting current work:
 - Disable ASan leak detection in CI due to pre-existing preprocessing() leaks (01-05)
 - Skip Metal_executor build on Linux -- requires macOS Objective-C runtime (01-05)
 - Filter ctest to project tests only, exclude cmocka internal tests (01-05)
-- copy_expression_contents frees existing dest arrays before allocating (02-02)
-- Deep copy uses min_size chunk allocation matching init_expression (02-02)
+- Thread cleanup after pthread_join, not pthread_create (02-01)
+- Realloc condition uses == 0 && counter > 0 pattern (02-01)
 
 ### Pending Todos
 
@@ -70,10 +70,10 @@ None yet.
 - Phase 6: Incremental constraint evaluation (adjusted_constraint_violation) was commented out for unknown reasons -- investigate git history during planning
 - GCC 15 compilation: Most type mismatches fixed, some warnings remain (non-fatal)
 - SATISFY mode crashes: run_sampling in SearchLib.pyx calls len() on int when solver == SATISFY
-- preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2)
+- preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2) - PARTIALLY ADDRESSED by 02-01 realloc fix
 
 ## Session Continuity
 
-Last session: 2026-02-05T00:08:00Z
-Stopped at: Completed 02-02-PLAN.md (Expression copy helper)
+Last session: 2026-02-05T00:30:00Z
+Stopped at: Completed 02-01-PLAN.md (C memory safety fixes)
 Resume file: None
