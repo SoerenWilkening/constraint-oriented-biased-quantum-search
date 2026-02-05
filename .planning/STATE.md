@@ -10,29 +10,29 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 2 of 8 (Critical Correctness Fixes)
-Plan: 1 of 4 in current phase
+Plan: 3 of 6 in current phase
 Status: In progress
-Last activity: 2026-02-05 - Completed 02-01-PLAN.md
+Last activity: 2026-02-05 - Completed 02-03-PLAN.md
 
-Progress: [██████░░░░] ~30% (6 plans of ~20 total)
+Progress: [████████░░] ~45% (9 plans of ~20 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: ~9m
-- Total execution time: ~0.9 hours
+- Total plans completed: 9
+- Average duration: ~8m
+- Total execution time: ~1.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5/5 | ~46m | ~9m |
-| 02 | 1/4 | ~8m | ~8m |
+| 02 | 4/6 | ~30m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-04 (10m), 01-05 (~10m), 02-01 (~8m)
-- Trend: stable
+- Last 5 plans: 01-05 (~10m), 02-01 (~8m), 02-02 (~8m), 02-03 (~6m)
+- Trend: stable/improving
 
 *Updated after each plan completion*
 
@@ -48,7 +48,7 @@ Recent decisions affecting current work:
 - Encapsulate global state: BranchingStats as global breaks thread safety in parallel solves
 - Explicit per-target source deps in test CMake: SearchLib.c needs Python.h, local_search.c has type errors
 - Feasibility-only solve verification: heuristic solver means tests check constraint satisfaction, not optimality
-- xfail for Expression mutation bug: Expression.__add__ mutates self and returns self, Phase 2 fix
+- xfail for Expression mutation bug: Expression.__add__ mutates self and returns self, Phase 2 fix - FIXED in 02-03
 - Build expressions term-by-term to avoid multiply_constant pitfall (01-02)
 - Setup/teardown fixtures for BranchingStats global reset (01-02)
 - Python3 include discovery for SearchLib.c test compilation (01-03)
@@ -59,6 +59,8 @@ Recent decisions affecting current work:
 - Filter ctest to project tests only, exclude cmocka internal tests (01-05)
 - Thread cleanup after pthread_join, not pthread_create (02-01)
 - Realloc condition uses == 0 && counter > 0 pattern (02-01)
+- copy_expression_contents added for deep copying (02-02)
+- Standard operators return new objects, in-place operators mutate self (02-03)
 
 ### Pending Todos
 
@@ -74,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T00:30:00Z
-Stopped at: Completed 02-01-PLAN.md (C memory safety fixes)
+Last session: 2026-02-05T10:28:00Z
+Stopped at: Completed 02-03-PLAN.md (Expression immutability)
 Resume file: None
