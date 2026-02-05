@@ -72,6 +72,34 @@ jobs:
             fi
           done
 
+  c-tests-tsan:
+    name: C Tests (ThreadSanitizer)
+    runs-on: ubuntu-latest
+    env:
+      TSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake clang
+
+      - name: Configure with ThreadSanitizer
+        run: |
+          mkdir build-tests-tsan && cd build-tests-tsan
+          cmake ../tests \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build
+        run: cd build-tests-tsan && make -j$(nproc)
+
+      - name: Run thread safety tests with TSan
+        run: |
+          cd build-tests-tsan
+          ctest -R test_thread_safety -V --output-on-failure
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest
