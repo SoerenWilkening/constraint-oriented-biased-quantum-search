@@ -4,6 +4,8 @@ venv
 cbqs/*.c
 cbqs/*.so
 build
+build-tests
+build-tests-asan
 cbqs/src/test.c
 cmake-build-debug
 cbqs/generators/*.c
