@@ -5,17 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "definitions.h"
+#include "dyn_expr.h"
 
-// limit to maximum number of variables in clause
-#define MAXCLAUSESIZE 4 // maximum 4 variables in clause -> maybe overkill
-
-typedef struct{
-    int64_t *literals;
-    int *len_literal;
-    size_t expr_size;
-	int sense;
-	int64_t rhs;
-} expression_t;
+// expression_t is now a typedef to dyn_expression_t
+// This provides dynamic memory allocation with small-object optimization
+typedef dyn_expression_t expression_t;
 
 int len_literal(expression_t *expr , int clause);
 expression_t *init_expression();

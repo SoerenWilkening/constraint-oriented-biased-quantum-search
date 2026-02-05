@@ -10,6 +10,9 @@
 #include "state.h"
 #include "Expression.h"
 
+// Max variables per clause in constraint storage (independent of Expression storage)
+#define CONSTRAINT_VARS_PER_CLAUSE 4
+
 // create constraint_list in the follwoing way:
 //  -> linear implementation of tensor
 //  -> given C constraints and m clauses per constraint with k variables per clause
@@ -82,8 +85,8 @@ static inline size_t first_clause_index(new_constraints_t *con, size_t C) {
 }
 
 static inline size_t first_variable_index(size_t cls, size_t clause_offset) {
-	if (cls == 0) return clause_offset * (MAXCLAUSESIZE - 1);
-	return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
+	if (cls == 0) return clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1);
+	return clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1) + (CONSTRAINT_VARS_PER_CLAUSE - 1) * cls;
 }
 
 static inline size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
