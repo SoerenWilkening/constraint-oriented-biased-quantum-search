@@ -1,19 +1,15 @@
 #include "Expression.h"
+#include "dyn_expr.h"
 
-size_t min_size = 30000;
-
-int len_literal(expression_t *expr , int clause){
-	for (int i = 1; i < MAXCLAUSESIZE; ++i) {
-		if (expr->literals[expr_index(clause, i)] == -1) return i;
-	}
-	return MAXCLAUSESIZE;
+int len_literal(expression_t *expr, int clause) {
+	return dyn_expr_len_literal(expr)[clause];
 }
 
 int compare_tuples(const void *a, const void *b) {
 	const int64_t *tupleA = (const int64_t *)a;
 	const int64_t *tupleB = (const int64_t *)b;
 
-	for (int i = 1; i < MAXCLAUSESIZE; i++) {
+	for (int i = 1; i < MAX_VARS_PER_TERM; i++) {
 		int64_t valA = tupleA[i];
 		int64_t valB = tupleB[i];
 
@@ -27,197 +23,145 @@ int compare_tuples(const void *a, const void *b) {
 	return 0;
 }
 
-void sort_expression(expression_t *expr){
-	qsort(expr->literals, expr->expr_size, sizeof(int64_t) * MAXCLAUSESIZE, compare_tuples);
+void sort_expression(expression_t *expr) {
+	int64_t *lits = dyn_expr_literals(expr);
+	qsort(lits, expr->expr_size, sizeof(int64_t) * MAX_VARS_PER_TERM, compare_tuples);
 }
 
-size_t expr_index(size_t lit, int ind){
-	return MAXCLAUSESIZE * lit + ind;
+size_t expr_index(size_t lit, int ind) {
+	return MAX_VARS_PER_TERM * lit + ind;
 }
 
-void merge_expression(expression_t *expr){
+void merge_expression(expression_t *expr) {
+	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
+
 	// sum up all the constants
-	for (int i = 0; i < expr->expr_size; ++i) {
+	for (size_t i = 0; i < expr->expr_size; ++i) {
 	    printf("\r%f", (double) i / expr->expr_size);
-		if (expr->len_literal[i] == 1) {
-			for (int j = i + 1; j < expr->expr_size; ++j) {
-				if (expr->len_literal[j] == 1){
-					expr->literals[expr_index(i, 0)] += expr->literals[expr_index(j, 0)];
-					expr->literals[expr_index(j, 0)] = 0;
-					expr->len_literal[j] = 0;
+		if (lens[i] == 1) {
+			for (size_t j = i + 1; j < expr->expr_size; ++j) {
+				if (lens[j] == 1) {
+					lits[expr_index(i, 0)] += lits[expr_index(j, 0)];
+					lits[expr_index(j, 0)] = 0;
+					lens[j] = 0;
 				}
 			}
 			break;
 		}
 	}
 	printf("\r");
-//	sort_expression(expr);
 }
 
-void print_expression(expression_t *expr){
-	for (int cls = 0; cls < expr->expr_size; ++cls) {
-		if (expr->len_literal[cls] != 0) {
-			for (int i = 0; i < len_literal(expr, cls); ++i) {
-//			for (int i = 0; i < expr->len_literal[cls]; ++i) {
-//			for (int i = 0; i < MAXCLAUSESIZE; ++i) {
-				printf("%lld ", expr->literals[expr_index(cls, i)]);
+void print_expression(expression_t *expr) {
+	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
+
+	for (size_t cls = 0; cls < expr->expr_size; ++cls) {
+		if (lens[cls] != 0) {
+			for (int i = 0; i < len_literal(expr, (int)cls); ++i) {
+				printf("%lld ", (long long)lits[expr_index(cls, i)]);
 			}
 			printf("\n");
 		}
 	}
 }
 
-expression_t *init_expression(){
-    expression_t *expr = malloc(sizeof(expression_t));
-    expr->literals = malloc(MAXCLAUSESIZE * min_size * sizeof(int64_t ));
-	for (int i = 1; i < MAXCLAUSESIZE * min_size; ++i) expr->literals[i] = -1;
-    expr->len_literal = malloc(min_size * sizeof(int));
-    expr->expr_size = 0;
-    return expr;
+expression_t *init_expression() {
+    return dyn_expr_init();
 }
 
-void free_expression(expression_t *expr){
-	free(expr->literals);
-	free(expr->len_literal);
-	free(expr);
+void free_expression(expression_t *expr) {
+    dyn_expr_free(expr);
 }
 
 void copy_expression_contents(expression_t *dest, expression_t *src) {
-    // Copy scalar fields
-    dest->expr_size = src->expr_size;
-    dest->sense = src->sense;
-    dest->rhs = src->rhs;
-
-    // Calculate allocation size based on min_size chunks (matching init_expression pattern)
-    size_t num_chunks = (src->expr_size / min_size) + 1;
-    size_t alloc_size = num_chunks * min_size;
-
-    // Free existing destination arrays if they exist
-    if (dest->literals != NULL) {
-        free(dest->literals);
-    }
-    if (dest->len_literal != NULL) {
-        free(dest->len_literal);
-    }
-
-    // Allocate fresh arrays
-    dest->literals = malloc(MAXCLAUSESIZE * alloc_size * sizeof(int64_t));
-    dest->len_literal = malloc(alloc_size * sizeof(int));
-
-    // Initialize to -1 (padding value, matching init_expression)
-    for (size_t i = 0; i < MAXCLAUSESIZE * alloc_size; ++i) {
-        dest->literals[i] = -1;
-    }
-
-    // Copy actual data from source
-    memcpy(dest->literals, src->literals,
-           MAXCLAUSESIZE * src->expr_size * sizeof(int64_t));
-    memcpy(dest->len_literal, src->len_literal,
-           src->expr_size * sizeof(int));
+    dyn_expr_copy(dest, src);
 }
 
-void increase(expression_t *expr){
-    if (expr->expr_size % (min_size - 1) == 0 && expr->expr_size > 0){
-        expr->literals = realloc(expr->literals, MAXCLAUSESIZE * (expr->expr_size + min_size) * sizeof(int64_t ));
-	    for (int i = MAXCLAUSESIZE * expr->expr_size; i < MAXCLAUSESIZE * (expr->expr_size + min_size); ++i) expr->literals[i] = -1;
-        expr->len_literal = realloc(expr->len_literal, (expr->expr_size + min_size) * sizeof(int));
-    }
+void add_constant(expression_t *expr, int64_t constant) {
+    dyn_expr_add_constant(expr, constant);
 }
 
-void add_constant(expression_t *expr, int64_t constant){
-    if (constant == 0) return;
-    increase(expr);
-
-    expr->literals[expr_index(expr->expr_size, 0)] = constant;
-    expr->len_literal[expr->expr_size] = 1;
-    expr->expr_size++;
+void add_variable(expression_t *expr, int64_t index) {
+    dyn_expr_add_variable(expr, index);
 }
 
-void add_variable(expression_t *expr, int64_t index){
-//	printf("index = %d %d | ", expr_index(expr->expr_size, 0), expr_index(expr->expr_size, 1));
-//	fflush(stdout);
-	increase(expr);
-	expr->literals[expr_index(expr->expr_size, 0)] = 1;
-	expr->literals[expr_index(expr->expr_size, 1)] = index;
-	expr->len_literal[expr->expr_size] = 2;
-	expr->expr_size++;
-}
-
-void add_expression(expression_t *expr1, expression_t *expr2){
-    for (int i = 0; i < expr2->expr_size; i++){
-        increase(expr1);
-        for (int j = 0; j < expr2->len_literal[i]; j++){
-            expr1->literals[expr_index(expr1->expr_size, j)] = expr2->literals[expr_index(i, j)];
+void add_expression(expression_t *expr1, expression_t *expr2) {
+    int64_t *lits = dyn_expr_literals(expr2);
+    int *lens = dyn_expr_len_literal(expr2);
+    for (size_t i = 0; i < expr2->expr_size; i++) {
+        int64_t coeff = lits[i * MAX_VARS_PER_TERM];
+        int num_vars = lens[i] - 1;
+        if (num_vars > 0) {
+            dyn_expr_add_term(expr1, coeff, &lits[i * MAX_VARS_PER_TERM + 1], num_vars);
+        } else {
+            dyn_expr_add_constant(expr1, coeff);
         }
-        expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
-       expr1->expr_size++;
     }
-//    free_expression(expr2);
 }
 
-void sub_constant(expression_t *expr, int64_t constant){
-    increase(expr);
-
-
-    expr->literals[expr_index(expr->expr_size, 0)] = -constant;
-    expr->len_literal[expr->expr_size] = 1;
-    expr->expr_size++;
+void sub_constant(expression_t *expr, int64_t constant) {
+    dyn_expr_add_constant(expr, -constant);
 }
 
-void sub_variable(expression_t *expr, int64_t index){
-    increase(expr);
-    expr->literals[expr_index(expr->expr_size, 0)] = -1;
-    expr->literals[expr_index(expr->expr_size, 1)] = index;
-    expr->len_literal[expr->expr_size] = 2;
-    expr->expr_size++;
+void sub_variable(expression_t *expr, int64_t index) {
+    dyn_expr_add_term(expr, -1, &index, 1);
 }
 
-void sub_expression(expression_t *expr1, expression_t *expr2){
-    for (int i = 0; i < expr2->expr_size; i++){
-	    increase(expr1);
-	    expr1->literals[expr_index(expr1->expr_size, 0)] = -1 * expr2->literals[expr_index(i, 0)];
-        for (int j = 1; j < expr2->len_literal[i]; j++){
-            expr1->literals[expr_index(expr1->expr_size, j)] = expr2->literals[expr_index(i, j)];
+void sub_expression(expression_t *expr1, expression_t *expr2) {
+    int64_t *lits = dyn_expr_literals(expr2);
+    int *lens = dyn_expr_len_literal(expr2);
+    for (size_t i = 0; i < expr2->expr_size; i++) {
+        int64_t coeff = -lits[i * MAX_VARS_PER_TERM];
+        int num_vars = lens[i] - 1;
+        if (num_vars > 0) {
+            dyn_expr_add_term(expr1, coeff, &lits[i * MAX_VARS_PER_TERM + 1], num_vars);
+        } else {
+            dyn_expr_add_constant(expr1, coeff);
         }
-        expr1->len_literal[expr1->expr_size] = expr2->len_literal[i];
-        expr1->expr_size++;
-    }
-//    free_expression(expr2);
-}
-
-void multiply_constant(expression_t *expr, int64_t constant){
-    increase(expr);
-    for (int i = 0; i < expr->expr_size; i++){
-        expr->literals[expr_index(i, 0)] *= constant;
     }
 }
 
-void multiply_variable(expression_t *expr, int64_t index){
-    increase(expr);
-    for (int i = 0; i < expr->expr_size; i++){
-        expr->literals[expr_index(i, expr->len_literal[i])] = index;
-        expr->len_literal[i]++;
+void multiply_constant(expression_t *expr, int64_t constant) {
+    int64_t *lits = dyn_expr_literals(expr);
+    for (size_t i = 0; i < expr->expr_size; i++) {
+        lits[i * MAX_VARS_PER_TERM] *= constant;
     }
 }
 
-void add_sense_to_expression(expression_t *expr, int sense){
-	expr->sense = sense;
+void multiply_variable(expression_t *expr, int64_t index) {
+    int64_t *lits = dyn_expr_literals(expr);
+    int *lens = dyn_expr_len_literal(expr);
+    for (size_t i = 0; i < expr->expr_size; i++) {
+        int current_len = lens[i];
+        if (current_len < MAX_VARS_PER_TERM) {
+            lits[i * MAX_VARS_PER_TERM + current_len] = index;
+            lens[i]++;
+        }
+        // If already at max variables, silently ignore (existing behavior)
+    }
 }
 
-void add_rhs_to_expression(expression_t *expr, int64_t rhs){
-	expr->rhs = rhs;
+void add_sense_to_expression(expression_t *expr, int sense) {
+    dyn_expr_set_sense(expr, sense);
+}
+
+void add_rhs_to_expression(expression_t *expr, int64_t rhs) {
+    dyn_expr_set_rhs(expr, rhs);
 }
 
 // maybe no need to implement "multiply_expression"
-expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2){
+expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2) {
 	expression_t *new = init_expression();
-	for(int index = 0; index < expr2->expr_size; index++) {
+	for (size_t index = 0; index < expr2->expr_size; index++) {
 		expression_t *step = init_expression();
 		add_expression(step, expr1);
 
-		multiply_constant(step, expr2->literals[expr_index(index, 0)]);
-		for (int i = 1; i < len_literal(expr2, index); ++i) {
-			multiply_variable(step, expr2->literals[expr_index(index, i)]);
+		int64_t *lits = dyn_expr_literals(expr2);
+		multiply_constant(step, lits[expr_index(index, 0)]);
+		for (int i = 1; i < len_literal(expr2, (int)index); ++i) {
+			multiply_variable(step, lits[expr_index(index, i)]);
 		}
 		add_expression(new, step);
 		free_expression(step);
