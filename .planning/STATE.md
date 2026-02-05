@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 4 of 8 (Thread Isolation)
-Plan: 1 of 4 complete
+Plan: 2 of 4 complete
 Status: In progress
-Last activity: 2026-02-05 - Completed 04-01-PLAN.md (PRNG Module)
+Last activity: 2026-02-05 - Completed 04-02-PLAN.md (PRNG Integration)
 
-Progress: [████████░░] ~78% (18 plans of ~23 total)
+Progress: [████████░░] ~82% (19 plans of ~23 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 18
 - Average duration: ~6.5m
-- Total execution time: ~2.1 hours
+- Total execution time: ~2.2 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████████░░] ~78% (18 plans of ~23 total)
 | 01 | 5/5 | ~46m | ~9m |
 | 02 | 6/6 | ~39m | ~6m |
 | 03 | 5/5 | ~47m | ~9.4m |
-| 04 | 1/4 | ~5m | ~5m |
+| 04 | 2/4 | ~11m | ~5.5m |
 
 **Recent Trend:**
-- Last 5 plans: 03-03 (~3m), 03-05 (~9m), 03-04 (~24m), 04-01 (~5m)
-- Trend: Phase 4 started, PRNG module complete
+- Last 5 plans: 03-05 (~9m), 03-04 (~24m), 04-01 (~5m), 04-02 (~6m)
+- Trend: Phase 4 progressing, PRNG integration complete
 
 *Updated after each plan completion*
 
@@ -88,6 +88,10 @@ Recent decisions affecting current work:
 - SplitMix64 for xoshiro256** seeding (recommended by algorithm authors) (04-01)
 - Jump function (2^128 steps) for parallel stream derivation (04-01)
 - _POSIX_C_SOURCE 199309L for clock_gettime/CLOCK_MONOTONIC (04-01)
+- Default to 4 threads if sysconf fails and CBQS_THREADS not set (04-02)
+- CBQS_THREADS env var takes priority over CPU auto-detection (04-02)
+- Reuse existing id field as thread_id for PRNG seeding in local_search (04-02)
+- dat_t progress array dynamically allocated based on num_threads (04-02)
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T15:06:00Z
-Stopped at: Completed 04-01-PLAN.md (PRNG Module)
+Last session: 2026-02-05T15:20:00Z
+Stopped at: Completed 04-02-PLAN.md (PRNG Integration)
 Resume file: None
