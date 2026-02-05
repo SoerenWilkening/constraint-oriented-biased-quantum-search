@@ -69,13 +69,18 @@ int bfs(
 	state_t *new_sol = copy_state(cur_sol);
 	int64_t initial_value = cur_sol->tot_profit;
 	int n = cur_sol->vector.bits;
-	int C = con->num_constraints;
+	size_t C = con->num_constraints;
 
 	int count[2] = {0, 0};
-	int64_t potentials[C];
-	memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+	int64_t *potentials = malloc(C * sizeof(int64_t));
+	if (potentials == NULL) {
+		free_state(new_sol, 0);
+		return 0;  /* allocation failure */
+	}
+	memcpy(potentials, con->rhs, C * sizeof(int64_t));
 	printf("counts = %d %d\n", count[0], count[1]);
 
+	free(potentials);
 	free_state(new_sol, 0);
 	return cur_sol->tot_profit != initial_value;
 }

@@ -106,11 +106,18 @@ int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *
                         int depth_look_ahead
 ) {
     int n = cur_sol->vector.bits;
-    int64_t potentials[con->num_constraints];
-    int64_t ret_total1[con->num_constraints];
-    int64_t ret_total2[con->num_constraints];
-    memset(ret_total1, 0, con->num_constraints * sizeof(int64_t));
-    memset(ret_total2, 0, con->num_constraints * sizeof(int64_t));
+    size_t C = con->num_constraints;
+    int64_t *potentials = malloc(C * sizeof(int64_t));
+    int64_t *ret_total1 = malloc(C * sizeof(int64_t));
+    int64_t *ret_total2 = malloc(C * sizeof(int64_t));
+    if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+        free(potentials);
+        free(ret_total1);
+        free(ret_total2);
+        return -1;  /* allocation failure */
+    }
+    memset(ret_total1, 0, C * sizeof(int64_t));
+    memset(ret_total2, 0, C * sizeof(int64_t));
     
 //    printf("num_samples = %d\n", samples);
     for (int l = 0; l < samples; l++) {
@@ -220,5 +227,8 @@ int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *
         }
         free_state(new_sol, 1);
     }
+    free(potentials);
+    free(ret_total1);
+    free(ret_total2);
     return 0;
 }
