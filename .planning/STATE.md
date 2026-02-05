@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 2 of 8 (Critical Correctness Fixes)
-Plan: 3 of 6 in current phase
+Plan: 4 of 6 in current phase
 Status: In progress
-Last activity: 2026-02-05 - Completed 02-03-PLAN.md
+Last activity: 2026-02-05 - Completed 02-04-PLAN.md
 
-Progress: [████████░░] ~45% (9 plans of ~20 total)
+Progress: [████████░░] ~50% (10 plans of ~20 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: ~8m
-- Total execution time: ~1.2 hours
+- Total execution time: ~1.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5/5 | ~46m | ~9m |
-| 02 | 4/6 | ~30m | ~8m |
+| 02 | 5/6 | ~37m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 01-05 (~10m), 02-01 (~8m), 02-02 (~8m), 02-03 (~6m)
+- Last 5 plans: 02-01 (~8m), 02-02 (~8m), 02-03 (~6m), 02-04 (~7m)
 - Trend: stable/improving
 
 *Updated after each plan completion*
@@ -61,6 +61,7 @@ Recent decisions affecting current work:
 - Realloc condition uses == 0 && counter > 0 pattern (02-01)
 - copy_expression_contents added for deep copying (02-02)
 - Standard operators return new objects, in-place operators mutate self (02-03)
+- In-place operators match Python int behavior: mutate and return self (02-04)
 
 ### Pending Todos
 
@@ -76,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-05T10:28:00Z
-Stopped at: Completed 02-03-PLAN.md (Expression immutability)
+Last session: 2026-02-05T10:29:42Z
+Stopped at: Completed 02-04-PLAN.md (In-place operators)
 Resume file: None
