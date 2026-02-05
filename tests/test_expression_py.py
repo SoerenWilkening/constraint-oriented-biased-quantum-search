@@ -5,6 +5,7 @@ Tests validate arithmetic operator overloading and expression building
 through the cbqs.Expression Python API.
 """
 import pytest
+from copy import deepcopy
 from cbqs.Expression import Variable, Expression
 from cbqs.Constants import LOWER, EQUAL
 
@@ -113,26 +114,79 @@ class TestExpressionArithmetic:
         with pytest.raises(TypeError):
             _ = x * 2.5
 
-    @pytest.mark.xfail(
-        reason="Expression mutation bug: Expression.__add__ mutates self and returns self. "
-               "Phase 2 fix needed for copy-on-write semantics.",
-        strict=False,
-    )
     def test_expression_reuse_variable(self):
         """Creating a second expression from a Variable should not mutate the first.
 
-        Known bug: Expression.__add__(self, int) calls add_constant(self.expr, other)
-        and returns self, so expr1 and expr2 end up being the same object.
+        This test verifies that Expression operators return new objects instead of
+        mutating self. Fixed in Phase 2 plan 02-03.
         """
         x = Variable(0)
         expr1 = x + 3
         terms_before = list(expr1)
-        expr2 = expr1 + 5  # This mutates expr1
+        expr2 = expr1 + 5  # Should create new Expression, not mutate expr1
         terms_after = list(expr1)
         # expr1 should be unchanged after creating expr2
         assert terms_before == terms_after
         # expr1 and expr2 should be different objects
         assert expr1 is not expr2
+
+    def test_expression_deepcopy_independence(self):
+        """deepcopy() creates fully independent Expression.
+
+        Verifies that modifying a deepcopy does not affect the original.
+        """
+        x = Variable(0)
+        e1 = x + 3
+        e2 = deepcopy(e1)
+        e2 += 10
+        terms_e1 = list(e1)
+        terms_e2 = list(e2)
+        # e1 should not contain the constant 10
+        assert [10] not in terms_e1
+        # e2 should contain the constant 10
+        assert [10] in terms_e2
+        # Original should be unchanged
+        assert [3] in terms_e1
+        assert [1, 0] in terms_e1
+
+    def test_expression_inplace_add(self):
+        """In-place += operator mutates self and returns self."""
+        x = Variable(0)
+        e1 = x + 3
+        e1_id = id(e1)
+        e1 += 5
+        # Should be same object
+        assert id(e1) == e1_id
+        # Should have the added constant
+        terms = list(e1)
+        assert [5] in terms
+
+    def test_expression_inplace_mul(self):
+        """In-place *= operator mutates self and returns self."""
+        x = Variable(0)
+        e1 = x + 3
+        e1_id = id(e1)
+        e1 *= 2
+        # Should be same object
+        assert id(e1) == e1_id
+        # Coefficients should be doubled
+        terms = list(e1)
+        assert [6] in terms  # 3 * 2
+        assert [2, 0] in terms  # 1*x0 * 2
+
+    def test_expression_mul_immutable(self):
+        """Expression * int returns new object without modifying self."""
+        x = Variable(0)
+        e1 = x + 3
+        terms_before = list(e1)
+        e2 = e1 * 2
+        terms_after = list(e1)
+        # e1 should be unchanged
+        assert terms_before == terms_after
+        # e2 should have doubled coefficients
+        terms_e2 = list(e2)
+        assert [6] in terms_e2
+        assert [2, 0] in terms_e2
 
 
 class TestExpressionConstraintOperators:
