@@ -87,10 +87,12 @@ Plans:
   1. Each worker thread uses its own PRNG instance (no calls to global rand()); seeding each thread with a known seed produces deterministic results
   2. Thread count is a runtime parameter (not compile-time NUMThreads=6) -- user can specify via Model API or solver call
   3. Solving the same problem with the same seed and same thread count produces identical results across runs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Create PRNG module (prng.h/c) with xoshiro256**, SplitMix64 seeding, jump functions
+- [ ] 04-02-PLAN.md — Extend solver_ctx, replace all rand() calls, remove NUMThreads constant
+- [ ] 04-03-PLAN.md — Update Cython layer, expose seed/num_threads API, add determinism tests
 
 ### Phase 5: Memory Safety
 **Goal**: No memory leaks under normal operation and no risk of stack overflow on large problem instances
@@ -158,7 +160,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
 | 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
 | 3. Solver Context Architecture | 5/5 | ✓ Complete | 2026-02-05 |
-| 4. Thread Isolation | 0/TBD | Not started | - |
+| 4. Thread Isolation | 0/3 | Planned | - |
 | 5. Memory Safety | 0/TBD | Not started | - |
 | 6. Memory Optimization | 0/TBD | Not started | - |
 | 7. API Robustness | 0/TBD | Not started | - |
