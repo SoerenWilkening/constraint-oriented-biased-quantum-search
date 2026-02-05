@@ -29,8 +29,8 @@ jobs:
     name: C Tests (AddressSanitizer)
     runs-on: ubuntu-latest
     env:
-      # Leak detection disabled: preprocessing() has known leaks (tracked for Phase 2)
-      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+      # Leak detection now enabled (preprocessing leaks fixed in Phase 5)
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
     steps:
       - uses: actions/checkout@v4
 
@@ -64,11 +64,15 @@ jobs:
       - name: Test with Valgrind
         run: |
           cd build-tests-valgrind
-          # Run each test under Valgrind
-          # Note: Valgrind is slow, so we run a subset of critical tests
-          for test in test_expression test_state test_constraint; do
+          # Run critical tests under Valgrind with suppressions
+          for test in test_expression test_state test_constraint test_local_search test_solver; do
             if [ -f "./$test" ]; then
-              valgrind --leak-check=full --error-exitcode=1 --errors-for-leak-kinds=definite ./$test
+              echo "Running Valgrind on $test..."
+              valgrind --leak-check=full \
+                       --error-exitcode=1 \
+                       --errors-for-leak-kinds=definite \
+                       --suppressions=../tests/valgrind-python.supp \
+                       ./$test
             fi
           done
 
