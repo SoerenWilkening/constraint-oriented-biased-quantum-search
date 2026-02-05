@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Phase 5 in progress (Memory Safety)
+**Current focus:** Phase 5 COMPLETE (Memory Safety)
 
 ## Current Position
 
-Phase: 5 of 8 (Memory Safety) - IN PROGRESS
-Plan: 4 of 5 complete (05-01, 05-02, 05-03, 05-05 done)
-Status: In progress
-Last activity: 2026-02-05 - Completed 05-03-PLAN.md
+Phase: 5 of 8 (Memory Safety) - COMPLETE
+Plan: 5 of 5 complete (05-01, 05-02, 05-03, 05-04, 05-05 done)
+Status: Phase complete
+Last activity: 2026-02-05 - Completed 05-04-PLAN.md
 
-Progress: [████████░░] ~96% (24 plans of ~25 total)
+Progress: [██████████] 100% (25 plans of 25 total in Phases 1-5)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
-- Average duration: ~6.8m
-- Total execution time: ~2.5 hours
+- Total plans completed: 25
+- Average duration: ~7m
+- Total execution time: ~3 hours
 
 **By Phase:**
 
@@ -31,11 +31,11 @@ Progress: [████████░░] ~96% (24 plans of ~25 total)
 | 02 | 6/6 | ~39m | ~6m |
 | 03 | 5/5 | ~47m | ~9.4m |
 | 04 | 3/3 | ~31m | ~10m |
-| 05 | 4/5 | ~100m | ~25m |
+| 05 | 5/5 | ~106m | ~21m |
 
 **Recent Trend:**
-- Last 5 plans: 05-01 (~8m), 05-05 (~12m), 05-02 (~50m), 05-03 (~30m)
-- Trend: Phase 5 Memory Safety progressing, solver.c/SearchLib.c/approximate_state_sampler.c VLA-free
+- Last 5 plans: 05-01 (~8m), 05-05 (~12m), 05-02 (~50m), 05-03 (~30m), 05-04 (~6m)
+- Trend: Phase 5 Memory Safety COMPLETE - all VLAs replaced, leak detection enabled
 
 *Updated after each plan completion*
 
@@ -57,7 +57,7 @@ Recent decisions affecting current work:
 - Python3 include discovery for SearchLib.c test compilation (01-03)
 - cmocka FetchContent URL switched to gitlab.com mirror (01-03)
 - free_incumbents uses num_states(0) instead of allocated(1024) -- pre-existing leak (01-03)
-- Disable ASan leak detection in CI due to pre-existing preprocessing() leaks (01-05)
+- Disable ASan leak detection in CI due to pre-existing preprocessing() leaks (01-05) - RE-ENABLED in 05-04
 - Skip Metal_executor build on Linux -- requires macOS Objective-C runtime (01-05)
 - Filter ctest to project tests only, exclude cmocka internal tests (01-05)
 - Thread cleanup after pthread_join, not pthread_create (02-01)
@@ -107,6 +107,8 @@ Recent decisions affecting current work:
 - Return 0 on allocation failure in search functions (no improvement found) (05-03)
 - Return -1 on allocation failure in CSearch_opt_sampler (distinguishes from valid 0) (05-03)
 - Use size_t C = con->num_constraints for consistency in heap allocation (05-03)
+- Reduce stress test constraint counts to 2K/1K for CI timeout compliance (05-04)
+- Memory stress tests check no-crash rather than global_opt assertions (05-04)
 
 ### Pending Todos
 
@@ -118,12 +120,11 @@ None yet.
 - Phase 6: Incremental constraint evaluation (adjusted_constraint_violation) was commented out for unknown reasons -- investigate git history during planning
 - GCC 15 compilation: Most type mismatches fixed, some warnings remain (non-fatal)
 - SATISFY mode crashes: run_sampling in SearchLib.pyx calls len() on int when solver == SATISFY
-- preprocessing() has memory leak on realloc-to-zero (pre-existing, track for Phase 2) - FIXED in 05-01
 - Root CMakeLists.txt test.c has pre-existing API mismatch with quantum_local_search (tests/CMakeLists.txt works correctly)
 - C tests couldn't run in 03-04 due to network issues - verify in CI
 
 ## Session Continuity
 
-Last session: 2026-02-05T17:57:00Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-02-05T18:05:00Z
+Stopped at: Completed 05-04-PLAN.md (Phase 5 complete)
 Resume file: None
