@@ -6,6 +6,18 @@ from .state cimport *
 from .branching cimport StateProbability
 from .Model cimport Model, model_t
 
+# Solver context for per-solve state management
+cdef extern from "src/solver_ctx.h":
+	ctypedef struct solver_ctx_t:
+		pass  # Opaque to Cython - we don't need to see internal fields
+	solver_ctx_t* solver_ctx_create()
+	void solver_ctx_free(solver_ctx_t* ctx)
+	void solver_ctx_request_stop(solver_ctx_t* ctx)
+	void solver_ctx_set_factors(solver_ctx_t* ctx, double obj, double con, double bias, double look)
+	void solver_ctx_set_bias(solver_ctx_t* ctx, double bias)
+	void solver_ctx_set_obj_dependence(solver_ctx_t* ctx, double* dep, int n)
+	void solver_ctx_set_constraint_dependence(solver_ctx_t* ctx, double* dep, int n)
+
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
@@ -19,25 +31,23 @@ cdef extern from "src/SearchLib.h":
 		int num_states;
 		int *initial_samples;
 
-	void reset_flag();
-
 	state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index)
 
 	incumbents_t *init_incumbents(int n, state_t *st);
 	void print_incumbents(incumbents_t *incumbents);
 	void free_incumbents(incumbents_t *incumbents);
 
-	int ctg(model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) nogil
+	int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) nogil
 
 	int initial_state_preparation(model_t *mod);
 
-	double CSearch_opt_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int initial_samples) nogil
-	double CSearch_opt_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples) nogil
-	double CSearch_sat_monte_carlo_sampler(state_t *cur_sol, new_constraints_t *con, double error, int initial_samples) nogil
+	double CSearch_opt_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int initial_samples) nogil
+	double CSearch_opt_sat_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples) nogil
+	double CSearch_sat_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, double error, int initial_samples) nogil
 
 
 cdef extern from "src/local_search.h":
-	int local_search(state_t *cur_sol, model_t *mod, callback_t callback) nogil
+	int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) nogil
 
 	int quantum_local_search(new_constraints_t *obj,
 	                         new_constraints_t *con,
@@ -47,3 +57,5 @@ cdef extern from "src/local_search.h":
 
 cdef class incumbents:
 	cdef incumbents_t *incumbent
+	cdef solver_ctx_t *ctx  # Solver context for monte carlo sampler calls
+	cdef void _set_ctx(self, solver_ctx_t* ctx)

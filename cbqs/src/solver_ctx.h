@@ -23,8 +23,10 @@
  * - Clean resource management (create/free lifecycle)
  * - Timeout support via start_time + timeout_ms
  * - Debug output control via CBQS_DEBUG environment variable
+ *
+ * Note: Using named struct 'solver_ctx' to match forward declaration in Branching.h
  */
-typedef struct {
+struct solver_ctx {
     /** Branching statistics (embedded, not pointer) */
     BranchingStats_t branching_stats;
 
@@ -39,7 +41,8 @@ typedef struct {
 
     /** Debug output enabled (checked from CBQS_DEBUG env var at init) */
     int debug_enabled;
-} solver_ctx_t;
+};
+typedef struct solver_ctx solver_ctx_t;
 
 /* ============================================================
  * Lifecycle Functions

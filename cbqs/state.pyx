@@ -77,7 +77,12 @@ cdef class state_py:
 	def update(self, state_py threshold, int sense) -> state_py:
 		up = state_py(0, [0])
 		free_state(up.state, up.num_states)
-		up.state = <state_t *> updated(self.state, self.num_states, &up.num_states, threshold.state, sense)
+		# Create temporary ctx for the updated call
+		cdef solver_ctx_t* ctx = solver_ctx_create()
+		try:
+			up.state = <state_t *> updated(ctx, self.state, self.num_states, &up.num_states, threshold.state, sense)
+		finally:
+			solver_ctx_free(ctx)
 
 		return up
 

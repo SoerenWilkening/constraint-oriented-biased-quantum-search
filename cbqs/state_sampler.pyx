@@ -6,7 +6,9 @@ cdef class approximate_state:
 
 	def __cinit__(self, int n, bias):
 		self.n = n
-		self.state = <approximate_state_t *> init_approximete_state(self.n, bias)
+		# Create solver context for this approximate_state instance
+		self.ctx = solver_ctx_create()
+		self.state = <approximate_state_t *> init_approximete_state(self.ctx, self.n, bias)
 
 	def __init__(self, int n, bias):
 		self.n = n
@@ -17,6 +19,7 @@ cdef class approximate_state:
 
 	def __del__(self):
 		free_approximate_state(self.state)
+		solver_ctx_free(self.ctx)
 
 	@property
 	def delta(self):
@@ -33,7 +36,7 @@ cdef class approximate_state:
 		cdef state_t * st = <state_t *> cur_sol.state;
 		cdef new_constraints_t *ob = <new_constraints_t *> &obj.con;
 		cdef new_constraints_t *co = <new_constraints_t *> &con.con;
-		CSearch_opt_sampler(self.state, st, samples, co, ob, 1)
+		CSearch_opt_sampler(self.ctx, self.state, st, samples, co, ob, 1)
 		# print("number good = ", self.state.num_good)
 
 	# cdef c_opt_sampler(self, new_constraint obj , new_constraint con, state_py cur_sol, int samples):

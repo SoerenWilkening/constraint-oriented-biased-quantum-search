@@ -45,7 +45,8 @@ sources = [
 	os.path.join("cbqs", "src", "local_search.c"),
 	os.path.join("cbqs", "src", "constraint.c"),
 	os.path.join("cbqs", "src", "quantum_search.c"),
-	os.path.join("cbqs", "src", "approximate_state_sampler.c")
+	os.path.join("cbqs", "src", "approximate_state_sampler.c"),
+	os.path.join("cbqs", "src", "solver_ctx.c"),
 ]
 
 extensions = [

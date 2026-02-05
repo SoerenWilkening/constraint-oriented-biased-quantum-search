@@ -22,6 +22,6 @@ state_t *copy_state(state_t *state);
 void copy_state_inplace(state_t *dest, state_t *src);
 void print_state(state_t *state);
 state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int n);
-state_t *updated(state_t *bnb, size_t number_states, size_t *new_number, state_t *threshold, int sense);
+/* Note: updated() is now declared in Branching.h with solver_ctx_t parameter */
 
 #endif
