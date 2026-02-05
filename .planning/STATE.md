@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Phase 1 complete, verified — ready for Phase 2
+**Current focus:** Phase 2 in progress - Critical Correctness Fixes
 
 ## Current Position
 
-Phase: 1 of 8 (Test Foundation)
-Plan: 5 of 5 in current phase
-Status: Phase complete
-Last activity: 2026-02-04 - Completed 01-05-PLAN.md
+Phase: 2 of 8 (Critical Correctness Fixes)
+Plan: 2 of 4 in current phase
+Status: In progress
+Last activity: 2026-02-05 - Completed 02-02-PLAN.md
 
-Progress: [█████░░░░░] ~25% (5 plans of ~20 total)
+Progress: [███████░░░] ~35% (7 plans of ~20 total)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 7
 - Average duration: ~9m
-- Total execution time: ~0.77 hours
+- Total execution time: ~1 hour
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5/5 | ~46m | ~9m |
+| 02 | 2/4 | ~16m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-04 (10m), 01-02 (~6m), 01-03 (~9m), 01-05 (~10m)
+- Last 5 plans: 01-05 (~10m), 02-01 (~8m), 02-02 (~8m)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -56,6 +57,8 @@ Recent decisions affecting current work:
 - Disable ASan leak detection in CI due to pre-existing preprocessing() leaks (01-05)
 - Skip Metal_executor build on Linux -- requires macOS Objective-C runtime (01-05)
 - Filter ctest to project tests only, exclude cmocka internal tests (01-05)
+- copy_expression_contents frees existing dest arrays before allocating (02-02)
+- Deep copy uses min_size chunk allocation matching init_expression (02-02)
 
 ### Pending Todos
 
@@ -71,6 +74,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-04T23:45:12Z
-Stopped at: Completed 01-05-PLAN.md (CI workflow). Phase 1 complete.
+Last session: 2026-02-05T00:08:00Z
+Stopped at: Completed 02-02-PLAN.md (Expression copy helper)
 Resume file: None
