@@ -1,4 +1,5 @@
 #include "solver.h"
+#include "prng.h"
 
 // implementations of classical sampling search and benchmarking =======================================================
 static inline int evaluation(new_constraints_t *con, int64_t *potentials, int item,
@@ -260,7 +261,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		for (i = 0; i < n; i++) {
 //		    printf("\r%f %%", (double)i / n * 100);
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-			double random_num = ((double) (rand() % 123456)) / 123455.;
+			double random_num = prng_next_double();
 
 			// Initialize new bit to be 0
 			sw_clrbit(new_sol->vector, i);
@@ -375,7 +376,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
   
 		for (i = 0; i < n; i++) {
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-			double random_num = ((double) (rand() % 123456)) / 123455.;
+			double random_num = prng_next_double();
 
 			// Initialize new bit to be 0
 			int new_bit = 0;
@@ -498,7 +499,7 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		int i;
 		for (i = 0; i < n; i++) {
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-			double random_num = ((double) (rand() % 123456)) / 123455.;
+			double random_num = prng_next_double();
 
 			// Initialize new bit to be 0
 			sw_clrbit(new_sol->vector, i);
@@ -601,7 +602,7 @@ double CSearch_opt_monte_carlo_sampler(
         int i;
         for (i = 0; i < n; i++) {
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-            double random_num = ((double) (rand() % 123456)) / 123455.;
+            double random_num = prng_next_double();
             
             // Initialize new bit to be 0
             int new_bit = 0;
@@ -702,7 +703,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 
 		for (i = 0; i < n; i++) {
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-			double random_num = ((double) (rand() % 123456)) / 123455.;
+			double random_num = prng_next_double();
 
 			// Initialize new bit to be 0
 			int new_bit = 0;
@@ -810,7 +811,7 @@ double CSearch_sat_monte_carlo_sampler(
         int i;
         for (i = 0; i < n; i++) {
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-            double random_num = ((double) (rand() % 123456)) / 123455.;
+            double random_num = prng_next_double();
             
             int new_bit = 0;
             

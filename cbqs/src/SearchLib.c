@@ -4,6 +4,7 @@
 
 #include "SearchLib.h"
 #include "solver_ctx.h"
+#include "prng.h"
 #include <pthread.h>
 #include <Python.h>
 
@@ -138,7 +139,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 		int m = ceil(pow(c, rounds));
 		int j;
 		if (stage == 2) j = 1; // when improving constraint tightness, use only small constant number of grover iterations
-		else j = rand() % (m + 1);
+		else j = prng_next_int(m + 1);
 		m_tot += 2 * j + 1;
         mod->qtg_applications += 2 * j + 1;
 		res = search_function(

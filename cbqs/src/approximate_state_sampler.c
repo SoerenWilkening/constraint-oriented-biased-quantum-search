@@ -4,6 +4,7 @@
 
 #include "approximate_state_sampler.h"
 #include "solver_ctx.h"
+#include "prng.h"
 
 approximate_state_t *init_approximete_state(solver_ctx_t *ctx, int n, double bias) {
     ctx->branching_stats.bias = bias;
@@ -130,7 +131,7 @@ int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *
         int i;
         for (i = 0; i < n; i++) {
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
-            double random_num = ((double) (rand() % 123456)) / 123455.;
+            double random_num = prng_next_double();
             
             // Initialize new bit to be 0
             sw_clrbit(new_sol->vector, i);

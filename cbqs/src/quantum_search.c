@@ -3,11 +3,12 @@
 //
 
 #include "quantum_search.h"
+#include "prng.h"
 
 
 
 size_t sampling(const double *probs, size_t numStates, size_t *measured_index) {
-	double random = (double) (rand() % 1234567) / 1234567;
+	double random = prng_next_double();
 	double cumulated = 0;
 	for (size_t i = 0; i < numStates; ++i) {
 		cumulated += probs[i];
@@ -66,7 +67,7 @@ state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *
 	while (m_tot < M) {
 		++(*rounds);
 		m = ceil(pow(c, *rounds));
-		j = rand() % m;
+		j = prng_next_int(m);
 		*iterations += j;
 		m_tot += 2 * j + 1;
 
