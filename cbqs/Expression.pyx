@@ -1,4 +1,24 @@
+import warnings
+import os
 from .Constants import *
+
+# Deprecation warning control for Expression mutation behavior change
+_CBQS_SUPPRESS_DEPRECATION = os.environ.get('CBQS_SUPPRESS_DEPRECATION', '').lower() in ('1', 'true', 'yes')
+_deprecation_warned = False
+
+def _warn_expression_immutability():
+	"""Emit one-time deprecation warning about Expression immutability change."""
+	global _deprecation_warned
+	if not _CBQS_SUPPRESS_DEPRECATION and not _deprecation_warned:
+		_deprecation_warned = True
+		warnings.warn(
+			"Expression operators now return new objects instead of mutating self. "
+			"Use += for in-place mutation (e.g., expr += 5). "
+			"This matches Python numeric semantics. "
+			"Set CBQS_SUPPRESS_DEPRECATION=1 to suppress this warning.",
+			DeprecationWarning,
+			stacklevel=3  # Points to user's code
+		)
 
 
 class Variable:
