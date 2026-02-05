@@ -120,13 +120,14 @@ Plans:
   2. The explore_neighbourhood inner loop contains zero malloc/calloc/free calls -- all scratch memory comes from a pre-allocated arena
   3. Arena memory is correctly reset between iterations and freed after solve completes (no leaks)
   4. Benchmark on a representative problem shows measurable improvement in solve time compared to Phase 5 baseline
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Create arena allocator module (arena.h/c) with bump allocation and chained overflow
-- [ ] 06-02-PLAN.md — Create dynamic expression with small-object optimization (dyn_expr.h/c)
-- [ ] 06-03-PLAN.md — Integrate arena into solver_ctx, replace hot-path allocations in local_search.c
-- [ ] 06-04-PLAN.md — Create benchmark suite with pytest-benchmark, CI integration
+- [x] 06-01-PLAN.md — Create arena allocator module (arena.h/c) with bump allocation and chained overflow
+- [x] 06-02-PLAN.md — Create dynamic expression with small-object optimization (dyn_expr.h/c)
+- [x] 06-03-PLAN.md — Integrate arena into solver_ctx, replace hot-path allocations in local_search.c
+- [x] 06-04-PLAN.md — Create benchmark suite with pytest-benchmark, CI integration
+- [ ] 06-05-PLAN.md — (Gap closure) Integrate dyn_expr into Expression.c, remove fixed MAXCLAUSESIZE allocation
 
 ### Phase 7: API Robustness
 **Goal**: The solver rejects invalid inputs with clear error messages and verifies that returned solutions are actually correct
