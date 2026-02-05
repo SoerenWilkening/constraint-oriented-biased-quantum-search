@@ -134,3 +134,18 @@ add_cmocka_test(test_integration
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
+
+# --- Plan 02-01: local_search regression test ---
+# Tests thread data lifetime fix (use-after-free bug)
+add_cmocka_test(test_local_search
+    test_local_search.c
+    ${CBQS_SRC_DIR}/local_search.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
