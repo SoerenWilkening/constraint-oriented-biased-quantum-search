@@ -81,6 +81,7 @@ add_cmocka_test(test_model
 add_cmocka_test(test_branching
     test_branching.c
     ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )

@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "Branching.h"
+#include "solver_ctx.h"
 #include "definitions.h"
 
 /* Setup fixture: reset BranchingStats global to zero state */
@@ -157,12 +158,15 @@ static void test_branching_function_both_bits_one(void **state) {
 
 /* ------------------------------------------------------------------ */
 /* test_state_probability: verify result is valid probability          */
+/* Uses solver_ctx_t for the new StateProbability API                  */
 /* ------------------------------------------------------------------ */
 static void test_state_probability(void **state) {
     (void)state;
-    /* Configure branching with bias only */
-    set_factors(0.0, 0.0, 1.0, 0.0);
-    set_bias(5.0);
+
+    /* Create solver context and configure branching with bias only */
+    solver_ctx_t *ctx = solver_ctx_create();
+    solver_ctx_set_factors(ctx, 0.0, 0.0, 1.0, 0.0);
+    solver_ctx_set_bias(ctx, 5.0);
 
     int arr1[] = {1, 0, 1};
     state_t *s = init_state(0, arr1, 3);
@@ -174,21 +178,26 @@ static void test_state_probability(void **state) {
     int arr2[] = {1, 0, 0};
     state_t *threshold = init_state(0, arr2, 3);
 
-    double prob = StateProbability(s, threshold);
+    double prob = StateProbability(ctx, s, threshold);
     assert_true(prob >= 0.0);
     assert_true(prob <= 1.0);
 
     free_state(s, 1);
     free_state(threshold, 1);
+    solver_ctx_free(ctx);
 }
 
 /* ------------------------------------------------------------------ */
 /* test_state_probability_identical: identical states => high prob      */
+/* Uses solver_ctx_t for the new StateProbability API                  */
 /* ------------------------------------------------------------------ */
 static void test_state_probability_identical(void **state) {
     (void)state;
-    set_factors(0.0, 0.0, 1.0, 0.0);
-    set_bias(5.0);
+
+    /* Create solver context and configure branching */
+    solver_ctx_t *ctx = solver_ctx_create();
+    solver_ctx_set_factors(ctx, 0.0, 0.0, 1.0, 0.0);
+    solver_ctx_set_bias(ctx, 5.0);
 
     int arr[] = {1, 0, 1};
     state_t *s = init_state(0, arr, 3);
@@ -198,7 +207,7 @@ static void test_state_probability_identical(void **state) {
 
     state_t *threshold = init_state(0, arr, 3);
 
-    double prob = StateProbability(s, threshold);
+    double prob = StateProbability(ctx, s, threshold);
     /* When both states are identical, each bit contributes (bias+1)/(bias+2) */
     /* With bias=5: (6/7)^3 ~ 0.6297 */
     double expected = pow(6.0 / 7.0, 3.0);
@@ -206,6 +215,7 @@ static void test_state_probability_identical(void **state) {
 
     free_state(s, 1);
     free_state(threshold, 1);
+    solver_ctx_free(ctx);
 }
 
 int main(void) {
