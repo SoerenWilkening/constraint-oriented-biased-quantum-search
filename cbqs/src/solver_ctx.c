@@ -11,6 +11,7 @@
 
 #include "solver_ctx.h"
 #include "prng.h"
+#include "arena.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -54,6 +55,13 @@ solver_ctx_t *solver_ctx_create(void) {
     /* Record start time */
     clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
 
+    /* Create arena for hot-path allocations */
+    ctx->arena = arena_create(ARENA_DEFAULT_SIZE);
+    if (ctx->arena == NULL) {
+        free(ctx);
+        return NULL;
+    }
+
     return ctx;
 }
 
@@ -70,6 +78,12 @@ void solver_ctx_free(solver_ctx_t *ctx) {
     if (ctx->branching_stats.constraint_dependent != NULL) {
         free(ctx->branching_stats.constraint_dependent);
         ctx->branching_stats.constraint_dependent = NULL;
+    }
+
+    /* Free arena if allocated */
+    if (ctx->arena != NULL) {
+        arena_free(ctx->arena);
+        ctx->arena = NULL;
     }
 
     free(ctx);
@@ -255,4 +269,14 @@ void solver_ctx_init_prng(solver_ctx_t *ctx) {
 
     /* Initialize thread-local PRNG for main thread (thread 0) */
     prng_seed_thread(&ctx->master_prng, 0);
+}
+
+/* ============================================================
+ * Arena Management
+ * ============================================================ */
+
+void solver_ctx_arena_reset(solver_ctx_t *ctx) {
+    if (ctx != NULL && ctx->arena != NULL) {
+        arena_reset(ctx->arena);
+    }
 }

@@ -15,6 +15,7 @@
 #include <time.h>
 #include "Branching.h"
 #include "prng.h"
+#include "arena.h"
 
 /**
  * @brief Solver context carrying all per-solve mutable state
@@ -57,6 +58,9 @@ struct solver_ctx {
 
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
+
+    /** Arena for hot-path allocations (per-solve lifetime) */
+    arena_t *arena;
 };
 typedef struct solver_ctx solver_ctx_t;
 
@@ -198,5 +202,15 @@ void solver_ctx_init_prng(solver_ctx_t *ctx);
  * @return Thread count (minimum 1)
  */
 int solver_ctx_get_default_threads(void);
+
+/**
+ * @brief Reset arena for reuse between solver iterations
+ *
+ * Resets the arena allocator to reclaim memory without freeing chunks.
+ * Call this between solver iterations to reuse memory efficiently.
+ *
+ * @param ctx Solver context (no-op if NULL or arena is NULL)
+ */
+void solver_ctx_arena_reset(solver_ctx_t *ctx);
 
 #endif /* SOLVER_CTX_H */
