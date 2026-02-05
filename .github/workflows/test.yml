@@ -46,6 +46,32 @@ jobs:
       - name: Test
         run: cd build-tests-asan && ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
 
+  c-tests-valgrind:
+    name: C Tests (Valgrind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential valgrind
+
+      - name: Configure
+        run: mkdir build-tests-valgrind && cd build-tests-valgrind && cmake ../tests
+
+      - name: Build
+        run: cd build-tests-valgrind && make -j$(nproc)
+
+      - name: Test with Valgrind
+        run: |
+          cd build-tests-valgrind
+          # Run each test under Valgrind
+          # Note: Valgrind is slow, so we run a subset of critical tests
+          for test in test_expression test_state test_constraint; do
+            if [ -f "./$test" ]; then
+              valgrind --leak-check=full --error-exitcode=1 --errors-for-leak-kinds=definite ./$test
+            fi
+          done
+
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest
