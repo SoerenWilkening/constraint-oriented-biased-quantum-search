@@ -112,6 +112,11 @@ cdef class state_py:
 		free_state(self.state, self.num_states)
 		self.state = read_states(f, num_files, &self.num_states, n)
 
+		# Cleanup char** arrays after read_states copies them
+		for i in range(num_files):
+			free(f[i])
+		free(f)
+
 
 def store(states: list[float, tuple[list[int], list[int]]], where: bytes) -> int:
 	if os.path.exists(where): return 1

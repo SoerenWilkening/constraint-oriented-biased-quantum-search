@@ -15,6 +15,7 @@ def set_obj_dependence_wrapper(dependence: list[double]):
 	for i in range(arr.shape[0]):
 		ptr[i] = <double> arr[i]
 	set_obj_dependence(ptr, len(dependence))
+	free(ptr)  # Free allocated memory after C function copies it
 
 def set_constraint_dependence_wrapper(dependence: list[double]):
 	arr = np.array(dependence, dtype = np.double)
@@ -22,3 +23,4 @@ def set_constraint_dependence_wrapper(dependence: list[double]):
 	for i in range(arr.shape[0]):
 		ptr[i] = <double> arr[i]
 	set_constraint_dependence(ptr, len(dependence))
+	free(ptr)  # Free allocated memory after C function copies it
