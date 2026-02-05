@@ -9,6 +9,7 @@
 #include "Expression.h"
 #include "Branching.h"
 #include "definitions.h"
+#include "solver_ctx.h"
 
 /*
  * Regression test for use-after-free bug in accept_best_routine (02-01).
@@ -133,7 +134,10 @@ static void test_local_search_thread_data_lifetime(void **state) {
      * The fix moves free(data[i].remainings), sw_clear(data[i].ful_con),
      * sw_clear(data[i].ful) from after pthread_create to after pthread_join.
      */
-    int result = local_search(cur_sol, mod, NULL);
+    /* Create a solver context for local_search */
+    solver_ctx_t *ctx = solver_ctx_create();
+    int result = local_search(ctx, cur_sol, mod, NULL);
+    solver_ctx_free(ctx);
 
     /* Test passes if we reach here without ASan errors */
     assert_int_equal(result, 0);
@@ -167,7 +171,10 @@ static void test_local_search_multiple_iterations(void **state) {
     cur_sol->tot_profit = -4;
     cur_sol->feasible = 1;
 
-    int result = local_search(cur_sol, mod, NULL);
+    /* Create a solver context for local_search */
+    solver_ctx_t *ctx = solver_ctx_create();
+    int result = local_search(ctx, cur_sol, mod, NULL);
+    solver_ctx_free(ctx);
 
     assert_int_equal(result, 0);
 

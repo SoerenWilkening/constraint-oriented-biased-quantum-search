@@ -138,6 +138,7 @@ add_cmocka_test(test_integration
 
 # --- Plan 02-01: local_search regression test ---
 # Tests thread data lifetime fix (use-after-free bug)
+# Updated 05-02: Added prng.c and solver_ctx.c for VLA replacement changes
 add_cmocka_test(test_local_search
     test_local_search.c
     ${CBQS_SRC_DIR}/local_search.c
@@ -149,6 +150,8 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/Expression.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
 )
 
 # --- Plan 03-05: Thread safety test ---

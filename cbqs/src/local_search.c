@@ -158,7 +158,8 @@ void *explore_neighbourhood(void *args) {
 //	int64_t steps[C];
 //	memset(steps, 0, C * sizeof(int64_t));
 
-	int bits[dat->d];
+	/* Use pre-allocated per-thread scratch buffers instead of VLAs */
+	int *bits = dat->thread_bits;
 
 	state_t *cur_best = copy_state(dat->sol);
 	state_t *cur_best_tabu = copy_state(dat->sol); // current best tabu move
@@ -185,7 +186,8 @@ void *explore_neighbourhood(void *args) {
 			else sw_setbit(new_sol->vector, comb[i]);
 		}
 
-		int64_t totals[C];
+		/* Use pre-allocated per-thread scratch buffer instead of VLA */
+		int64_t *totals = dat->thread_totals;
 		array_t inv = sw_init(C * dat->size_ful);
 		memset(totals, 0, C * sizeof(int64_t));
 		int *changed_con = calloc(MINSIZE, sizeof(int));
@@ -324,6 +326,30 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		data[i].stopping_condition = stopping_criterion;
 		data[i].count_states = 0;
 		data[i].ctx = ctx;  /* Pass solver context to thread worker */
+
+		/* Allocate per-thread scratch buffers (replaces VLAs) */
+		data[i].thread_totals = malloc(C * sizeof(int64_t));
+		data[i].thread_bits = malloc(d * sizeof(int));
+		data[i].num_constraints = C;
+
+		if (data[i].thread_totals == NULL || data[i].thread_bits == NULL) {
+			/* Handle allocation failure - free already allocated and return */
+			for (int j = 0; j <= i; ++j) {
+				free(data[j].remainings);
+				free(data[j].thread_totals);
+				free(data[j].thread_bits);
+				sw_clear(data[j].ful_con);
+				sw_clear(data[j].ful);
+			}
+			free(data);
+			free(threads);
+			free(prog_data.progress);
+			free_state(cur_best, 1);
+			free_state(cur_best_tabu, 1);
+			sw_clear(ful);
+			sw_clear(ful_con);
+			return -1;  /* Allocation failure */
+		}
 	}
 	// Create all threads first - data must remain valid while threads run
 	for (int i = 0; i < num_threads; ++i) {
@@ -335,6 +361,8 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 
 		// NOW safe to cleanup - thread has completed
 		free(data[i].remainings);
+		free(data[i].thread_totals);
+		free(data[i].thread_bits);
 		sw_clear(data[i].ful_con);
 		sw_clear(data[i].ful);
 
@@ -368,7 +396,14 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 //	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
 
 	if (!accepted) {
-		if (*accept_worse_counter == max_worse_acceptances) return 0; // stop the entire search
+		if (*accept_worse_counter == max_worse_acceptances) {
+			/* MEM-01 FIX: Clean up before early return */
+			free_state(cur_best, 1);
+			free_state(cur_best_tabu, 1);
+			sw_clear(ful);
+			sw_clear(ful_con);
+			return 0; // stop the entire search
+		}
 		accepted = 1;
 		// no better solution found:
 		// accept best-worse solution
@@ -383,6 +418,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	tabu_list->head = (tabu_list->head + 1) % tabu_list->max_moves;
 
 	free_state(cur_best, 1);
+	free_state(cur_best_tabu, 1);  /* MEM-01 FIX: was missing before */
 	sw_clear(ful);
 	sw_clear(ful_con);
 	return accepted;
@@ -462,6 +498,7 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 	accept_move(cur_sol, mod->global_opt, mod->global_opt);
 
 	free_move_list(moves, num_moves);
+	free(tabu_list.moves);  /* MEM-01 FIX: was missing */
 	sw_clear(ful_con);
 	sw_clear(ful);
 
@@ -479,7 +516,13 @@ state_t *quantum_local_search_states(
 
 	array_t ful_con = sw_init(con->total_clauses);
 	int C = con->num_constraints;
-	int64_t remainings[C];
+
+	/* Heap-allocated arrays instead of VLAs */
+	int64_t *remainings = malloc(C * sizeof(int64_t));
+	if (remainings == NULL) {
+		sw_clear(ful_con);
+		return NULL;  /* Allocation failure */
+	}
 	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
 	prepare_constraints(con, cur_sol, &ful_con);
 
@@ -512,7 +555,12 @@ state_t *quantum_local_search_states(
 		else {
 			int64_t total_violation = 0;
 
-			int64_t totals[C];
+			/* Heap-allocated instead of VLA */
+			int64_t *totals = malloc(C * sizeof(int64_t));
+			if (totals == NULL) {
+				sw_clear(st[feasible_state_counter].vector);
+				continue;  /* Skip this iteration on alloc failure */
+			}
 			array_t inv = sw_init(con->total_clauses);
 			memset(totals, 0, C * sizeof(int64_t));
 			int *changed_con = calloc(MINSIZE, sizeof(int));
@@ -557,6 +605,7 @@ state_t *quantum_local_search_states(
 //						&num_cahnges);
 				free(changes);
 			}
+			free(totals);  /* Free heap-allocated totals array */
 		}
 
 		include_state &= (feasible && !cur_sol->feasible) |
@@ -572,6 +621,8 @@ state_t *quantum_local_search_states(
 		}
 	}
 	sw_clear(ful);
+	sw_clear(ful_con);
+	free(remainings);  /* Free heap-allocated remainings array */
 	*num_states = feasible_state_counter;
 	st = (state_t *) realloc(st, feasible_state_counter * sizeof(state_t));
 	return st;
