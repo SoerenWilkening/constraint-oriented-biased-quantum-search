@@ -179,3 +179,16 @@ add_cmocka_test(test_prng
     test_prng.c
     ${CBQS_SRC_DIR}/prng.c
 )
+
+# --- Plan 06-01: Arena allocator unit tests ---
+# Tests arena bump allocator for hot-path allocation elimination:
+# - Create/free lifecycle
+# - Basic allocation and alignment
+# - Overflow chunk chaining
+# - Reset clears without freeing
+# - Large allocations
+# - NULL safety
+add_cmocka_test(test_arena
+    test_arena.c
+    ${CBQS_SRC_DIR}/arena.c
+)
