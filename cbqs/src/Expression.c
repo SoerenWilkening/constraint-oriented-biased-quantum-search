@@ -82,6 +82,40 @@ void free_expression(expression_t *expr){
 	free(expr);
 }
 
+void copy_expression_contents(expression_t *dest, expression_t *src) {
+    // Copy scalar fields
+    dest->expr_size = src->expr_size;
+    dest->sense = src->sense;
+    dest->rhs = src->rhs;
+
+    // Calculate allocation size based on min_size chunks (matching init_expression pattern)
+    size_t num_chunks = (src->expr_size / min_size) + 1;
+    size_t alloc_size = num_chunks * min_size;
+
+    // Free existing destination arrays if they exist
+    if (dest->literals != NULL) {
+        free(dest->literals);
+    }
+    if (dest->len_literal != NULL) {
+        free(dest->len_literal);
+    }
+
+    // Allocate fresh arrays
+    dest->literals = malloc(MAXCLAUSESIZE * alloc_size * sizeof(int64_t));
+    dest->len_literal = malloc(alloc_size * sizeof(int));
+
+    // Initialize to -1 (padding value, matching init_expression)
+    for (size_t i = 0; i < MAXCLAUSESIZE * alloc_size; ++i) {
+        dest->literals[i] = -1;
+    }
+
+    // Copy actual data from source
+    memcpy(dest->literals, src->literals,
+           MAXCLAUSESIZE * src->expr_size * sizeof(int64_t));
+    memcpy(dest->len_literal, src->len_literal,
+           src->expr_size * sizeof(int));
+}
+
 void increase(expression_t *expr){
     if (expr->expr_size % (min_size - 1) == 0 && expr->expr_size > 0){
         expr->literals = realloc(expr->literals, MAXCLAUSESIZE * (expr->expr_size + min_size) * sizeof(int64_t ));

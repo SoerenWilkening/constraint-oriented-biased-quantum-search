@@ -21,6 +21,7 @@ int len_literal(expression_t *expr , int clause);
 expression_t *init_expression();
 size_t expr_index(size_t lit, int ind);
 void free_expression(expression_t *expr);
+void copy_expression_contents(expression_t *dest, expression_t *src);
 void print_expression(expression_t *expr);
 void sort_expression(expression_t *expr);
 void merge_expression(expression_t *expr);
