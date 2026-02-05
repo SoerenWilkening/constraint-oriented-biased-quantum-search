@@ -28,6 +28,7 @@ cdef extern from "src/Expression.h":
 	void add_rhs_to_expression(expression_t *expr, int64_t rhs);
 
 	void print_expression(expression_t *expr);
+	void copy_expression_contents(expression_t *dest, expression_t *src);
 
 	expression_t *multiply_expressions(expression_t *expr1, expression_t *expr2);
 
@@ -38,3 +39,4 @@ cdef class Expression:
 	cdef c_liste(self)
 	cdef add_expr(self, Expression other)
 	cdef mul_expr(self, Expression other, Expression ne)
+	cdef Expression _deep_copy(self)
