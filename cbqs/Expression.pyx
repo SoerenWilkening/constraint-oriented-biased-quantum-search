@@ -96,6 +96,20 @@ cdef class Expression:
 		ne.add_expr(self)
 		return ne
 
+	cdef Expression _deep_copy(self):
+		"""Create independent copy with separate C arrays."""
+		cdef Expression new_expr = Expression()
+		copy_expression_contents(new_expr.expr, self.expr)
+		new_expr.sense = self.sense
+		new_expr.rhs = self.rhs
+		return new_expr
+
+	def __deepcopy__(self, memo):
+		"""Support copy.deepcopy() - creates fully independent Expression."""
+		new_expr = self._deep_copy()
+		memo[id(self)] = new_expr
+		return new_expr
+
 	def __dealloc__(self):
 		free_expression(self.expr)
 		self.expr = NULL
@@ -153,6 +167,25 @@ cdef class Expression:
 		if isinstance(other, Expression):
 			self.add_expr(other)
 			return self
+
+	def __iadd__(self, other):
+		"""Mutate self in place by adding other. Returns self.
+
+		Matches Python int behavior: x += 3 mutates x.
+		Use this for performance when you don't need the original.
+		"""
+		if isinstance(other, float):
+			raise TypeError("Not allowed type!")
+		if isinstance(other, int):
+			add_constant(self.expr, other)
+			return self
+		if isinstance(other, Variable):
+			add_variable(self.expr, other.index)
+			return self
+		if isinstance(other, Expression):
+			self.add_expr(other)
+			return self
+		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __mul__(self, other):
 		if isinstance(other, float): raise TypeError("Not allowed type!")
