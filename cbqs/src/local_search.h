@@ -20,6 +20,7 @@
 #include "solver.h"
 #include "model.h"
 #include "quantum_search.h"
+#include "solver_ctx.h"
 
 typedef struct {
 	int num_flips;
@@ -49,11 +50,12 @@ typedef struct {
 	int *stopping_criterion;
 	int stopping_condition;
 	int count_states;
+	solver_ctx_t *ctx;  /* Solver context for stop flag checking */
 } local_search_data_t;
 
 #define NUMThreads 6
 
-int local_search(state_t *cur_sol, model_t *mod, callback_t callback);
+int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback);
 
 
 int quantum_local_search(new_constraints_t *obj,

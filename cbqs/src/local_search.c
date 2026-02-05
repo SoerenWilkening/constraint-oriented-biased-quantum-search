@@ -3,6 +3,7 @@
 //
 
 #include "local_search.h"
+#include "solver_ctx.h"
 
 static inline int move_is_tabu(tabu_list_t *tabu_list, int move) {
 	if (tabu_list->head == -1) return 0;
@@ -161,6 +162,10 @@ void *explore_neighbourhood(void *args) {
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
 		// stop, if first better solution was found
 		if (*dat->stopping_criterion) break;
+
+		/* Periodic stop check (every 256 moves) using solver context */
+		if ((mov & 255) == 0 && dat->ctx != NULL && solver_ctx_should_stop(dat->ctx)) break;
+
 		dat->count_states++; // store how many states were investigated by thread
 
 		int *comb = dat->moves[mov].flips;
@@ -252,7 +257,7 @@ void *explore_neighbourhood(void *args) {
 	return NULL;
 }
 
-int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t *con, new_constraints_t *obj,
+int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt, new_constraints_t *con, new_constraints_t *obj,
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
                         int *accept_worse_counter, int max_worse_acceptances,
@@ -303,6 +308,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 		data[i].stopping_criterion = &stop_at_first;
 		data[i].stopping_condition = stopping_criterion;
 		data[i].count_states = 0;
+		data[i].ctx = ctx;  /* Pass solver context to thread worker */
 	}
 	// Create all threads first - data must remain valid while threads run
 	for (int i = 0; i < NUMThreads; ++i) {
@@ -362,7 +368,7 @@ int accept_best_routine(state_t *new_sol, state_t *global_opt, new_constraints_t
 	return accepted;
 }
 
-int local_search(state_t *cur_sol, model_t *mod, callback_t callback) {
+int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) {
 
 	struct timespec t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -412,8 +418,11 @@ int local_search(state_t *cur_sol, model_t *mod, callback_t callback) {
 	int worse_acceptance_counter = 0;
 	int counter = 0;
 	while (break_condition) {
+		/* Check solver context stop flag */
+		if (ctx != NULL && solver_ctx_should_stop(ctx)) break;
+
 		int neighbourhood_counter = 0;
-		break_condition = accept_best_routine(cur_sol, mod->global_opt, mod->con, mod->obj, mod->distance, &initial_feasible,
+		break_condition = accept_best_routine(ctx, cur_sol, mod->global_opt, mod->con, mod->obj, mod->distance, &initial_feasible,
 		                                      max_constraint_clauses, moves, num_moves, &tabu_list,
 		                                      &worse_acceptance_counter, mod->max_worse_acceptances,
                                               mod->stopping_condition, &neighbourhood_counter);
