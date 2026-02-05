@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Test Foundation** - CMocka test suite establishing correctness baseline
 - [x] **Phase 2: Critical Correctness Fixes** - Fix bugs that produce silently wrong results
-- [ ] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
+- [x] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
 - [ ] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
 - [ ] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
 - [ ] **Phase 6: Memory Optimization** - Dynamic arrays and arena allocator for hot paths
@@ -73,11 +73,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Create solver_ctx.h/c foundation with ctx struct and lifecycle
-- [ ] 03-02-PLAN.md — Migrate solver functions (CSearch_*, monte carlo samplers) to use ctx
-- [ ] 03-03-PLAN.md — Migrate entry points (ctg, local_search) and stop flag to ctx
-- [ ] 03-04-PLAN.md — Update Cython layer and C tests for ctx lifecycle
-- [ ] 03-05-PLAN.md — ThreadSanitizer verification and debug output testing
+- [x] 03-01-PLAN.md — Create solver_ctx.h/c foundation with ctx struct and lifecycle
+- [x] 03-02-PLAN.md — Migrate solver functions (CSearch_*, monte carlo samplers) to use ctx
+- [x] 03-03-PLAN.md — Migrate entry points (ctg, local_search) and stop flag to ctx
+- [x] 03-04-PLAN.md — Update Cython layer and C tests for ctx lifecycle
+- [x] 03-05-PLAN.md — ThreadSanitizer verification and debug output testing
 
 ### Phase 4: Thread Isolation
 **Goal**: Each worker thread operates with fully isolated random state and the user controls parallelism at runtime
@@ -157,7 +157,7 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 |-------|----------------|--------|-----------|
 | 1. Test Foundation | 5/5 | ✓ Complete | 2026-02-04 |
 | 2. Critical Correctness Fixes | 6/6 | ✓ Complete | 2026-02-05 |
-| 3. Solver Context Architecture | 0/5 | Planned | - |
+| 3. Solver Context Architecture | 5/5 | ✓ Complete | 2026-02-05 |
 | 4. Thread Isolation | 0/TBD | Not started | - |
 | 5. Memory Safety | 0/TBD | Not started | - |
 | 6. Memory Optimization | 0/TBD | Not started | - |

@@ -14,8 +14,8 @@
 
 ### Thread Safety
 
-- [ ] **THRD-01**: Introduce `solver_ctx_t` struct encapsulating BranchingStats, stop flag, and callback — eliminate global mutable state
-- [ ] **THRD-02**: Replace `signal.raise_signal(signal.SIGINT)` with atomic boolean stop flag checked by all threads
+- [x] **THRD-01**: Introduce `solver_ctx_t` struct encapsulating BranchingStats, stop flag, and callback — eliminate global mutable state
+- [x] **THRD-02**: Replace `signal.raise_signal(signal.SIGINT)` with atomic boolean stop flag checked by all threads
 - [ ] **THRD-03**: Replace global `rand()` with per-thread PRNG (e.g., `rand_r()` or xoshiro256**)
 - [ ] **THRD-04**: Make thread count configurable — remove hardcoded `NUMThreads=6`, derive from model or user parameter
 
@@ -64,8 +64,8 @@
 | CORR-02 | Phase 2: Critical Correctness Fixes | Complete |
 | CORR-03 | Phase 2: Critical Correctness Fixes | Complete |
 | CORR-04 | Phase 2: Critical Correctness Fixes | Complete |
-| THRD-01 | Phase 3: Solver Context Architecture | Pending |
-| THRD-02 | Phase 3: Solver Context Architecture | Pending |
+| THRD-01 | Phase 3: Solver Context Architecture | Complete |
+| THRD-02 | Phase 3: Solver Context Architecture | Complete |
 | THRD-03 | Phase 4: Thread Isolation | Pending |
 | THRD-04 | Phase 4: Thread Isolation | Pending |
 | MEM-01 | Phase 5: Memory Safety | Pending |
@@ -83,4 +83,4 @@
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-05 after Phase 2 completion*
+*Last updated: 2026-02-05 after Phase 3 completion*
