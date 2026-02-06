@@ -131,29 +131,32 @@ cdef void my_callback_c() with gil:
 cdef object python_callback = None
 
 
-class _HistoryCallback:
-	"""Callable wrapper for history accumulation in callbacks.
+# Module-level state for history callback wrapper.
+# Used because Cython cpdef functions do not support closures,
+# and regular Python classes cannot access cdef attributes.
+cdef object _history_list = None
+cdef object _history_prev_best = None
+cdef object _history_original_callback = None
+cdef Model _history_mod = None
 
-	Used instead of closures because Cython cpdef functions do not support closures.
-	Wraps the user's original callback, recording improvement history entries
-	each time the objective value changes.
+
+def _history_callback_fn():
+	"""Module-level callback that accumulates improvement history.
+
+	Reads from module-level state variables set up by run_sampling/run_local_search
+	before the solve loop.
 	"""
-	def __init__(self, mod, original_callback):
-		self.mod = mod
-		self.original_callback = original_callback
-		self.history = []
-		self._prev_best = None
-
-	def __call__(self):
-		obj_val = self.mod.mod[0].global_opt[0].tot_profit * self.mod.sense
-		elapsed_ms = self.mod.mod[0].runtime * 1000.0
-		is_feasible = bool(self.mod.mod[0].global_opt[0].feasible)
-		iteration = self.mod.mod[0].qtg_applications
-		if self._prev_best is None or obj_val != self._prev_best:
-			self.history.append((iteration, obj_val, elapsed_ms, is_feasible))
-			self._prev_best = obj_val
-		if self.original_callback is not None:
-			self.original_callback()
+	global _history_list, _history_prev_best, _history_original_callback, _history_mod
+	cdef Model mod = _history_mod
+	obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
+	elapsed_ms = mod.mod[0].runtime * 1000.0
+	is_feasible = bool(mod.mod[0].global_opt[0].feasible)
+	iteration = mod.mod[0].qtg_applications
+	if _history_prev_best is None or obj_val != _history_prev_best:
+		_history_list.append((iteration, obj_val, elapsed_ms, is_feasible))
+		_history_prev_best = obj_val
+	if _history_original_callback is not None:
+		_history_original_callback()
 
 cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 	preprocess_start = time_mod.monotonic()
@@ -194,9 +197,13 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)
 
-	# History callback wrapper: accumulates improvement entries
-	history_cb = _HistoryCallback(mod, callback)
-	python_callback = history_cb
+	# Set up module-level history callback state
+	global _history_list, _history_prev_best, _history_original_callback, _history_mod
+	_history_list = []
+	_history_prev_best = None
+	_history_original_callback = callback
+	_history_mod = mod
+	python_callback = _history_callback_fn
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -231,6 +238,9 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 				if not not_stop[0]:
 					break
 
+		# Capture history before clearing module-level state
+		history = list(_history_list)
+
 		cur_sol.get_x()
 		arr = []
 		for i in range(cur_sol.state[0].vector.bits):
@@ -251,7 +261,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 		except AttributeError:
 			pass  # Model doesn't have _seed_used attribute (old code path)
 
-		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb, history_cb.history, preprocessing_time_ms
+		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms
 	finally:
 		solver_ctx_free(ctx)
 
@@ -283,9 +293,13 @@ cpdef run_local_search(Model mod, object callback):
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
 
-	# History callback wrapper: accumulates improvement entries
-	history_cb = _HistoryCallback(mod, callback)
-	python_callback = history_cb
+	# Set up module-level history callback state
+	global _history_list, _history_prev_best, _history_original_callback, _history_mod
+	_history_list = []
+	_history_prev_best = None
+	_history_original_callback = callback
+	_history_mod = mod
+	python_callback = _history_callback_fn
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -295,6 +309,9 @@ cpdef run_local_search(Model mod, object callback):
 		with nogil:
 			local_search(ctx, st, mod.mod, cb_ptr)
 
+		# Capture history before clearing module-level state
+		history = list(_history_list)
+
 		# Store actual seed used back to model for reproducibility tracking
 		seed_used_local = ctx.seed_used
 		try:
@@ -303,7 +320,7 @@ cpdef run_local_search(Model mod, object callback):
 			pass  # Model doesn't have _seed_used attribute (old code path)
 
 		solve_time_ms = mod.mod[0].runtime * 1000.0
-		return cur_sol, history_cb.history, preprocessing_time_ms, solve_time_ms
+		return cur_sol, history, preprocessing_time_ms, solve_time_ms
 	finally:
 		solver_ctx_free(ctx)
 

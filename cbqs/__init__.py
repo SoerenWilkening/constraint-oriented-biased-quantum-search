@@ -7,6 +7,7 @@ except ImportError as e:
     set_seed = None
 
 from .Constants import *
+from .result import OptimizeResult
 
 
 __version__ = '1.0.1'

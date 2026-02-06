@@ -5,6 +5,7 @@ from warnings import warn
 
 import numpy as np
 from joblib import Parallel, delayed
+from .result import OptimizeResult
 # CircuitBackendBinder is optional - requires circuit_backend directory
 try:
 	from .CircuitBackendBinder import circuit
@@ -283,13 +284,11 @@ or {self.runtime}s sampling
 	          look_ahead_factor = 0.,
 	          monte_calor_estimate = False,
 	          verify = False
-	          ) -> list | None:
-		"""
+	          ):
+		"""Solve the optimization or satisfiability problem.
 
-		:param M:
-		:param bias:
-		:return:
-			returns True if the Algorithm found a satisfying state
+		Returns an OptimizeResult object containing solution, objective,
+		timing, history, and verification data.
 		"""
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
@@ -327,35 +326,52 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		obj_vals = [i[0].objective_value for i in res]
-		# self.objective_value = min([i[0].objective_value for i in res])
-		# index_opt = obj_vals.index(self.objective_value)
-		# self.grover_iterations = res[index_opt][1]
-		# self.runtime = res[index_opt][-2]
+		# res[i] = (cur_sol, qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
 		self.final_state = self.global_opt
-		total_incumbent = [j for i in range(num_workers) for j in res[i][-1]]
-		# print(total_incumbent)
-		total_incumbent.sort(key = lambda x: x[1], reverse = False)
-		counter = 1
-		while True:
-			try:
-				if total_incumbent[counter][0] < total_incumbent[counter - 1][0]:
-					total_incumbent.pop(counter)
-					counter -= 1
-				counter += 1
-			except:
-				break
 
+		# Merge histories from all workers, sorted by elapsed_ms
+		merged_history = []
+		for r in res:
+			merged_history.extend(r[6])
+		merged_history.sort(key=lambda entry: entry[2])
+
+		# Extract solution array from global_opt
+		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
+		solution = np.array([sw_tstbit(self.mod[0].global_opt[0].vector, i) for i in range(n_bits)], dtype=np.int32)
+
+		# Handle verification
 		if verify:
-			self.verify_solution()
+			with warnings.catch_warnings(record=True) as caught_warnings:
+				warnings.simplefilter("always")
+				self.verify_solution()
+			verified = self._verified
+			violations = [str(w.message) for w in caught_warnings]
+		else:
+			verified = None
+			violations = None
 
-		return total_incumbent
+		# Build OptimizeResult
+		result = OptimizeResult(
+			solution=solution,
+			objective=self.objective_value,
+			feasible=bool(self.mod[0].global_opt[0].feasible),
+			solve_time=self.mod[0].runtime * 1000.0,
+			preprocessing_time=max(r[7] for r in res),
+			iterations=self.mod[0].qtg_applications,
+			oracle_calls=self.mod[0].qtg_applications,
+			history=merged_history,
+			verified=verified,
+			violations=violations,
+			num_threads=num_workers,
+			seed=self._seed_used if self._seed_used is not None else 0,
+		)
+
+		return result
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
 	                 stopping_condition: int = STOPATFIRST, verify = False):
 		assert stopping_condition in [STOPATFIRST, STOPATBEST]
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
-		t1 = time()
 
 		self.mod[0].max_worse_acceptances = max_worse_acceptances
 		self.mod[0].stopping_condition = stopping_condition
@@ -363,13 +379,42 @@ or {self.runtime}s sampling
 		self.mod[0].stopping_time = stop_time
 		self.mod[0].stop_val = -1
 
-		self.final_state = run_local_search(self, callback)
-		print(self.final_state)
-		# self.runtime = time() - t1
-		# self.objective_value = self.final_state.objective_value
+		# run_local_search returns (cur_sol, history, preprocessing_time_ms, solve_time_ms)
+		cur_sol, history, preprocessing_time_ms, solve_time_ms = run_local_search(self, callback)
+		self.final_state = cur_sol
 
+		# Extract solution array from global_opt
+		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
+		solution = np.array([sw_tstbit(self.mod[0].global_opt[0].vector, i) for i in range(n_bits)], dtype=np.int32)
+
+		# Handle verification
 		if verify:
-			self.verify_solution()
+			with warnings.catch_warnings(record=True) as caught_warnings:
+				warnings.simplefilter("always")
+				self.verify_solution()
+			verified = self._verified
+			violations = [str(w.message) for w in caught_warnings]
+		else:
+			verified = None
+			violations = None
+
+		# Build and return OptimizeResult
+		result = OptimizeResult(
+			solution=solution,
+			objective=self.objective_value,
+			feasible=bool(self.mod[0].global_opt[0].feasible),
+			solve_time=solve_time_ms,
+			preprocessing_time=preprocessing_time_ms,
+			iterations=self.mod[0].qtg_applications,
+			oracle_calls=self.mod[0].qtg_applications,
+			history=history,
+			verified=verified,
+			violations=violations,
+			num_threads=self._num_threads if self._num_threads is not None else 1,
+			seed=self._seed_used if self._seed_used is not None else 0,
+		)
+
+		return result
 
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
 		Parallel(n_jobs = num_workers, backend = "threading")(
