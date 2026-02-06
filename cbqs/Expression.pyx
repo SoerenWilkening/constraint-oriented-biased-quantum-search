@@ -1,6 +1,35 @@
+import math
 import warnings
 import os
 from .Constants import *
+
+# int64 range constants for overflow detection
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
+
+def _validate_numeric(value, context=""):
+	"""Validate a numeric value for use as coefficient or constant.
+
+	Rejects NaN, Inf, and values outside int64_t range.
+	Called before passing values to C layer.
+	"""
+	if isinstance(value, float):
+		if math.isnan(value):
+			raise ValueError(
+				f"NaN not allowed as coefficient{' in ' + context if context else ''}"
+			)
+		if math.isinf(value):
+			raise ValueError(
+				f"Inf not allowed as coefficient{' in ' + context if context else ''}"
+			)
+		raise TypeError(
+			f"Float coefficients not allowed; use int{' in ' + context if context else ''}"
+		)
+	if isinstance(value, int) and not isinstance(value, bool):
+		if value < _INT64_MIN or value > _INT64_MAX:
+			raise OverflowError(
+				f"Coefficient {value} outside int64 range [{_INT64_MIN}, {_INT64_MAX}]"
+			)
 
 # Deprecation warning control for Expression mutation behavior change
 _CBQS_SUPPRESS_DEPRECATION = os.environ.get('CBQS_SUPPRESS_DEPRECATION', '').lower() in ('1', 'true', 'yes')
@@ -23,6 +52,18 @@ def _warn_expression_immutability():
 
 class Variable:
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
+		if not isinstance(index, int) or isinstance(index, bool):
+			raise TypeError(f"Variable index must be int, got {type(index).__name__}")
+		if index < 0:
+			raise ValueError(f"Variable index {index} must be non-negative")
+		if not isinstance(lb, int) or isinstance(lb, bool):
+			raise TypeError(f"Variable lower bound must be int, got {type(lb).__name__}")
+		if not isinstance(ub, int) or isinstance(ub, bool):
+			raise TypeError(f"Variable upper bound must be int, got {type(ub).__name__}")
+		if ub < lb:
+			raise ValueError(
+				f"Variable bounds inconsistent: upper ({ub}) < lower ({lb})"
+			)
 		self.vtype = vtype
 		self.index = index
 		self.name = name
@@ -33,7 +74,7 @@ class Variable:
 		return f"{self.name}"
 
 	def __add__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
 			add_constant(expr.expr, other)
@@ -49,7 +90,7 @@ class Variable:
 			return other + self
 
 	def __radd__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
 			add_constant(expr.expr, other)
@@ -65,7 +106,7 @@ class Variable:
 			return other + self
 
 	def __mul__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
 			add_constant(expr.expr, other)
@@ -81,7 +122,7 @@ class Variable:
 			return other * self
 
 	def __rmul__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
 			add_constant(expr.expr, other)
@@ -163,7 +204,7 @@ cdef class Expression:
 
 	def __add__(self, other):
 		"""Return new Expression with other added. Does not modify self."""
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 
 		cdef Expression result = self._deep_copy()
 
@@ -180,7 +221,7 @@ cdef class Expression:
 
 	def __radd__(self, other):
 		"""Return new Expression with other added (reverse). Does not modify self."""
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 
 		cdef Expression result = self._deep_copy()
 
@@ -201,8 +242,7 @@ cdef class Expression:
 		Matches Python int behavior: x += 3 mutates x.
 		Use this for performance when you don't need the original.
 		"""
-		if isinstance(other, float):
-			raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			add_constant(self.expr, other)
 			return self
@@ -220,8 +260,7 @@ cdef class Expression:
 		Matches Python int behavior: x -= 3 mutates x.
 		Use this for performance when you don't need the original.
 		"""
-		if isinstance(other, float):
-			raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			sub_constant(self.expr, other)
 			return self
@@ -236,7 +275,7 @@ cdef class Expression:
 	def __mul__(self, other):
 		"""Return new Expression with other multiplied. Does not modify self."""
 		cdef Expression result
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 
 		if isinstance(other, int):
 			result = self._deep_copy()
@@ -256,7 +295,7 @@ cdef class Expression:
 	def __rmul__(self, other):
 		"""Return new Expression with other multiplied (reverse). Does not modify self."""
 		cdef Expression result
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 
 		if isinstance(other, int):
 			result = self._deep_copy()
@@ -278,8 +317,7 @@ cdef class Expression:
 
 		Use this for performance when you don't need the original.
 		"""
-		if isinstance(other, float):
-			raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			multiply_constant(self.expr, other)
 			return self
@@ -296,7 +334,7 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __le__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			potential = 0
 			for i in range(self.expr[0].expr_size):
@@ -310,7 +348,7 @@ cdef class Expression:
 			return self
 
 	def __ge__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			potential = 0
 
@@ -327,7 +365,7 @@ cdef class Expression:
 			return self
 
 	def __eq__(self, other):
-		if isinstance(other, float): raise TypeError("Not allowed type!")
+		_validate_numeric(other)
 		if isinstance(other, int):
 			# potential = 0
 			# for i in range(self.expr[0].expr_size):
