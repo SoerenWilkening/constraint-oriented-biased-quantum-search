@@ -350,11 +350,22 @@ or {self.runtime}s sampling
 			verified = None
 			violations = None
 
+		# Determine feasibility
+		if self.mod[0].solver == SATISFY:
+			# In SATISFY mode, feasibility means all constraints are satisfied.
+			# The C-level global_opt.feasible flag is not reliably set for SATISFY,
+			# so check tot_profit against the expected stop value instead.
+			# Cast to Python int to avoid C signed/unsigned comparison issues.
+			is_feasible = (int(self.mod[0].global_opt[0].tot_profit)
+			               == -int(self.mod[0].con[0].num_constraints))
+		else:
+			is_feasible = bool(self.mod[0].global_opt[0].feasible)
+
 		# Build OptimizeResult
 		result = OptimizeResult(
 			solution=solution,
 			objective=self.objective_value,
-			feasible=bool(self.mod[0].global_opt[0].feasible),
+			feasible=is_feasible,
 			solve_time=self.mod[0].runtime * 1000.0,
 			preprocessing_time=max(r[7] for r in res),
 			iterations=self.mod[0].qtg_applications,

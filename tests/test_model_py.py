@@ -250,3 +250,74 @@ class TestModelSolve:
 
         m2 = copy(m)
         assert m2.sense == m.sense
+
+
+class TestSatisfyMode:
+    """Integration tests for SATISFY mode (no objective).
+
+    These tests validate the fixes from Plan 09-01 (CRASH-01 through CRASH-04).
+    SATISFY mode is active when no objective is set on the Model.
+    """
+
+    def test_satisfy_mode_completes(self):
+        """SATISFY-mode solve completes without TypeError crash (CRASH-01)."""
+        m = Model()
+        xs = m.add_variables(4)
+        x = [xs[i] for i in range(4)]
+        m.add_constraint((x[0] + x[1]) <= 1)
+        m.add_constraint((x[2] + x[3]) <= 1)
+        m.close()
+        result = m.solve(stopping_time=5, num_workers=1)
+        assert isinstance(result, OptimizeResult)
+
+    def test_satisfy_objective_value_is_none(self):
+        """objective_value property returns None in SATISFY mode (CRASH-03)."""
+        m = Model()
+        xs = m.add_variables(3)
+        x = [xs[i] for i in range(3)]
+        m.add_constraint((x[0] + x[1] + x[2]) <= 2)
+        m.close()
+        result = m.solve(stopping_time=5, num_workers=1)
+        assert m.objective_value is None
+        assert result.objective is None
+
+    def test_satisfy_result_feasible(self):
+        """SATISFY solve on a satisfiable problem reports feasible=True (CRASH-01/03/04).
+
+        Uses a trivially satisfiable problem (all-zeros satisfies the single
+        constraint) with enough stopping time for the solver to find it.
+        """
+        m = Model()
+        xs = m.add_variables(4)
+        x = [xs[i] for i in range(4)]
+        m.add_constraint((x[0] + x[1]) <= 1)
+        m.add_constraint((x[2] + x[3]) <= 1)
+        m.close()
+        result = m.solve(stopping_time=30, num_workers=1)
+        # For a trivially satisfiable problem the solver should find a feasible solution
+        assert result.feasible is True
+
+    def test_satisfy_history_has_none_objective(self):
+        """History entries in SATISFY mode have None for objective_value (CRASH-04)."""
+        m = Model()
+        xs = m.add_variables(4)
+        x = [xs[i] for i in range(4)]
+        m.add_constraint((x[0] + x[1]) <= 1)
+        m.add_constraint((x[2] + x[3]) <= 1)
+        m.close()
+        result = m.solve(stopping_time=10, num_workers=1)
+        # SATISFY history may have 0 or 1 entries (C callback fires only on first feasible)
+        for entry in result.history:
+            assert entry[1] is None, f"Expected None objective in SATISFY history, got {entry[1]}"
+
+    def test_satisfy_verify_does_not_crash(self):
+        """verify=True on a SATISFY solve does not raise TypeError (CRASH-04)."""
+        m = Model()
+        xs = m.add_variables(3)
+        x = [xs[i] for i in range(3)]
+        m.add_constraint((x[0] + x[1] + x[2]) <= 2)
+        m.close()
+        result = m.solve(stopping_time=5, num_workers=1, verify=True)
+        assert isinstance(result, OptimizeResult)
+        # verified should be True or False, not None (since verify=True was passed)
+        assert result.verified is not None
