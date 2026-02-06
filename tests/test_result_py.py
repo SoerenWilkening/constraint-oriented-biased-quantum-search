@@ -336,3 +336,56 @@ class TestOptimizeResultToDict:
         assert isinstance(parsed["feasible"], bool)
         assert isinstance(parsed["iterations"], int)
         assert isinstance(parsed["objective"], float)
+
+
+# ===================================================================
+# TestOptimizeResultNoneObjective
+# ===================================================================
+
+
+class TestOptimizeResultNoneObjective:
+    """Tests for OptimizeResult with objective=None (SATISFY mode).
+
+    Validates that repr, summary, and to_dict handle None objective
+    without crashing, as fixed by Plan 09-01 (CRASH-03/04).
+    """
+
+    def test_optimize_result_none_objective(self):
+        """OptimizeResult accepts None objective (SATISFY mode)."""
+        result = _make_result(objective=None)
+        assert result.objective is None
+        assert result.feasible is True
+
+    def test_optimize_result_none_objective_repr(self):
+        """repr() works with None objective."""
+        result = _make_result(objective=None)
+        r = repr(result)
+        assert "obj=None" in r
+        assert "OptimizeResult" in r
+
+    def test_optimize_result_none_objective_summary(self):
+        """summary() works with None objective."""
+        result = _make_result(
+            objective=None,
+            history=[(10, None, 50.0, True)],
+        )
+        s = result.summary()
+        assert "None" in s
+        assert "CBQS" in s
+
+    def test_optimize_result_none_objective_to_dict(self):
+        """to_dict() serializes None objective correctly."""
+        result = _make_result(
+            objective=None,
+            feasible=False,
+            verified=True,
+            violations=[],
+        )
+        d = result.to_dict()
+        assert d["objective"] is None
+        assert d["feasible"] is False
+        assert isinstance(d, dict)
+        # Must still be JSON-serializable with None
+        s = json.dumps(d)
+        parsed = json.loads(s)
+        assert parsed["objective"] is None
