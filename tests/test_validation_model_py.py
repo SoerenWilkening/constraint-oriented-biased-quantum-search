@@ -186,7 +186,8 @@ class TestSolveValidation:
             m.solve(results="invalid", num_workers=1, stopping_time=1)
 
     def test_solve_valid_results_min(self):
-        """solve(results='min') succeeds."""
+        """solve(results='min') succeeds and returns OptimizeResult."""
+        from cbqs.result import OptimizeResult
         m = Model()
         xs = m.add_variables(3)
         x = [xs[i] for i in range(3)]
@@ -194,7 +195,7 @@ class TestSolveValidation:
         m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
         m.close()
         result = m.solve(results="min", num_workers=1, stopping_time=2)
-        assert isinstance(result, list)
+        assert isinstance(result, OptimizeResult)
 
     def test_solve_not_compiled_raises(self):
         """solve() without close() raises ValueError."""

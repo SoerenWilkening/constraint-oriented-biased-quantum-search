@@ -9,6 +9,7 @@ pytest.importorskip("cbqs")
 
 from cbqs.Model import Model
 from cbqs.Constants import MINIMIZE
+from cbqs.result import OptimizeResult
 
 
 class TestDeterminism:
@@ -41,9 +42,11 @@ class TestDeterminism:
         m2.general_greedy()
         result2 = m2.solve(M=100, stopping_time=5, num_workers=1)
 
-        # Compare objective values
+        # Compare objective values (both via Model property and OptimizeResult)
         assert m1.objective_value == m2.objective_value, \
             f"Same seed should give same objective: {m1.objective_value} vs {m2.objective_value}"
+        assert result1.objective == result2.objective, \
+            f"Same seed should give same result.objective: {result1.objective} vs {result2.objective}"
 
     def test_seed_used_populated(self):
         """seed_used should be populated after solve()."""
@@ -104,9 +107,10 @@ class TestDeterminism:
         m.seed = 42  # Fixed seed for reproducibility
         m.general_greedy()
 
-        # Should not raise
+        # Should not raise and return OptimizeResult
         result = m.solve(M=50, stopping_time=2, num_workers=num_threads)
-        assert result is not None or m.objective_value is not None
+        assert isinstance(result, OptimizeResult)
+        assert result.objective is not None
 
     def test_env_var_threads(self):
         """CBQS_THREADS environment variable should be respected."""

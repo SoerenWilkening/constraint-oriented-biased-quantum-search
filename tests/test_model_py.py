@@ -9,6 +9,7 @@ import pytest
 from cbqs.Model import Model
 from cbqs.Expression import Variable, Expression
 from cbqs.Constants import MAXIMIZE, MINIMIZE, OPTIMIZE, SATISFY
+from cbqs.result import OptimizeResult
 
 
 class TestModelCreation:
@@ -233,8 +234,10 @@ class TestModelSolve:
         m.close()
         result = m.solve(stopping_time=3, num_workers=2)
 
-        # Should complete without exception
-        assert isinstance(result, list)
+        # Should complete without exception and return OptimizeResult
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert result.objective == m.objective_value
 
     def test_model_copy(self):
         """Copying a model preserves sense."""

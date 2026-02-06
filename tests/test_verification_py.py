@@ -10,6 +10,7 @@ import pytest
 from cbqs.Model import Model
 from cbqs.Expression import Variable
 from cbqs.Constants import MAXIMIZE, MINIMIZE
+from cbqs.result import OptimizeResult
 
 
 def _build_knapsack_model(n_vars=5, weights=None, capacity=6, sense=MAXIMIZE):
@@ -155,24 +156,28 @@ class TestVerifyOnSolve:
     def test_solve_verify_true_auto_verifies(self):
         """solve(verify=True) automatically calls verify_solution()."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1, verify=True)
+        result = m.solve(stopping_time=5, num_workers=1, verify=True)
         assert m._verified is True
+        assert result.verified is True
 
     def test_solve_verify_false_no_verification(self):
         """solve(verify=False) does not call verify_solution()."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1, verify=False)
+        result = m.solve(stopping_time=5, num_workers=1, verify=False)
         assert m._verified is None
+        assert result.verified is None
 
     def test_solve_default_no_verification(self):
         """solve() with default args does not call verify_solution()."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1)
+        result = m.solve(stopping_time=5, num_workers=1)
         assert m._verified is None
+        assert result.verified is None
 
     def test_solve_verify_true_returns_result(self):
-        """solve(verify=True) still returns the incumbent list."""
+        """solve(verify=True) returns an OptimizeResult with verified=True."""
         m = _build_knapsack_model()
         result = m.solve(stopping_time=5, num_workers=1, verify=True)
-        assert isinstance(result, list)
+        assert isinstance(result, OptimizeResult)
+        assert result.verified is True
         assert m._verified is True
