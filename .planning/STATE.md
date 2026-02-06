@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 7 of 8 (API Robustness)
-Plan: 1 of 3 complete (07-01 done)
+Plan: 2 of 3 complete (07-01, 07-02 done)
 Status: In progress
-Last activity: 2026-02-06 - Completed 07-01-PLAN.md (Expression input validation)
+Last activity: 2026-02-06 - Completed 07-02-PLAN.md (Model input validation)
 
-Progress: [██████████████] 97% (31 plans of 32 total through Phase 7)
+Progress: [██████████████] 97% (32 plans of 33 total through Phase 7)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 31
+- Total plans completed: 32
 - Average duration: ~7m
-- Total execution time: ~3.6 hours
+- Total execution time: ~3.7 hours
 
 **By Phase:**
 
@@ -34,11 +34,11 @@ Progress: [██████████████] 97% (31 plans of 32 total
 | 05 | 5/5 | ~106m | ~21m |
 | 06 | 5/5 | ~28m | ~5.6m |
 
-| 07 | 1/3 | ~6m | ~6m |
+| 07 | 2/3 | ~13m | ~6.5m |
 
 **Recent Trend:**
-- Last 5 plans: 06-03 (~4m), 06-04 (~5m), 06-05 (~12m), 07-01 (~6m)
-- Trend: Phase 7 API Robustness started - Expression input validation complete
+- Last 5 plans: 06-04 (~5m), 06-05 (~12m), 07-01 (~6m), 07-02 (~7m)
+- Trend: Phase 7 API Robustness progressing - Expression and Model validation complete
 
 *Updated after each plan completion*
 
@@ -135,6 +135,10 @@ Recent decisions affecting current work:
 - Separate NaN and Inf error messages for clarity (07-01)
 - Bool rejected as index/bounds via isinstance(x, bool) exclusion (07-01)
 - _validate_numeric is module-level function for use by both Variable and Expression (07-01)
+- validate=False skips ALL Python-level checks in Model methods (07-02)
+- Sense validation always runs even with validate=False (critical for correctness) (07-02)
+- Duplicate variable merging operates directly on C expression_t (07-02)
+- UserWarning emitted for duplicate term merging (07-02)
 
 ### Pending Todos
 
@@ -152,5 +156,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 07-01-PLAN.md (Expression input validation)
+Stopped at: Completed 07-02-PLAN.md (Model input validation)
 Resume file: None
