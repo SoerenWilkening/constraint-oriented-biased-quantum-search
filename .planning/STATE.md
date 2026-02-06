@@ -5,29 +5,29 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v1.1 Bug Fixes & Polish — Phase 9 (SATISFY Mode Crash Fixes)
+**Current focus:** v1.1 Bug Fixes & Polish -- Phase 10 (C23 & VLA Fixes)
 
 ## Current Position
 
 Phase: 9 of 13 (SATISFY Mode Crash Fixes)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-02-06 — Completed 09-01-PLAN.md (SATISFY mode crash fixes)
+Plan: 2 of 2 in current phase
+Status: Phase complete
+Last activity: 2026-02-06 -- Completed 09-02-PLAN.md (SATISFY mode test coverage)
 
-Progress: [v1.0 ########] [v1.1 #.........] 50% of Phase 9
+Progress: [v1.0 ########] [v1.1 ##........] 100% of Phase 9
 
 ## Performance Metrics
 
 **Velocity (v1.0 baseline):**
 - Total plans completed: 35 (v1.0)
-- v1.1 plans completed: 1
+- v1.1 plans completed: 2
 - Total execution time: ~3 days (v1.0)
 
 **By Phase (v1.1):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 9. SATISFY Crash Fixes | 1/2 | 4m 32s | 4m 32s |
+| 9. SATISFY Crash Fixes | 2/2 | 11m 01s | 5m 31s |
 | 10. C23 & VLA | 0/TBD | - | - |
 | 11. Callback Rework | 0/TBD | - | - |
 | 12. BranchingStats | 0/TBD | - | - |
@@ -43,6 +43,7 @@ See PROJECT.md Key Decisions table for full log.
 - VLA replacement uses arena allocation (matching v1.0 pattern)
 - objective_value returns None (not 0) in SATISFY mode
 - History callback records one entry in SATISFY mode (first callback only)
+- SATISFY feasibility: use tot_profit == -num_constraints (not global_opt.feasible C flag)
 
 ### Pending Todos
 
@@ -50,13 +51,12 @@ None.
 
 ### Blockers/Concerns
 
-- SATISFY mode crash fixed (09-01); tests still needed (09-02)
 - GCC 15 warnings are non-fatal but erode CI trust (Phase 10 resolves)
 - Callback rework (Phase 11) has 20% chance of needing deeper research if TSan reveals GIL contention
 
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Completed 09-02-PLAN.md (Phase 9 complete)
 Resume file: None
-Next action: /gsd:execute-phase 09-02
+Next action: /gsd:execute-phase for Phase 10
