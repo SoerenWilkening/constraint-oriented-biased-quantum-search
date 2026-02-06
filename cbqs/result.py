@@ -1,0 +1,235 @@
+"""
+OptimizeResult -- Pure Python result container for CBQS solver output.
+
+Stores solution, objective, timing, search statistics, and verification
+results from solve() and local_search() calls. Designed to be independent
+of Cython/C layers for easy inspection, serialization, and testing.
+
+Naming follows scipy.optimize.OptimizeResult convention.
+"""
+
+
+class OptimizeResult:
+    """Container for solver optimization results.
+
+    All constructor arguments are keyword-only. This is a plain Python class
+    (not a dataclass) to ensure compatibility across Cython and pure Python.
+
+    Parameters
+    ----------
+    solution : list or numpy.ndarray
+        The solution vector.
+    objective : float
+        Objective value (sign-corrected for user-facing display).
+    feasible : bool
+        Whether the solution satisfies all constraints.
+    solve_time : float
+        Solve time in milliseconds.
+    preprocessing_time : float
+        Preprocessing time in milliseconds.
+    iterations : int
+        Number of iterations performed.
+    oracle_calls : int
+        Number of oracle (QTG) calls.
+    history : list of tuple
+        Improvement history. Each entry is
+        ``(iteration, objective_value, elapsed_ms, is_feasible)``.
+    verified : bool or None
+        Post-solve verification result. ``None`` if verification was not run.
+    violations : list of str or None
+        Violation descriptions from verification. ``None`` if not run or
+        no violations found.
+    num_threads : int
+        Number of threads used during the solve.
+    seed : int
+        Random seed used for reproducibility.
+    """
+
+    __slots__ = (
+        "solution",
+        "objective",
+        "feasible",
+        "solve_time",
+        "preprocessing_time",
+        "iterations",
+        "oracle_calls",
+        "history",
+        "verified",
+        "violations",
+        "num_threads",
+        "seed",
+    )
+
+    def __init__(
+        self,
+        *,
+        solution,
+        objective,
+        feasible,
+        solve_time,
+        preprocessing_time,
+        iterations,
+        oracle_calls,
+        history,
+        verified,
+        violations,
+        num_threads,
+        seed,
+    ):
+        self.solution = solution
+        self.objective = objective
+        self.feasible = feasible
+        self.solve_time = float(solve_time)
+        self.preprocessing_time = float(preprocessing_time)
+        self.iterations = int(iterations)
+        self.oracle_calls = int(oracle_calls)
+        self.history = history
+        self.verified = verified
+        self.violations = violations
+        self.num_threads = int(num_threads)
+        self.seed = int(seed)
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def time(self):
+        """Total wall-clock time in milliseconds (preprocessing + solve)."""
+        return self.preprocessing_time + self.solve_time
+
+    # ------------------------------------------------------------------
+    # Representations
+    # ------------------------------------------------------------------
+
+    def __repr__(self):
+        return (
+            f"OptimizeResult("
+            f"obj={self.objective}, "
+            f"feasible={self.feasible}, "
+            f"time={self.time:.2f}ms, "
+            f"iterations={self.iterations})"
+        )
+
+    def summary(self):
+        """Return a multi-line formatted report of all result fields."""
+        lines = []
+        lines.append("=" * 50)
+        lines.append("  CBQS OptimizeResult Summary")
+        lines.append("=" * 50)
+
+        # -- Solution section --
+        lines.append("")
+        lines.append("Solution")
+        lines.append("-" * 50)
+        sol = self.solution
+        try:
+            sol_len = len(sol)
+        except TypeError:
+            sol_len = None
+
+        if sol_len is not None and sol_len > 20:
+            # Truncate long solutions
+            preview = list(sol[:10])
+            lines.append(f"  solution:  [{', '.join(str(v) for v in preview)}, ... ({sol_len} elements)]")
+        else:
+            lines.append(f"  solution:  {list(sol) if sol_len is not None else sol}")
+        lines.append(f"  objective: {self.objective}")
+        lines.append(f"  feasible:  {self.feasible}")
+
+        # -- Timing section --
+        lines.append("")
+        lines.append("Timing")
+        lines.append("-" * 50)
+        lines.append(f"  preprocessing_time: {self.preprocessing_time:.2f} ms")
+        lines.append(f"  solve_time:         {self.solve_time:.2f} ms")
+        lines.append(f"  total time:         {self.time:.2f} ms")
+
+        # -- Search section --
+        lines.append("")
+        lines.append("Search")
+        lines.append("-" * 50)
+        lines.append(f"  iterations:   {self.iterations}")
+        lines.append(f"  oracle_calls: {self.oracle_calls}")
+
+        # -- History section --
+        lines.append("")
+        lines.append("History")
+        lines.append("-" * 50)
+        if self.history:
+            lines.append(f"  improvements: {len(self.history)}")
+            first = self.history[0]
+            lines.append(f"  first: iter={first[0]}, obj={first[1]}, t={first[2]}ms, feasible={first[3]}")
+            if len(self.history) > 1:
+                last = self.history[-1]
+                lines.append(f"  last:  iter={last[0]}, obj={last[1]}, t={last[2]}ms, feasible={last[3]}")
+        else:
+            lines.append("  improvements: 0 (no improvement history)")
+
+        # -- Verification section --
+        lines.append("")
+        lines.append("Verification")
+        lines.append("-" * 50)
+        if self.verified is None:
+            lines.append("  verified: not run")
+        else:
+            lines.append(f"  verified: {self.verified}")
+        if self.violations:
+            lines.append(f"  violations ({len(self.violations)}):")
+            for v in self.violations:
+                lines.append(f"    - {v}")
+        elif self.violations is None:
+            lines.append("  violations: N/A")
+        else:
+            lines.append("  violations: none")
+
+        # -- Reproducibility section --
+        lines.append("")
+        lines.append("Reproducibility")
+        lines.append("-" * 50)
+        lines.append(f"  num_threads: {self.num_threads}")
+        lines.append(f"  seed:        {self.seed}")
+
+        lines.append("")
+        lines.append("=" * 50)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def to_dict(self):
+        """Return a JSON-serializable dictionary of all fields.
+
+        Numpy arrays are converted to plain Python lists.
+        Tuples in history are converted to lists.
+        """
+        sol = self.solution
+        # Convert numpy arrays to lists if numpy is available
+        try:
+            import numpy as np
+
+            if isinstance(sol, np.ndarray):
+                sol = sol.tolist()
+        except ImportError:
+            pass
+
+        # Ensure solution is a plain list if it has a tolist method
+        if hasattr(sol, "tolist") and callable(sol.tolist):
+            sol = sol.tolist()
+
+        return {
+            "solution": list(sol) if not isinstance(sol, list) else sol,
+            "objective": self.objective,
+            "feasible": self.feasible,
+            "solve_time": self.solve_time,
+            "preprocessing_time": self.preprocessing_time,
+            "time": self.time,
+            "iterations": self.iterations,
+            "oracle_calls": self.oracle_calls,
+            "history": [list(entry) for entry in self.history] if self.history else [],
+            "verified": self.verified,
+            "violations": self.violations,
+            "num_threads": self.num_threads,
+            "seed": self.seed,
+        }
