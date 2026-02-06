@@ -1,6 +1,7 @@
 import random
 import signal
 import time
+import time as time_mod
 from copy import copy
 from random import randint
 
@@ -129,12 +130,37 @@ cdef void my_callback_c() with gil:
 # python function to store the callback
 cdef object python_callback = None
 
+
+class _HistoryCallback:
+	"""Callable wrapper for history accumulation in callbacks.
+
+	Used instead of closures because Cython cpdef functions do not support closures.
+	Wraps the user's original callback, recording improvement history entries
+	each time the objective value changes.
+	"""
+	def __init__(self, mod, original_callback):
+		self.mod = mod
+		self.original_callback = original_callback
+		self.history = []
+		self._prev_best = None
+
+	def __call__(self):
+		obj_val = self.mod.mod[0].global_opt[0].tot_profit * self.mod.sense
+		elapsed_ms = self.mod.mod[0].runtime * 1000.0
+		is_feasible = bool(self.mod.mod[0].global_opt[0].feasible)
+		iteration = self.mod.mod[0].qtg_applications
+		if self._prev_best is None or obj_val != self._prev_best:
+			self.history.append((iteration, obj_val, elapsed_ms, is_feasible))
+			self._prev_best = obj_val
+		if self.original_callback is not None:
+			self.original_callback()
+
 cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
+	preprocess_start = time_mod.monotonic()
 	t_start: float = time.time()
 	t_total: float = 0
 	set_seed(randint(0, 10000000))
 	global python_callback
-	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
@@ -167,6 +193,14 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)
+
+	# History callback wrapper: accumulates improvement entries
+	history_cb = _HistoryCallback(mod, callback)
+	python_callback = history_cb
+
+	# End preprocessing, start solve timing
+	preprocess_end = time_mod.monotonic()
+	preprocessing_time_ms = (preprocess_end - preprocess_start) * 1000.0
 
 	try:
 		if mod.mod[0].solver == OPTIMIZE:
@@ -217,12 +251,13 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 		except AttributeError:
 			pass  # Model doesn't have _seed_used attribute (old code path)
 
-		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb
+		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb, history_cb.history, preprocessing_time_ms
 	finally:
 		solver_ctx_free(ctx)
 
 
 cpdef run_local_search(Model mod, object callback):
+	preprocess_start = time_mod.monotonic()
 	cur_sol: state_py = state_py(0, [0] * mod.mod[0].initial_state[0].vector.bits)
 	free_state(cur_sol.state, 1)
 	cur_sol.state = copy_state(copy_state(mod.mod[0].initial_state))
@@ -230,7 +265,6 @@ cpdef run_local_search(Model mod, object callback):
 	cdef state_t *st = cur_sol.state
 	cdef unsigned long long seed_used_local = 0
 	global python_callback
-	python_callback = callback
 
 	# python callback to c callback
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
@@ -249,6 +283,14 @@ cpdef run_local_search(Model mod, object callback):
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
 
+	# History callback wrapper: accumulates improvement entries
+	history_cb = _HistoryCallback(mod, callback)
+	python_callback = history_cb
+
+	# End preprocessing, start solve timing
+	preprocess_end = time_mod.monotonic()
+	preprocessing_time_ms = (preprocess_end - preprocess_start) * 1000.0
+
 	try:
 		with nogil:
 			local_search(ctx, st, mod.mod, cb_ptr)
@@ -260,7 +302,8 @@ cpdef run_local_search(Model mod, object callback):
 		except AttributeError:
 			pass  # Model doesn't have _seed_used attribute (old code path)
 
-		return cur_sol
+		solve_time_ms = mod.mod[0].runtime * 1000.0
+		return cur_sol, history_cb.history, preprocessing_time_ms, solve_time_ms
 	finally:
 		solver_ctx_free(ctx)
 
