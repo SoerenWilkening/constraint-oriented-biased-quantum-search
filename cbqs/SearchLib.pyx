@@ -148,7 +148,10 @@ def _history_callback_fn():
 	"""
 	global _history_list, _history_prev_best, _history_original_callback, _history_mod
 	cdef Model mod = _history_mod
-	obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
+	if mod.mod[0].solver == SATISFY:
+		obj_val = None
+	else:
+		obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
 	elapsed_ms = mod.mod[0].runtime * 1000.0
 	is_feasible = bool(mod.mod[0].global_opt[0].feasible)
 	iteration = mod.mod[0].qtg_applications
