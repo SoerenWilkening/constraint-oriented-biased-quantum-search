@@ -7,7 +7,7 @@
 
 ### Correctness
 
-- [ ] **CORR-01**: C unit test suite using CMocka covering core functions (constraint evaluation, move generation, branching, state management)
+- [x] **CORR-01**: C unit test suite using CMocka covering core functions (constraint evaluation, move generation, branching, state management)
 - [x] **CORR-02**: Fix use-after-free in `accept_best_routine` — thread data freed before threads consume it (`local_search.c:307-311`)
 - [x] **CORR-03**: Fix inverted realloc condition in preprocessing — triggers on nearly every iteration instead of every `size_steps` iterations
 - [x] **CORR-04**: Fix Expression mutation — operations must return new expressions, not mutate in-place; integer variable reuse must work without manual copying
@@ -22,14 +22,14 @@
 ### Memory & Data Structures
 
 - [x] **MEM-01**: Fix memory leak in move list generation — ensure all allocations in `explore_neighbourhood` are freed
-- [ ] **MEM-02**: Replace fixed-size expression arrays (MAXCLAUSESIZE) with dynamically allocated variable-length storage
-- [ ] **MEM-03**: Implement arena/pool allocator for hot-path allocations in `explore_neighbourhood` inner loop
+- [x] **MEM-02**: Replace fixed-size expression arrays (MAXCLAUSESIZE) with dynamically allocated variable-length storage
+- [x] **MEM-03**: Implement arena/pool allocator for hot-path allocations in `explore_neighbourhood` inner loop
 - [x] **MEM-04**: Replace VLAs sized by problem input with heap allocation to prevent stack overflow on large instances
 
 ### Robustness
 
-- [ ] **RBST-01**: Add input validation at API boundary — validate coefficients, bounds, sense values, variable indices
-- [ ] **RBST-02**: Add post-solve solution validation — verify returned solution satisfies all constraints and objective value is correct
+- [x] **RBST-01**: Add input validation at API boundary — validate coefficients, bounds, sense values, variable indices
+- [x] **RBST-02**: Add post-solve solution validation — verify returned solution satisfies all constraints and objective value is correct
 - [ ] **RBST-03**: Return structured result object with solve diagnostics — timing breakdown, constraint violations, improvement history, oracle call counts
 
 ## v2 Requirements
@@ -70,10 +70,10 @@
 | THRD-04 | Phase 4: Thread Isolation | Complete |
 | MEM-01 | Phase 5: Memory Safety | Complete |
 | MEM-04 | Phase 5: Memory Safety | Complete |
-| MEM-02 | Phase 6: Memory Optimization | Pending |
-| MEM-03 | Phase 6: Memory Optimization | Pending |
-| RBST-01 | Phase 7: API Robustness | Pending |
-| RBST-02 | Phase 7: API Robustness | Pending |
+| MEM-02 | Phase 6: Memory Optimization | Complete |
+| MEM-03 | Phase 6: Memory Optimization | Complete |
+| RBST-01 | Phase 7: API Robustness | Complete |
+| RBST-02 | Phase 7: API Robustness | Complete |
 | RBST-03 | Phase 8: Solve Diagnostics | Pending |
 
 **Coverage:**
@@ -83,4 +83,4 @@
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-05 after Phase 5 completion*
+*Last updated: 2026-02-06 after Phase 7 completion*

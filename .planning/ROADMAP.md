@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
 - [x] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
 - [x] **Phase 6: Memory Optimization** - Dynamic arrays and arena allocator for hot paths
-- [ ] **Phase 7: API Robustness** - Input validation and solution verification
+- [x] **Phase 7: API Robustness** - Input validation and solution verification
 - [ ] **Phase 8: Solve Diagnostics** - Structured result object with timing and history
 
 ## Phase Details
@@ -141,9 +141,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 07-01-PLAN.md -- Expression-level input validation (Variable bounds, coefficient NaN/Inf/overflow checks)
-- [ ] 07-02-PLAN.md -- Model-level input validation (add_constraint, set_objective, close, validate=False bypass)
-- [ ] 07-03-PLAN.md -- Post-solve solution verification (verify_solution method, verify=True on solve)
+- [x] 07-01-PLAN.md -- Expression-level input validation (Variable bounds, coefficient NaN/Inf/overflow checks)
+- [x] 07-02-PLAN.md -- Model-level input validation (add_constraint, set_objective, close, validate=False bypass)
+- [x] 07-03-PLAN.md -- Post-solve solution verification (verify_solution method, verify=True on solve)
 
 ### Phase 8: Solve Diagnostics
 **Goal**: Researchers get a structured result object containing everything needed to analyze solver behavior without manual instrumentation
@@ -172,5 +172,5 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | 4. Thread Isolation | 3/3 | Complete | 2026-02-05 |
 | 5. Memory Safety | 5/5 | Complete | 2026-02-05 |
 | 6. Memory Optimization | 5/5 | Complete | 2026-02-06 |
-| 7. API Robustness | 0/TBD | Not started | - |
+| 7. API Robustness | 3/3 | Complete | 2026-02-06 |
 | 8. Solve Diagnostics | 0/TBD | Not started | - |
