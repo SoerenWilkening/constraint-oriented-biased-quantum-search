@@ -5,26 +5,27 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Planning next milestone
+**Current focus:** v1.1 Bug Fixes & Polish
 
 ## Current Position
 
-Phase: v1.0 complete — 8 of 8 phases shipped
-Plan: All 35 plans complete
-Status: Milestone v1.0 shipped
-Last activity: 2026-02-06 — v1.0 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-06 — Milestone v1.1 started
 
-Progress: [v1.0 COMPLETE] 100% (35 plans of 35 total)
+Progress: [v1.1] 0% (0 plans of 0 total)
 
 ## Accumulated Context
 
 ### Decisions
 
 See PROJECT.md Key Decisions table for full log.
+v1.1 constraint: No breaking changes (keep deprecated APIs working).
 
 ### Pending Todos
 
-None — milestone complete.
+None — defining requirements.
 
 ### Blockers/Concerns
 
@@ -35,5 +36,5 @@ None — milestone complete.
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: v1.0 milestone archived
+Stopped at: Milestone v1.1 initialization
 Resume file: None

@@ -36,7 +36,16 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ### Active
 
-(No active requirements — next milestone not yet defined)
+- [ ] Fix SATISFY mode crash (run_sampling calls len() on int)
+- [ ] Fix bare except clause in Model.pyx (should be except Exception)
+- [ ] Fix incomplete local_search() API migration
+- [ ] Replace remaining VLA at local_search.c:286 with heap allocation
+- [ ] Remove commented-out VLA code (local_search.c:158, 445)
+- [ ] Remove commented-out debug code (Model.pyx, Expression.pyx, local_search.c)
+- [ ] Fix GCC 15 type mismatch warnings
+- [ ] Rework module-level cdef history callback to support concurrent tracking
+- [ ] Clean local_search() API (fix parameter passing, signature consistency)
+- [ ] Clean deprecated BranchingStats implementation (keep API, improve internals)
 
 ### Out of Scope
 
@@ -49,12 +58,24 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - Python free-threading (nogil) — Cython support experimental
 - Metal/GPU acceleration — macOS-only, not relevant to solver stabilization
 
+## Current Milestone: v1.1 Bug Fixes & Polish
+
+**Goal:** Fix all known bugs, eliminate tech debt, and clean up code quality issues from v1.0.
+
+**Target features:**
+- Fix SATISFY mode crash and other runtime bugs
+- Remove all dead/commented-out code
+- Fix GCC 15 compiler warnings
+- Rework history callback for concurrent tracking
+- Clean local_search() API
+- Replace remaining VLA with heap allocation
+
 ## Context
 
 Shipped v1.0 with 15,211 LOC across C/Python/Cython.
 Tech stack: Python 3.13.7, Cython 3, C11, CMocka, pytest, GitHub Actions CI.
 Test suite: 58+ C tests, 200+ Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer.
-Known tech debt: 6 items (deprecated globals, missing baseline, remaining VLA). See audit.
+v1.0 audit: 15/15 requirements satisfied, 6 tech debt items (0 blockers). All addressed in v1.1.
 
 ## Git Workflow
 
@@ -91,6 +112,7 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | verify=False default on solve() | Opt-in verification, no performance cost by default | ✓ Good — clean API |
 | Module-level cdef for history callback | cpdef cannot use closures in Cython | ⚠️ Revisit — limits concurrent history tracking |
 | Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Revisit — remove in v2.0 |
+| v1.1 no breaking changes | Aggressive cleanup but keep deprecated APIs working | — Pending |
 
 ---
-*Last updated: 2026-02-06 after v1.0 milestone*
+*Last updated: 2026-02-06 after v1.1 milestone start*
