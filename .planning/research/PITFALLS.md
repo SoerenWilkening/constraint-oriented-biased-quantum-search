@@ -1,271 +1,464 @@
-# Domain Pitfalls
+# Domain Pitfalls: v1.1 Cleanup and Polish
 
-**Domain:** C/Cython solver stabilization and optimization (CBQS)
-**Researched:** 2026-02-04
+**Domain:** C/Cython solver bug fixes, dead code removal, and API cleanup
+**Researched:** 2026-02-06
+**Context:** CBQS v1.0 is stable with 58+ C tests, 200+ Python tests, CI with ASan/Valgrind/TSan. v1.1 is purely cleanup work -- no new features, no breaking changes. The test suite provides a safety net, but cleanup work introduces its own class of subtle regressions.
+
+**Key principle:** Cleanup work feels safe. That illusion is the biggest risk. Every category below has caused real regressions in real C/Cython codebases.
+
+---
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites, data corruption, or silent correctness bugs.
-
-### Pitfall 1: Global BranchingStats Races Under Joblib Threading
-
-**What goes wrong:** `BranchingStats` is a global `BranchingStats_t` in `Branching.c` (line 5). The Python `Model.solve()` method launches `num_workers` threads via `joblib.Parallel(backend="threading")`, and every thread calls `set_bias_wrapper()` / `set_factors_wrapper()` which write directly to this global. Simultaneously, the hot-path `BranchingFunction()` inline reads from it. With multiple solver instances or concurrent `solve()` calls, threads stomp on each other's bias values, producing silently wrong sampling distributions.
-
-**Why it happens:** The code was written for single-solver sequential use. Joblib threading was added later without converting global state to per-solver context.
-
-**Consequences:** Non-deterministic solver behavior. Objective values may be subtly wrong with no crash or error message. Extremely hard to debug because the branching function still produces plausible-looking numbers -- just the wrong ones.
-
-**Prevention:**
-1. Move `BranchingStats` into `model_t` as a member field. Pass `model_t*` (or `BranchingStats_t*`) through to every function that currently reads the global.
-2. Do NOT use a mutex around `BranchingStats` reads -- it is on the hot path (called per-bit per-sample). The overhead would negate all performance gains.
-3. Audit every call chain from `ctg()` and `local_search()` downward to confirm they receive stats via parameter, not via global access.
-4. `set_bias()`, `set_factors()`, `set_obj_dependence()`, `set_constraint_dependence()` must all become `model_t`-scoped.
-
-**Detection:** Run two solver instances with different bias parameters simultaneously. If results are identical regardless of bias, the global is being shared. Add an assertion in debug builds: `assert(stats == &model->branching_stats)`.
-
-**Phase mapping:** This must be the FIRST refactoring step, before any threading or performance work. Everything else depends on per-solver state being correct.
-
-**Confidence:** HIGH -- directly observed in codebase (`Branching.c:5`, `Branching.h:26`, `Model.pyx:236`).
+Mistakes that introduce regressions, memory corruption, or silent correctness bugs during cleanup.
 
 ---
 
-### Pitfall 2: Freeing Thread-Local Data Before Thread Completes
+### Pitfall 1: GCC Warning Fixes That Silently Change Behavior
 
-**What goes wrong:** In `accept_best_routine()` (local_search.c:307-311), `data[i].remainings` and bit arrays are freed immediately after `pthread_create()` returns, but the thread has not started executing yet. The thread later reads freed memory, causing use-after-free, heap corruption, or silent data corruption.
+**What goes wrong:** Fixing compiler warnings is not semantics-neutral. Common warning "fixes" that change behavior:
 
-**Why it happens:** The `free()` calls are placed in the same loop as `pthread_create()` instead of after `pthread_join()`. This is a classic race: `pthread_create()` returns immediately, the thread may not have copied or used the data yet.
+1. **Adding parentheses to `&&`/`||` chains changes evaluation.** The codebase has several instances of ambiguous operator precedence. In `solver.c:545`:
+   ```c
+   if (time > mod->stopping_time || (cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)) break;
+   ```
+   GCC warns about `&&` inside `||` without parentheses. The current code evaluates `&&` before `||` (C precedence rules), which means: `time > stopping_time || (profit <= stop_val && stop_val != -1)`. Adding parentheses the wrong way -- `(time > stopping_time || cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)` -- completely changes the stopping logic.
 
-**Consequences:** Heap corruption, segfaults, or -- worse -- silently wrong constraint evaluations that produce incorrect solver results. Valgrind would flag this as "Invalid read of size 8."
+2. **Fixing signed/unsigned comparison warnings by casting.** The codebase mixes `int`, `size_t`, `uint32_t`, and `int64_t` extensively. Casting `int` to `size_t` when the int is -1 (used as a sentinel, e.g., `get_index()` in constraint.c returns -1) produces `SIZE_MAX`, which silently passes any `>= 0` check.
+
+3. **Fixing `-Wimplicit-function-declaration` by adding missing prototypes.** If the actual function has a different return type than the compiler assumed (default `int`), adding the correct prototype changes calling convention and return value handling.
+
+**Why it happens:** Warning fixes feel mechanical. Developers add casts or parentheses without analyzing whether the current behavior (despite the warning) is the INTENDED behavior.
+
+**Consequences:** Solver stopping conditions change silently. Constraint evaluation produces wrong results for edge cases. No test failure if the changed code path is not covered.
 
 **Prevention:**
-1. Move ALL `free(data[i].remainings)`, `sw_clear(data[i].ful_con)`, and `sw_clear(data[i].ful)` calls to AFTER the `pthread_join()` loop.
-2. Alternatively, have each thread own and free its own copies.
-3. Add a Valgrind/ASan CI gate: `valgrind --tool=memcheck ./test` must pass with zero errors before any PR merges.
+1. For EVERY warning fix, write a comment documenting the INTENDED semantics: "This expression means X, parenthesized as Y."
+2. Never fix `&&`/`||` precedence warnings without first confirming the current evaluation order is correct by reading surrounding context.
+3. Never fix signed/unsigned warnings with a bare cast. Check if the signed value can be negative, and if -1 is a valid sentinel.
+4. Run the full test suite after each individual warning fix, not after fixing all warnings at once.
+5. For the specific `solver.c:545` case, add an explicit test for the stopping condition with `stop_val == -1` and `stop_val != -1`.
 
-**Detection:** Run with AddressSanitizer (`-fsanitize=address`) or Valgrind. This will immediately flag the use-after-free.
+**Warning signs:** Test suite passes after fixing 20 warnings in one commit. This is suspicious -- at least one was probably wrong.
 
-**Phase mapping:** Fix this bug BEFORE any other local_search refactoring. It is a correctness bug, not a performance issue.
+**Detection:** Diff the warning-fix commit. For each parenthesization or cast, ask: "Does this change the value in any case?" If unsure, add a test for that specific case.
 
-**Confidence:** HIGH -- directly observed at `local_search.c:307-311` where free happens inside the `pthread_create` loop rather than after `pthread_join` loop at line 314.
+**Phase mapping:** Compiler warning fixes must be ONE WARNING PER COMMIT with targeted test verification.
+
+**Confidence:** HIGH -- directly observed ambiguous expressions in `solver.c:545`, `solver.c:583`, `local_search.c:662-664`. The `&&`/`||` pattern appears in at least 5 places in the solver code.
 
 ---
 
-### Pitfall 3: Expression Mutation Through Python Operator Overloading
+### Pitfall 2: Dead Code Removal That Removes Needed-But-Untested Code
 
-**What goes wrong:** The `Expression` class in `Expression.pyx` mutates `self` in `__add__`, `__mul__`, etc. (e.g., line 136: `add_constant(self.expr, other); return self`). When a user writes `expr2 = expr1 + 5`, both `expr1` and `expr2` point to the same mutated C expression. Later use of `expr1` in a constraint and `expr2` in an objective creates aliased, shared C memory. Any subsequent modification to either expression corrupts the other.
+**What goes wrong:** The codebase has extensive commented-out code blocks, but some "dead" code is actually:
 
-**Why it happens:** Python operator overloads are expected to return NEW objects. Returning `self` after mutation violates this contract. The C-level `add_constant()` and `multiply_variable()` functions mutate in place, and the Cython wrappers pass this through.
+1. **Code reachable only via code paths not covered by tests.** The `read_states()` function in `state.c` is used by `state_py.read()` which is used for file-based state loading. The tests may not exercise this path, but users do.
 
-**Consequences:** Constraints and objectives silently share expression data. Model builds appear correct but produce wrong solver results. User has no way to detect this without inspecting C memory.
+2. **Commented-out alternative algorithms that are toggled by uncommenting.** In `local_search.c`, the `adjusted_constraint_violation()` calls at lines 231-237 are commented out and replaced with a simpler `constraint_violation()` loop. The commented code is the OPTIMIZED version; the uncommented code is the FALLBACK. Deleting the commented code removes the only record of the optimized algorithm.
+
+3. **Code that looks dead because it appears after a `break`/`return` but is actually reached via label or goto.** Not observed in this codebase, but a common C pitfall.
+
+4. **Entire functions that appear unused in C but are called from Cython.** The `.pxd` files declare C functions that Cython calls directly. A function that has no C callers may still be actively used from Python.
+
+**Why it happens:** Automated tools report "unreachable code" or "unused function" based on static analysis of the C compilation unit alone. They cannot see Cython callers. Manual inspection also misses cross-language call chains.
+
+**Consequences:** Removing a "dead" function breaks the Cython build. Removing commented-out optimized code loses institutional knowledge. Removing a function used only in error paths causes crashes in production when errors occur.
 
 **Prevention:**
-1. Every `__add__`, `__radd__`, `__mul__`, `__rmul__` must create a NEW `Expression`, copy `self` into it, then mutate the copy.
-2. Add `__iadd__` and `__imul__` for explicit in-place operations if performance matters.
-3. Write a test: `e1 = x + 5; e2 = e1 + 3; assert e1 is not e2` -- this will FAIL with current code.
+1. Before removing ANY function, grep for its name across ALL `.pyx`, `.pxd`, `.py`, AND `.c`/`.h` files. Cython callers do not appear in C call graphs.
+2. Before removing commented-out code blocks, determine: Is this an alternative implementation? A TODO? A debugging aid? Add a `// REMOVED: [reason]` comment or create a git tag before bulk removal.
+3. Do not remove commented-out code and fix bugs in the same commit. Keep cleanup commits separate from behavior-changing commits so that git bisect works.
+4. For each function being removed, verify it is not listed in any `.pxd` file's `cdef extern` block.
 
-**Detection:** Unit test that verifies operator overloads return distinct objects. Also test that modifying a derived expression does not change the original.
+**Warning signs:** Build breaks after dead code removal ("undefined symbol"). Alternatively: no build break but a runtime `ImportError` or `AttributeError` when a previously-working feature is used.
 
-**Phase mapping:** Fix BEFORE any performance work on the expression/constraint pipeline. Immutability is a correctness prerequisite.
+**Detection:** Full `python setup.py build_ext --inplace && pytest` after each dead code removal. Also check: `grep -rn 'function_name' cbqs/*.pyx cbqs/*.pxd`.
 
-**Confidence:** HIGH -- directly observed in `Expression.pyx:131-155`.
+**Specific codebase instances:**
+- `updated()` comment in `state.c:154-178` -- an alternative implementation. The ACTIVE version is in `Branching.c:136`. The commented version in `state.c` can safely be removed, but only after verifying `Branching.h` declares the active one.
+- `aspiration()` in `local_search.c:53-66` -- commented out, but the tabu aspiration logic at line 425 references it in a comment. Removing the commented function loses the algorithm documentation.
+- `BranchingFunction()` in `Branching.c:48-97` -- commented-out non-inline version. The active version is the `static inline` in `Branching.h:46`. Safe to remove from `.c` but verify the `.h` inline is identical.
+- `objective_value_improved()` calls commented out throughout `local_search.c` and `solver.c` -- these are the optimized constraint/objective evaluation paths. Removing them loses the algorithm.
+
+**Phase mapping:** Dead code removal phase. One file per commit. Run full test suite between each.
+
+**Confidence:** HIGH -- verified by examining cross-language call chains between `.pxd` declarations and C function definitions.
 
 ---
 
-### Pitfall 4: GIL/nogil Callback Deadlock and Segfault
+### Pitfall 3: Breaking Cython `.pxd` Declarations When Refactoring C Signatures
 
-**What goes wrong:** The `my_callback_c()` function in `SearchLib.pyx:112` is declared `with gil`, meaning it reacquires the GIL every time C code calls the callback. But the callback is invoked inside `with nogil` blocks (e.g., `SearchLib.pyx:159-160`). If the Python callback does anything that blocks or triggers GC, and another thread is also trying to acquire the GIL for its own callback, a deadlock or segfault occurs. Additionally, the `python_callback` global (line 117) is shared across all threads with no synchronization.
+**What goes wrong:** Changing a C function signature (adding a parameter, changing a type, renaming) requires updating BOTH the `.h` header AND every `.pxd` file that declares it. The failure modes are:
 
-**Why it happens:** The GIL re-acquisition pattern is correct for single-threaded use. With Joblib threading (12 workers by default), multiple C threads can simultaneously try to call back into Python via `with gil`, and they all share the same `python_callback` global variable.
+1. **Forgetting to update the `.pxd` entirely.** Cython generates C code using the OLD signature. The generated C compiles against the NEW header. If the new parameter is a pointer, the generated code passes garbage (uninitialized stack) as the new parameter. If types changed width, truncation occurs. No compile error if types are ABI-compatible (e.g., `int` and `size_t` on 64-bit).
 
-**Consequences:** Deadlock (all threads waiting for GIL), segfault (callback pointer changes while another thread is mid-call), or silent data corruption (callback sees wrong Python state).
+2. **Updating the `.pxd` but not all `.pyx` call sites.** Cython compilation fails with a clear error -- this is the BEST case.
+
+3. **Updating the `.pxd` with a slightly different type.** For example, the C header declares `uint64_t` but the `.pxd` uses `unsigned long long`. These are the same on 64-bit Linux but NOT on all platforms. More insidiously: the C header uses `int` but the `.pxd` uses `int64_t`. The Cython-generated code may implicitly truncate.
+
+**This pitfall is specifically relevant to v1.1** because the planned work includes:
+- Cleaning the `local_search()` API (signature changes)
+- Fixing the SATISFY mode crash (may require signature changes to `ctg()` or related functions)
+- Reworking the callback mechanism (changes `callback_t` or adds parameters)
+
+**Why it happens:** C and Cython are separately compiled. The `.pxd` is a MANUAL mirror of the C header. There is no automated consistency check at build time (Cython trusts whatever the `.pxd` says).
+
+**Consequences:** Silent memory corruption. Wrong parameter values passed to C functions. Segfaults, or worse -- silently wrong solver results.
 
 **Prevention:**
-1. Make `python_callback` thread-local or pass it as a parameter in a per-thread context struct.
-2. Keep callbacks as simple as possible -- ideally just set a flag, do not allocate Python objects.
-3. If callbacks must touch Python objects, use `PyGILState_Ensure()` / `PyGILState_Release()` pattern explicitly rather than relying on Cython's `with gil`.
-4. Consider removing the callback from the hot path entirely -- accumulate results in C, report back to Python only between solver iterations.
+1. **Atomic rule:** Every C signature change must be a single commit containing: (a) the `.h` change, (b) the `.pxd` change, (c) all `.pyx` call site changes, (d) a test exercising the changed function.
+2. Add a CI step that does a CLEAN build (`rm -rf build/ cbqs/*.so cbqs/*.c && pip install -e .`) -- stale `.so` files with old signatures are the #1 source of this class of bugs.
+3. After changing any C signature, do a project-wide grep: `grep -rn 'function_name' cbqs/*.pxd cbqs/*.pyx`.
+4. Prefer adding new functions over modifying existing signatures when possible. The old function can be deprecated and removed later.
 
-**Detection:** Run solver with 12+ workers and a callback that does non-trivial Python work (e.g., logging, list append). Look for hangs or segfaults.
+**Warning signs:** Segfault or garbage output that appears only after `pip install -e .` but works fine when running from a previously-built `.so`.
 
-**Phase mapping:** Address during the thread-safety refactoring phase. Convert to per-solver callback context alongside BranchingStats conversion.
+**Detection:** Clean rebuild + full test suite. ASan catches the corruption in most cases.
 
-**Confidence:** HIGH -- `python_callback` global at `SearchLib.pyx:117`, shared across Joblib threads at `SearchLib.pyx:236`.
+**Specific `.pxd` files to watch:**
+- `SearchLib.pxd` -- declares `ctg()`, `local_search()`, `solver_ctx_t` struct. Any C-level refactoring of these functions must update this file.
+- `Model.pxd` -- declares `model_t` struct fields. Adding/removing/reordering fields in `model.h` MUST be mirrored here.
+- `Constraint.pxd` -- declares `preprocessing()`, `eval_constraints()`, etc.
+- `state.pxd` -- declares `state_t` struct and state functions.
+- `branching.pxd` -- declares `StateProbability()`.
+- `state_sampler.pxd` -- declares `approximate_state_t`, `solver_ctx_t` (duplicated from `SearchLib.pxd`).
+
+**Phase mapping:** Every phase that touches C function signatures. Must be enforced as a checklist item.
+
+**Confidence:** HIGH -- verified by examining the `.pxd`/`.h` pairs and confirmed by [SciPy's public Cython API documentation](https://docs.scipy.org/doc/scipy/dev/contributor/public_cython_api.html) which explicitly warns about ABI breakage from signature mismatches.
 
 ---
 
-### Pitfall 5: Struct Layout Changes Breaking Cython Declarations Without Recompilation
+### Pitfall 4: Module-Level `cdef` Callback State Causing Concurrent Corruption
 
-**What goes wrong:** The C structs (`model_t`, `new_constraints_t`, `state_t`, etc.) are declared in both C headers AND duplicated in `.pxd` Cython declaration files. When you add a field to `model_t` in `model.h`, you must also update `Model.pxd`. If you forget, or if field ordering differs, the Cython-generated C code will read/write wrong offsets, producing memory corruption with no compiler error.
+**What goes wrong:** The v1.1 plan includes "rework module-level cdef history callback to support concurrent tracking." The current implementation in `SearchLib.pyx` uses module-level `cdef` variables:
 
-**Why it happens:** Cython `.pxd` files are essentially a manual copy of C struct layouts. There is no automated verification that they match the actual C headers. A field added at position 3 in the C header but missing from the `.pxd` means every field after position 3 is at the wrong offset in Cython-generated code.
+```python
+cdef object _history_list = None
+cdef object _history_prev_best = None
+cdef object _history_original_callback = None
+cdef Model _history_mod = None
+```
 
-**Consequences:** Silent memory corruption. Fields read garbage values. Writes overwrite adjacent fields. Extremely difficult to debug because the code compiles and links without error.
+These are shared across ALL concurrent workers launched by `Parallel(n_jobs=num_workers, backend="threading")`. Currently, each call to `run_sampling()` overwrites these globals (lines 201-206), which means:
+
+1. Only the LAST worker's history callback setup is active. Earlier workers' callbacks point to stale state.
+2. All workers append to the SAME `_history_list` via `_history_callback_fn()`, creating a race condition on the list object.
+3. The `_history_mod` reference is shared -- if one worker finishes and the Model is modified, other workers' callbacks see corrupted state.
+
+**The rework itself introduces new risks:**
+
+1. **Moving to per-thread state via thread-local storage (TLS).** Cython does not natively support C11 `_Thread_local`. Using `threading.local()` requires GIL acquisition. Using `pthread_key_t` is possible but requires careful lifecycle management.
+
+2. **Moving to per-worker callback closures.** `cpdef` functions in Cython cannot capture closures. `cdef` functions cannot be Python closures. The workaround of passing a context object through the C callback interface requires modifying the C `callback_t` typedef from `void (*)()` to `void (*)(void *user_data)`, which cascades through ALL C functions that accept callbacks.
+
+3. **Moving to a lock-protected shared list.** Adding a mutex around `_history_list.append()` requires GIL management because `_history_list` is a Python object. The callback is called `with gil`, so the GIL is held, but Joblib threading means multiple threads contend for the GIL at each callback invocation, serializing the hot path.
+
+**Why it happens:** The current callback architecture was designed for single-threaded use. Cython's restrictions on closures and function pointers make the "obvious" fix (per-thread state) non-trivial.
+
+**Consequences:** Wrong history data (entries from multiple workers interleaved without synchronization). Missing history entries (lost to race conditions). Potential segfault if `_history_mod` is freed while another thread's callback is executing.
 
 **Prevention:**
-1. After ANY change to a C struct, immediately update the corresponding `.pxd` file. Treat this as an atomic operation.
-2. Add a compile-time size assertion: `_Static_assert(sizeof(model_t) == EXPECTED_SIZE, "model_t layout changed");` in a test file.
-3. Add a CI step that does a clean rebuild from scratch (`rm -rf build/ *.so && python setup.py build_ext --inplace`) -- stale `.so` files with old struct layouts are a common source of this bug.
-4. Consider using `cdef extern from "model.h"` to declare structs directly from headers rather than manually duplicating them.
+1. **Preferred approach:** Change `callback_t` from `void (*)()` to `void (*)(void *ctx)`, pass a per-worker context struct that contains the history list and model reference. This requires updating ALL C functions that accept callbacks, but is the cleanest long-term solution.
+2. **Alternative:** Keep module-level state but add a Python `threading.Lock` around all accesses. This is simpler but serializes callback execution.
+3. **Do NOT use `threading.local()` for `cdef` variables** -- Cython `cdef` variables are C-level and do not participate in Python's thread-local mechanism.
+4. Whichever approach is chosen, add a concurrent history test: launch 4+ workers, each with a callback, verify that all workers' history entries appear in the merged list.
 
-**Detection:** If solver starts producing garbage after adding struct fields, this is the first thing to check. Run `python setup.py build_ext --inplace --force` to force recompilation.
+**Warning signs:** History entries have duplicate timestamps. History list length is less than expected. Segfault during callback execution under high worker count.
 
-**Phase mapping:** Every phase that modifies C structs must include `.pxd` update as part of the definition of done.
+**Detection:** Run `solve()` with `num_workers=8` and `verify=True`. Check that merged history is monotonically increasing in timestamp. Run under TSan.
 
-**Confidence:** HIGH -- standard Cython/C interop issue, verified by the existence of separate `.pxd` and `.h` files in this codebase.
+**Phase mapping:** Callback rework phase. This is architecturally the most complex change in v1.1. Budget extra time.
+
+**Confidence:** HIGH -- directly observed in `SearchLib.pyx:137-159`. The module-level state pattern is a [known Cython thread-safety problem](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html).
+
+---
+
+### Pitfall 5: VLA Replacement Changing Stack/Heap Allocation Semantics
+
+**What goes wrong:** The v1.1 plan includes "replace remaining VLA at local_search.c:286." The remaining VLA is:
+
+```c
+int64_t remainings[C];  // local_search.c, in accept_best_routine()
+```
+
+Where `C = con->num_constraints`. Replacing this with `malloc(C * sizeof(int64_t))` seems straightforward but introduces:
+
+1. **A new failure mode:** `malloc` can return NULL. The VLA cannot fail (it either fits on the stack or crashes silently). Adding `malloc` requires adding error handling, which means adding a new code path that must be tested.
+
+2. **A performance change:** VLA allocation is O(1) (stack pointer adjustment). `malloc` is O(variable) and may involve kernel calls. In a function called inside the main solver loop, this adds measurable overhead. The v1.0 work already demonstrated this pattern -- `accept_best_routine` is called once per solver iteration, so `malloc` overhead is acceptable HERE, but the pattern must not be blindly applied to inner loops.
+
+3. **A memory leak risk:** Every `malloc` needs a matching `free`. The function has multiple return paths (line 397 for allocation failure, line 456 for early termination, line 475 for normal return). Missing `free` on ANY path leaks memory. The v1.0 work already fixed several such leaks (the `MEM-01 FIX` comments in `local_search.c`), showing this is a real pattern.
+
+4. **Arena vs malloc decision:** The function already uses arena allocation for some buffers (`sw_init_arena`, `arena_alloc` at lines 218-225). Should the new heap buffer also use the arena? Using arena avoids the free/leak issue but ties the buffer lifetime to the arena reset cycle. If the arena is reset at the wrong time, the buffer is invalidated.
+
+**Why it happens:** VLA replacement is treated as a simple mechanical transformation. The allocation semantics, error handling, and lifetime management are fundamentally different.
+
+**Consequences:** Memory leak on error paths. Performance regression if done in tight loops. NULL dereference crash if error handling is missing.
+
+**Prevention:**
+1. For the specific `remainings[C]` case: use `malloc` with explicit error handling and `free` on all return paths. This matches the pattern already established in the same function for `thread_totals` and `thread_bits`.
+2. Use the existing per-thread scratch buffer pattern: add `int64_t *thread_remainings` to `local_search_data_t`, allocate once in the setup loop, free after `pthread_join`. This avoids per-iteration malloc.
+3. For any VLA replacement, audit ALL return paths in the containing function. Use a cleanup label pattern:
+   ```c
+   int result = -1;
+   int64_t *buf = malloc(...);
+   if (!buf) goto cleanup;
+   // ... work ...
+   result = 0;
+   cleanup:
+   free(buf);
+   return result;
+   ```
+4. Run Valgrind after the replacement to verify zero leaks.
+
+**Warning signs:** Valgrind reports "definitely lost" blocks originating from the function where VLA was replaced. Or: benchmark shows unexpected slowdown in local search.
+
+**Detection:** Valgrind leak check. Performance benchmark comparing before/after.
+
+**Phase mapping:** VLA replacement phase. One VLA per commit.
+
+**Confidence:** HIGH -- the v1.0 `MEM-01 FIX` comments in `local_search.c` prove this exact leak pattern has already occurred in this codebase during similar refactoring.
 
 ---
 
 ## Moderate Pitfalls
 
-Mistakes that cause delays, performance regressions, or accumulated technical debt.
-
-### Pitfall 6: Premature Mutex Insertion on Hot Paths
-
-**What goes wrong:** When converting global state to thread-safe state, the instinct is to wrap every shared access in `pthread_mutex_lock/unlock`. For data accessed in the inner loop (like `BranchingFunction()` which is called per-bit per-sample), mutex overhead dominates computation time. A solver that was doing 100K samples/sec drops to 5K samples/sec.
-
-**Why it happens:** Mutexes are the obvious correctness fix. The performance impact is not apparent until benchmarking.
-
-**Prevention:**
-1. Prefer per-thread/per-solver copies of hot-path data (like `BranchingStats_t`) over shared-with-mutex.
-2. Reserve mutexes for infrequent operations: updating `global_opt` (already done correctly in `SearchLib.c:164`), incumbent list updates.
-3. Benchmark BEFORE and AFTER every lock addition. If a function is called >10K times per solver iteration, it must not acquire a lock.
-4. Use the existing pattern: `update_lock` in `SearchLib.c:9` only protects the `global_opt` update, not the sampling loop. Follow this pattern.
-
-**Detection:** Profile with `perf stat` or `time` before and after changes. If wall-clock time increases >5% on the same benchmark, investigate.
-
-**Phase mapping:** Thread safety phase. Establish performance baseline BEFORE starting.
-
-**Confidence:** HIGH -- well-established performance principle, confirmed by codebase's existing `update_lock` pattern.
+Mistakes that cause delays, test instability, or technical debt accumulation.
 
 ---
 
-### Pitfall 7: Dynamic Array Reallocation Breaking In-Flight Pointers
+### Pitfall 6: SATISFY Mode Crash Fix Affecting OPTIMIZE Mode
 
-**What goes wrong:** Expression arrays currently start with fixed size `min_size = 30000` (Expression.c:3) and grow via `realloc()`. When `realloc()` moves memory to a new location, any existing pointers into the old buffer become dangling. If constraint processing holds a pointer to `expr->literals` and then another expression operation triggers `realloc()`, the held pointer is invalid.
+**What goes wrong:** The known SATISFY mode crash is in `SearchLib.pyx` where `run_sampling` calls `len()` on `mod.mod[0].con[0].num_constraints` (which is an `int`, not a sequence). The fix requires changing how `stpvl` is computed (line 220):
 
-Similarly, the `new_constraints_t` struct uses fixed offsets computed during `preprocessing()`. If constraints are added after preprocessing, the offset arrays are stale.
+```python
+stpvl = -len(mod.mod[0].con[0].num_constraints)  # BUG: int is not iterable
+```
 
-**Why it happens:** `realloc()` may return a different address. C has no mechanism to notify holders of the old address.
+The fix changes this to:
+```python
+stpvl = -mod.mod[0].con[0].num_constraints  # or similar
+```
+
+But `stpvl` is the stopping value used to determine when a satisfying solution is found. Changing this value affects the SATISFY solver's convergence behavior. If the fix changes the sign, magnitude, or semantics of `stpvl`, it can:
+
+1. Make the SATISFY solver never terminate (if `stpvl` becomes unreachable).
+2. Make the SATISFY solver terminate too early (if `stpvl` is too easy to reach).
+3. Change the quality of solutions found by the solver.
+
+Additionally, the fix may require changes to the `ctg()` C function or to how `mod.mod[0].stop_val` is used, which affects both SATISFY and OPTIMIZE modes.
+
+**Why it happens:** Bug fixes in one code path can have ripple effects when the fixed variable is used elsewhere. The SATISFY and OPTIMIZE paths share the `ctg()` function and `model_t` struct.
 
 **Prevention:**
-1. Never hold raw pointers into realloc-able buffers across function calls. Use indices instead.
-2. If moving to dynamic allocation for constraint arrays, do the allocation once (after all expressions are added, before solving). Do not grow during solving.
-3. For memory pools: allocate pool at solver start, return chunks from pool, free entire pool at solver end. Never realloc the pool during solving.
-4. Separate the "building" phase (expressions mutable, arrays growing) from the "solving" phase (everything frozen, no reallocation).
+1. Before fixing, write a SATISFY mode test that captures the current intended behavior (even if the code crashes, document what the correct output should be).
+2. After fixing, verify that ALL OPTIMIZE mode tests still pass with identical results (same seed, same output).
+3. Verify the fix does not change `mod.mod[0].stop_val` for OPTIMIZE mode by adding an assertion.
+4. The fix should be minimal: fix ONLY the `len()` call, do not refactor surrounding code in the same commit.
 
-**Detection:** ASan will catch use-after-realloc. Also test with large expressions that force multiple reallocations.
+**Warning signs:** OPTIMIZE mode benchmark results change after the SATISFY fix.
 
-**Phase mapping:** Memory layout refactoring phase. Establish clear build-vs-solve lifecycle.
+**Detection:** Run the full test suite. Add a specific SATISFY mode test as part of the fix.
 
-**Confidence:** HIGH -- `realloc` at Expression.c:87-89, standard C pitfall.
+**Phase mapping:** Bug fix phase. High priority because it is a crash, but must be done carefully.
+
+**Confidence:** HIGH -- the bug is directly observable at `SearchLib.pyx:220`.
 
 ---
 
-### Pitfall 8: VLA Stack Overflow in Constraint Evaluation
+### Pitfall 7: Removing Commented-Out Code That Documents Algorithm Variants
 
-**What goes wrong:** Variable-length arrays (VLAs) are used on the stack in several hot-path functions: `int bits[dat->d]` (local_search.c:152), `int64_t totals[C]` (local_search.c:175), `int64_t remainings[C]` (local_search.c:271), `int64_t potentials[C]` (solver.h/SearchLib.c). For large problem instances with many constraints, these VLAs can exceed the thread stack size (typically 2MB per pthread), causing a stack overflow with no error message -- just a segfault.
+**What goes wrong:** The codebase contains extensive commented-out code that serves as DOCUMENTATION of alternative algorithms. Specifically:
 
-**Why it happens:** VLAs are convenient but their size is not checked at compile time. Thread stacks are much smaller than the main thread stack.
+1. **`adjusted_constraint_violation()` calls in `local_search.c:231-237`** -- The commented-out code is the optimized incremental constraint evaluation. The uncommented code is the brute-force fallback. Both produce the same results, but the commented version is O(changed_variables) while the uncommented version is O(all_variables). Removing the commented code loses the optimized algorithm.
+
+2. **`objective_value_improved()` calls throughout `solver.c` and `local_search.c`** -- Same pattern. The commented code computes objective deltas incrementally. The uncommented code recomputes from scratch. The incremental version is the algorithmic contribution of the research; removing it loses the implementation.
+
+3. **`BranchingFunction()` non-inline version in `Branching.c:48-97`** -- Documents the pre-inline algorithm with slightly different semantics.
+
+4. **`updated()` in `state.c:154-178`** -- An earlier version of the function now in `Branching.c`.
+
+**Why it happens:** From a code quality perspective, commented-out code is dead weight. The instinct is to remove it all. But in a RESEARCH codebase, commented-out code often represents algorithmic alternatives that may be needed later.
+
+**Consequences:** Loss of institutional knowledge. When the next milestone wants to re-enable optimized constraint evaluation, the algorithm must be re-derived from papers rather than uncommented from code.
 
 **Prevention:**
-1. Replace VLAs with heap allocation (`malloc`/`free`) for any array sized by problem input (number of constraints, number of variables).
-2. If allocation cost matters, use a pre-allocated scratch buffer in the per-thread data struct.
-3. Set explicit thread stack sizes with `pthread_attr_setstacksize()` as a safety net.
-4. As a rule: if the array size comes from user input, it MUST NOT be a VLA.
+1. **Categorize before removing:**
+   - "Debug code" (printf, commented asserts) -- safe to remove.
+   - "Alternative algorithms" (commented function bodies, commented call sites) -- MOVE to a doc or `algorithms.md`, do not just delete.
+   - "TODO/future work" (commented with explanation) -- keep or move to issue tracker.
+2. For algorithm variants, add a block comment explaining the algorithm and why it is disabled: `/* ALGORITHM: Incremental constraint evaluation. Disabled because [reason]. See paper Section 3.2. */`
+3. Create a `docs/algorithms/` directory for removed algorithm implementations if they are too large for inline comments.
 
-**Detection:** Test with large constraint counts (C > 10000). If segfaults appear only for large instances, suspect stack overflow.
+**Warning signs:** A later milestone re-implements an algorithm that was previously in the codebase as commented code.
 
-**Phase mapping:** Memory layout refactoring phase. Convert VLAs to heap or pool allocation.
+**Detection:** Code review. Before approving a "remove dead code" PR, check each removed block against the project's algorithm documentation.
 
-**Confidence:** HIGH -- directly observed VLAs at local_search.c:152, 175, 271, 449.
+**Phase mapping:** Dead code removal phase. Requires judgment, not just automation.
+
+**Confidence:** HIGH -- verified by examining the specific commented-out code blocks in `local_search.c`, `solver.c`, and `Branching.c`.
 
 ---
 
-### Pitfall 9: stop_flag Global Shared Across Solver Instances
+### Pitfall 8: API Cleanup That Breaks Backward Compatibility
 
-**What goes wrong:** `stop_flag` in `SearchLib.c:46` is a global `volatile sig_atomic_t`. When multiple solver instances run in parallel (Joblib threading), one solver's SIGINT handler sets `stop_flag = 1`, which stops ALL solver instances, not just the one that timed out. This is by design for the SAT solver's `signal.raise_signal(signal.SIGINT)` pattern in `SearchLib.pyx:184`, but it means independent solver runs cannot coexist.
+**What goes wrong:** The v1.1 plan specifies "no breaking changes" but includes "clean local_search() API." The boundary between cleanup and breakage is subtle:
 
-**Why it happens:** Signal handling is process-global by definition. Using signals for solver control flow is a fundamentally non-thread-safe pattern.
+1. **Renaming a Python-visible method.** If `Model.local_search()` parameters are renamed (e.g., `stop_time` to `timeout_ms`), any user code using keyword arguments breaks.
+
+2. **Changing default values.** If `distance=2` is changed to `distance=1` because that is "more sensible," user code that relied on the old default gets different results.
+
+3. **Changing return type.** `local_search()` already returns `OptimizeResult`. If fields are added, removed, or renamed in `OptimizeResult`, downstream code that accesses those fields breaks.
+
+4. **Removing deprecated parameters.** The plan says "clean deprecated BranchingStats implementation (keep API, improve internals)." If ANY public function signature changes, it is a breaking change.
+
+5. **Changing error types.** If a function used to raise `ValueError` but after cleanup raises `TypeError` for the same input, try/except blocks in user code break.
+
+**Why it happens:** "Cleanup" and "improvement" blur together. The developer sees an inconsistent API and wants to fix it, not realizing that consistency with the old version is more important than consistency within the new version.
+
+**Consequences:** User code breaks. For a research tool, this means existing benchmark scripts and paper reproduction scripts stop working.
 
 **Prevention:**
-1. Replace signal-based stopping with a per-solver flag in `model_t` (e.g., `mod->should_stop`).
-2. Check `mod->should_stop` instead of `stop_flag` in the solver loop.
-3. Remove `signal.raise_signal(signal.SIGINT)` from `SearchLib.pyx` -- use the per-solver flag instead.
-4. Keep signal handlers only for graceful process shutdown, not for solver control flow.
+1. **Define "backward compatible" precisely:** Same function names, same parameter names, same default values, same return types, same exception types. NOTHING visible to `help(Model)` or `dir(Model)` changes.
+2. Internal improvements are fine: refactoring the C implementation behind a stable Cython interface.
+3. If a parameter must be renamed, add the new name and keep the old name as a deprecated alias:
+   ```python
+   def local_search(self, distance=2, stop_time=None, timeout_ms=None, ...):
+       if stop_time is not None and timeout_ms is None:
+           warnings.warn("stop_time is deprecated, use timeout_ms", DeprecationWarning)
+           timeout_ms = stop_time
+   ```
+4. Write a "public API surface" test that asserts all public method signatures match a known-good snapshot.
 
-**Detection:** Run two solver instances. Stop one early. Observe whether the other also stops.
+**Warning signs:** The words "rename," "remove," or "change default" appear in a v1.1 commit message.
 
-**Phase mapping:** Thread safety phase. Combine with BranchingStats per-solver conversion.
+**Detection:** API surface test. Also: try running any existing example scripts or benchmarks after changes.
 
-**Confidence:** HIGH -- directly observed at `SearchLib.c:46-50`, `SearchLib.pyx:184`.
+**Phase mapping:** API cleanup phase. Requires explicit backward compatibility review.
+
+**Confidence:** HIGH -- the project context explicitly states "no breaking changes" which means this constraint must be actively enforced.
 
 ---
 
-### Pitfall 10: Optimizing Before Establishing Correctness Baseline
+### Pitfall 9: Bare `except` Clause Fix Catching Wrong Exceptions
 
-**What goes wrong:** Team starts optimizing hot paths (memory pools, SIMD, cache-line alignment) before having a correctness test suite. Optimizations introduce subtle bugs (off-by-one in pool allocation, wrong alignment for constraint arrays) that go undetected because there is no reference output to compare against.
+**What goes wrong:** The v1.1 plan includes "fix bare except clause in Model.pyx (should be `except Exception`)." This is a good fix, but the precise replacement matters:
 
-**Why it happens:** Performance work is more exciting than writing tests. The solver "seems to work" based on manual inspection of a few results.
+1. **`except:` catches `KeyboardInterrupt` and `SystemExit`.** Replacing with `except Exception:` STOPS catching these. If the code relies on catching `KeyboardInterrupt` (e.g., the SATISFY mode uses `signal.raise_signal(signal.SIGINT)` at `SearchLib.pyx:237`), the fix may cause unhandled exceptions.
+
+2. **The `except` block's behavior determines the replacement.** If the bare `except` is catching C-level crashes (segfaults do not become Python exceptions -- they kill the process), the replacement is irrelevant. But if it is catching Cython errors from invalid memory access (which can become `MemoryError` or `SystemError`), the replacement needs `except BaseException:` rather than `except Exception:`.
+
+**Why it happens:** "Replace bare except with except Exception" is a standard linting fix. But the reason the bare except was written may be that the developer WANTED to catch everything, including signals.
 
 **Prevention:**
-1. BEFORE any optimization, create a golden test suite: 5-10 problem instances with known optimal solutions, run current (unoptimized) solver, record exact output as reference.
-2. Every optimization PR must pass the golden suite with bit-exact results.
-3. For stochastic solvers: fix the random seed and verify that the same seed produces the same trajectory.
-4. Add a determinism test: same input + same seed = same output, across all thread counts.
+1. Before replacing, identify WHAT the bare except catches in practice. Is it keyboard interrupts? Memory errors? Cython internal errors?
+2. Check if the SATISFY mode's `signal.raise_signal(signal.SIGINT)` path depends on a bare except anywhere in the call chain.
+3. If the bare except is in a cleanup/finally pattern, consider replacing with `try/finally` instead.
 
-**Detection:** If optimized solver produces different results from unoptimized solver on the same seed, there is a bug.
+**Warning signs:** After the fix, `Ctrl+C` during a solve does not cleanly stop the solver.
 
-**Phase mapping:** FIRST phase, before any optimization. Creating the test harness is a prerequisite for all subsequent work.
+**Detection:** Test keyboard interrupt handling: start a solve with a long timeout, press Ctrl+C, verify clean shutdown.
 
-**Confidence:** HIGH -- universal software engineering principle, especially critical for numerical/optimization code.
+**Phase mapping:** Bug fix phase. Low risk if analyzed carefully, high risk if done mechanically.
+
+**Confidence:** MEDIUM -- the specific bare except location in Model.pyx was not identified in the code I examined; the plan references it but it may be in a code path I did not read. The SATISFY/SIGINT interaction is a verified concern.
+
+---
+
+### Pitfall 10: Clean Rebuild Failures After Incremental Changes
+
+**What goes wrong:** During cleanup work, developers make many small changes and rebuild incrementally (`pip install -e .`). Cython caches generated `.c` files from `.pyx` sources. If a `.pxd` file changes but the timestamp-based build system does not detect the dependency, the `.pyx` file is not recompiled. The resulting `.so` uses the OLD `.pxd` declarations with the NEW C headers, producing silent struct layout mismatches.
+
+Specific scenarios:
+1. Change `model.h` to add/remove a field.
+2. Update `Model.pxd` to match.
+3. Run `pip install -e .` -- but `Model.pyx` is not recompiled because its timestamp did not change.
+4. The `Model.so` still uses the old struct layout. Silent corruption.
+
+**Why it happens:** Cython's dependency tracking for `.pxd` files is not always reliable, especially with `setuptools` builds. The `.pxd` is a dependency of the `.pyx`, but the build system may not detect it.
+
+**Prevention:**
+1. After ANY `.pxd` or `.h` change, do a CLEAN build: `rm -rf build/ cbqs/*.so cbqs/*.c && pip install -e .`
+2. Add a Makefile target: `make clean-build` that does the above.
+3. In CI, always build from clean (this is already the case for CI, but developers skip it locally).
+4. Consider adding `cythonize(force=True)` as an option for development builds.
+
+**Warning signs:** "Works in CI but fails locally" or vice versa. Inconsistent test results between clean and incremental builds.
+
+**Detection:** If any test fails after an incremental build, retry with a clean build before investigating further.
+
+**Phase mapping:** All phases. This is a development workflow pitfall, not a code pitfall.
+
+**Confidence:** HIGH -- standard Cython/setuptools issue, confirmed by the [Cython documentation on compilation](https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html).
 
 ---
 
 ## Minor Pitfalls
 
-Mistakes that cause annoyance or minor regressions but are recoverable.
-
-### Pitfall 11: Hardcoded Constants Limiting Scalability
-
-**What goes wrong:** `#define NUMThreads 6` (local_search.h:55), `#define MAXCLAUSESIZE 4` (Expression.h:11), `#define MINARRAYSIZE 50000` (constraint.h:28), `min_size = 30000` (Expression.c:3). These constants limit scalability or waste memory. Changing them requires recompilation of all C code and Cython extensions.
-
-**Prevention:**
-1. Move runtime-configurable constants into `model_t` (especially `NUMThreads`).
-2. Keep compile-time constants only for truly fixed values (like `MAXCLAUSESIZE` if the math requires exactly 4).
-3. Document which constants are compile-time vs runtime in a single header.
-
-**Phase mapping:** Refactoring phase. Low priority but should be addressed when touching each file.
-
-**Confidence:** HIGH -- directly observed in headers.
+Mistakes that cause annoyance or minor issues but are easily recoverable.
 
 ---
 
-### Pitfall 12: Missing NULL Checks After malloc
+### Pitfall 11: Removing `printf` Debug Output That Users Depend On
 
-**What goes wrong:** Throughout the C code, `malloc()` / `calloc()` / `realloc()` return values are not checked. On memory pressure, these return NULL, and subsequent pointer dereference segfaults with no diagnostic.
+**What goes wrong:** The `initial_state_preparation()` function in `solver.c:175` has:
+```c
+printf("\r%f %%", (double) i / n * 100.);
+```
+This prints progress during the greedy initialization phase. Removing it is "cleanup," but users may have scripts that parse this output or rely on it as a progress indicator. Similarly, `print_state()`, `print_model()`, and various `print_*` functions in the C code are called from Python code.
 
 **Prevention:**
-1. Add a wrapper macro: `#define SAFE_MALLOC(ptr, size) do { ptr = malloc(size); if (!ptr) { fprintf(stderr, "OOM at %s:%d\n", __FILE__, __LINE__); exit(1); } } while(0)`
-2. Apply consistently in new code. Retrofit gradually in existing code.
+1. Do not remove `printf` from functions that are callable from Python (listed in `.pxd` files).
+2. For solver-internal printf (like the progress bar), replace with a debug-gated output: `if (ctx && ctx->debug_enabled) fprintf(stderr, ...)`.
+3. Distinguish between "debug output" (should be removed or gated) and "user-facing output" (should be kept or moved to a callback).
 
-**Phase mapping:** Any phase. Low effort, add as part of each file touched.
+**Phase mapping:** Dead code/cleanup phase.
 
-**Confidence:** HIGH -- standard C practice, observed missing throughout codebase.
+**Confidence:** HIGH -- `initial_state_preparation` progress output at `solver.c:175` is called from `Model.pyx:275`.
 
 ---
 
-### Pitfall 13: printf Debug Output Left in Production Code
+### Pitfall 12: Typo Fixes That Change Identifier Names
 
-**What goes wrong:** `merge_expression()` in Expression.c:41 has `printf("\r%f", ...)` that prints progress to stdout on every call. Other functions have commented-out printf lines that could be accidentally uncommented. This pollutes output and slows performance.
+**What goes wrong:** The codebase has several misspelled identifiers:
+- `increse_large_state` (should be `increase`) in `state.h:20` and `state.c:45`
+- `num_cahnges` (should be `num_changes`) in `local_search.c:284` and `local_search.c:647`
+
+Fixing these is good practice, but these are C symbols that may be referenced from `.pxd` files or other C files. Renaming without updating all references causes build failures or, worse, shadows a different symbol.
 
 **Prevention:**
-1. Use a debug logging macro gated by `#ifdef DEBUG` or a verbosity level.
-2. Remove all progress-printing printf from library code.
-3. Add a CI check: `grep -rn 'printf' cbqs/src/*.c` should only match intentional output.
+1. For each typo fix, do a project-wide search for the old name: `grep -rn 'increse_large_state' .`
+2. Update ALL references atomically in one commit.
+3. If the function is declared in a `.pxd` file, update the `.pxd` too.
+4. `increse_large_state` is only called from `state.c:137` (internally) -- safe to rename with local impact.
+5. `num_cahnges` is a local variable -- safe to rename.
 
-**Phase mapping:** Cleanup phase. Quick fix, do early.
+**Phase mapping:** Cleanup phase. Low risk per instance.
 
-**Confidence:** HIGH -- directly observed at Expression.c:41,53.
+**Confidence:** HIGH -- directly observed in `state.h:20`, `local_search.c:284`.
+
+---
+
+### Pitfall 13: `#define false 0` / `#define true 1` Conflicting with `<stdbool.h>`
+
+**What goes wrong:** `definitions.h:46-47` defines:
+```c
+#define false 0
+#define true 1
+```
+
+If any cleanup work adds `#include <stdbool.h>` (which defines `bool`, `true`, `false` as C11 keywords), these macros conflict. The result is a compile error or, if include order varies, silent redefinition.
+
+**Prevention:**
+1. If adding `<stdbool.h>` for the `atomic_bool` or other C11 features, remove the `#define false/true` from `definitions.h` first.
+2. Or: use `<stdbool.h>` consistently and remove the manual defines.
+3. Check for any code that depends on `true`/`false` being `int` rather than `_Bool` (they have different size/alignment on some platforms).
+
+**Phase mapping:** Compiler warning fix phase or any phase that adds C11 includes.
+
+**Confidence:** HIGH -- `definitions.h:46-47` directly conflicts with C11 `<stdbool.h>`. `solver_ctx.h:3` already includes `<stdatomic.h>` which may transitively include `<stdbool.h>` on some compilers.
 
 ---
 
@@ -273,24 +466,39 @@ Mistakes that cause annoyance or minor regressions but are recoverable.
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| Per-solver BranchingStats | Forgetting one call site that still reads the global | Grep for `BranchingStats` across ALL `.c` and `.h` files. Delete the global entirely so the compiler finds every reference. |
-| Expression immutability | Breaking Python operator semantics (a + b should not modify a) | Write unit tests for operator algebra BEFORE refactoring. |
-| Memory pool for hot paths | Pool exhaustion during large solves | Size pool based on problem instance size. Add a fallback to malloc if pool is exhausted. |
-| Thread safety with mutexes | Locking in wrong order between update_lock and any new locks | Define a lock ordering document. Only one lock (update_lock) should exist for most use cases. |
-| Dynamic constraint arrays | Realloc invalidating pointers during solve | Freeze all arrays before solve starts. Assert no reallocation during solving phase. |
-| Cython .pxd updates | Forgetting to update .pxd when C struct changes | Make .pxd update part of PR checklist. Add sizeof assertion in test. |
-| VLA to heap conversion | Performance regression from malloc in tight loops | Use per-thread scratch buffers allocated once, not malloc per iteration. |
-| Callback refactoring | Deadlock from GIL reacquisition in multi-threaded context | Minimize callback frequency. Batch updates. Test with high thread counts. |
-| Performance optimization | No baseline to detect regressions | Establish golden test suite and benchmark BEFORE optimizing. |
+| SATISFY mode crash fix | Fix changes stop_val semantics, affecting OPTIMIZE mode | Write SATISFY test BEFORE fixing. Verify OPTIMIZE tests unchanged. |
+| Bare except fix | Stops catching KeyboardInterrupt needed for SATISFY SIGINT pattern | Analyze what the bare except actually catches before replacing. |
+| GCC warning fixes | Parenthesizing `&&`/`||` changes evaluation order | One warning per commit. Document intended semantics. |
+| Dead code removal | Removing function used from .pxd/.pyx but not from C | Grep ALL file types before removing any function. |
+| Commented code removal | Losing optimized algorithm implementations | Categorize as debug/algorithm/TODO before removing. |
+| VLA replacement | Memory leak on error paths in multi-return functions | Audit all return paths. Use cleanup label pattern. |
+| Callback rework | Module-level cdef state not thread-safe | Change callback_t to accept void* context. Update all C callers. |
+| local_search API cleanup | Renaming parameters breaks user code | Keep old parameter names as deprecated aliases. |
+| .pxd updates | Stale Cython cache uses old struct layout | Clean build after every .pxd change. |
+| BranchingStats cleanup | Removing deprecated global breaks code that still reads it | Keep global as read-only shim delegating to ctx. |
+
+---
+
+## Pre-Cleanup Checklist
+
+Before starting any v1.1 cleanup work:
+
+- [ ] Run full test suite and record baseline: `pytest -x --tb=short` (all 200+ tests pass)
+- [ ] Run C tests and record baseline: `ctest` (all 58+ tests pass)
+- [ ] Record benchmark baseline: pick 3 representative instances, run with fixed seed, save results
+- [ ] Verify clean build works: `rm -rf build/ cbqs/*.so && pip install -e . && pytest`
+- [ ] Create a git tag `v1.0-pre-cleanup` as a rollback point
+- [ ] Verify ASan build works: `CMAKE_BUILD_TYPE=ASan make test`
+- [ ] Verify Valgrind passes: zero leaks, zero errors on existing tests
 
 ## Sources
 
-- Codebase analysis: `Branching.c`, `Branching.h`, `local_search.c`, `local_search.h`, `SearchLib.c`, `SearchLib.pyx`, `Model.pyx`, `Expression.pyx`, `Expression.c`, `model.c`, `model.h`, `constraint.h`, `solver.h`, `definitions.h`
-- [Cython GIL Documentation](https://cython.readthedocs.io/en/latest/src/userguide/nogil.html) -- GIL management patterns and pitfalls
-- [Cython Free Threading](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- Thread safety in Cython extensions
-- [Cython callback/segfault discussion](https://cython-devel.python.narkive.com/CIoEbLI0/cython-callback-segfault) -- Callback GIL reacquisition issues
-- [SEI CERT CON35-C: Avoid deadlock by locking in predefined order](https://wiki.sei.cmu.edu/confluence/display/c/CON35-C.+Avoid+deadlock+by+locking+in+a+predefined+order) -- Lock ordering discipline
-- [Oracle Multithreaded Programming Guide](https://docs.oracle.com/cd/E19455-01/806-5257/6je9h0342/index.html) -- Mutex pitfalls and self-deadlock
-- [The Risks of Mutexes (ModernCpp)](https://www.modernescpp.com/index.php/the-risk-of-mutexes/) -- Mutex anti-patterns
-- [C++ Performance Optimization Pitfalls](https://medium.com/@threehappyer/c-performance-optimization-avoiding-common-pitfalls-and-best-practices-guide-81eee8e51467) -- Hot path optimization mistakes
-- [ABI Compatibility Guide](https://gist.github.com/MangaD/506a0f3273724ef3af26b8c085accdcb) -- Struct layout and binary compatibility
+- Codebase analysis: all `.c`, `.h`, `.pyx`, `.pxd` files in `cbqs/` and `cbqs/src/`
+- [SciPy Public Cython API documentation](https://docs.scipy.org/doc/scipy/dev/contributor/public_cython_api.html) -- ABI compatibility rules for `.pxd` files
+- [Cython Free Threading documentation](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- Module-level variable thread safety
+- [SEI CERT MSC07-C: Detect and remove dead code](https://wiki.sei.cmu.edu/confluence/display/c/MSC07-C.+Detect+and+remove+dead+code) -- Safe dead code removal practices
+- [SEI CERT MEM05-C: Avoid large stack allocations](https://wiki.sei.cmu.edu/confluence/display/c/MEM05-C.+Avoid+large+stack+allocations) -- VLA replacement guidance
+- [GCC Warning Options documentation](https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html) -- Warning semantics reference
+- [Pitfalls of VLA in C](https://jorenar.com/blog/vla-pitfalls) -- VLA replacement considerations
+- [Cython compilation and source files](https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html) -- Build dependency tracking
+- [OpenSSF Compiler Hardening Guide](https://best.openssf.org/Compiler-Hardening-Guides/Compiler-Options-Hardening-Guide-for-C-and-C++.html) -- Compiler warning interpretation guidance

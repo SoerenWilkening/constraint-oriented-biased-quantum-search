@@ -1,174 +1,304 @@
-# Feature Research: CBQS Solver Stabilization and C Optimization
+# Feature Landscape: v1.1 Bug Fixes and Code Polish
 
-**Domain:** C-based constraint/optimization solver with Cython Python bindings
-**Researched:** 2026-02-04
-**Confidence:** HIGH (based on direct codebase analysis + established C engineering practices)
+**Domain:** Bug fixes, tech debt cleanup, and code polish for C/Cython/Python solver
+**Researched:** 2026-02-06
+**Confidence:** HIGH (based on direct codebase analysis of every affected file + solver library patterns)
 
-## Feature Landscape
+## Context
 
-### Table Stakes (Must Fix -- Solver Is Unreliable Without These)
+v1.0 shipped a stable, thread-safe solver with comprehensive testing. v1.1 is a cleanup milestone:
+no new features, no breaking changes. The goal is to fix known bugs, remove dead code, fix
+compiler warnings, and rework internal patterns that limit correctness or future extensibility.
 
-Features that any production-quality C solver must have. The CBQS solver currently lacks all of these, making it unsuitable for reliable use beyond development prototyping.
+All items below derive from the v1.0 audit's 6 tech debt items plus additional code analysis.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **Thread-safe state management** | Current code uses global `python_callback` variable and shared `stopping_criterion` via raw pointer without atomics. Multiple `run_sampling` calls via joblib threading share mutable state. Race conditions cause silent wrong results. | HIGH | Global `python_callback` in `SearchLib.pyx` (line 117) is process-wide. `stopping_criterion` in `local_search.c` (line 163) is a shared `int*` read/written from multiple threads with no synchronization. Must replace with thread-local storage or pass context through structs. |
-| **Memory leak elimination** | `accept_best_routine` frees `data[i].remainings` and clears `data[i].ful_con`/`ful` in the thread creation loop (lines 308-311) BEFORE threads finish executing -- this is use-after-free. `copy_state(copy_state(...))` in `SearchLib.pyx` line 133 leaks the inner copy. | HIGH | The thread data lifetime bug in `accept_best_routine` is critical -- threads read freed memory. The double `copy_state` leak happens every `run_sampling` call. Need systematic audit of all allocation/free pairs. |
-| **Elimination of malloc in hot loops** | `explore_neighbourhood` calls `calloc(MINSIZE, sizeof(int))` (line 178) and `sw_init()` (which mallocs) inside the inner move loop, executed potentially millions of times. Also `calloc` at line 225. | MEDIUM | Pre-allocate these buffers once per thread before the loop. The `MINSIZE=2048` calloc per iteration is especially wasteful. Move to pre-allocated scratch buffers in `local_search_data_t`. |
-| **Input validation** | No bounds checking on variable indices, constraint counts, or expression sizes. `sw_tstbit`/`sw_setbit` do not check if index B exceeds array bounds. `variable_index` can overflow with crafted input. | MEDIUM | Add validation at the Python-C boundary (Cython layer). Check: n > 0, all variable indices < n, expression sizes non-negative, constraint counts match allocated arrays. Fail fast with clear error messages. |
-| **Solution validation** | No post-solve verification that returned solution actually satisfies constraints. The solver can return infeasible solutions silently due to bugs in `accept_move` logic or race conditions. | LOW | Add a verification pass after solve completes: re-evaluate all constraints against returned solution. `eval_constraints` already exists -- just need to call it and report/assert. |
-| **Proper thread stopping mechanism** | `signal.raise_signal(signal.SIGINT)` used to stop threads in `SearchLib.pyx` line 184. Signals are process-wide and kill all threads indiscriminately. `reset_flag()` called after parallel execution suggests global flag state. | MEDIUM | Replace with per-solve cancellation token (atomic flag in model struct). Each thread checks flag cooperatively. No signals needed. |
-| **Fixed-size array elimination** | `MINARRAYSIZE = 50000` in constraint.h pre-allocates fixed arrays. `MAXCLAUSESIZE = 4` hard-limits variables per clause. `copy_new_constraint` copies exactly `MINARRAYSIZE` elements regardless of actual data size. `min_size = 30000` in Expression.c is a global mutable. | MEDIUM | Replace fixed allocations with tracked-size dynamic arrays. `copy_new_constraint` should use `total_clauses`/`total_variables` for copy size, not `MINARRAYSIZE`. Make `min_size` a parameter, not a global. |
-| **Expression immutability / copy safety** | `multiply_constant`, `multiply_variable` mutate expressions in-place. `add_expression`/`sub_expression` have commented-out `free_expression(expr2)` suggesting confusion about ownership. Operations like `expr <= 0` in `set_objective` may mutate the original. | MEDIUM | Document ownership model. Either make expressions immutable (return new) or make copy-on-write explicit. The commented-out frees indicate past bugs from unclear ownership. |
-| **Test suite** | Zero automated tests. No unit tests for constraint evaluation, expression arithmetic, solver correctness, or memory safety. | HIGH | This is the highest-leverage table stake. Without tests, every fix risks introducing new bugs. Need at minimum: expression arithmetic tests, constraint evaluation tests, small model solve-and-verify tests, memory leak tests (valgrind). |
-| **Hardcoded constant elimination** | `NUMThreads = 6` (local_search.h line 54), `tabu_list.max_moves = 10` (multiple places), `min_size = 30000` (Expression.c global). These prevent configuration and cause problems on different hardware. | LOW | Move to model_t parameters or function arguments. `NUMThreads` should come from `mod->num_workers`. Tabu list size should be configurable. |
+---
 
-### Differentiators (Competitive Advantage -- Not Required But Valuable)
+## Table Stakes (Must Fix for v1.1)
 
-Features that would make the solver notably better than a naive implementation. These should come AFTER table stakes are addressed.
+These are bugs that cause crashes, incorrect behavior, or compiler warnings that indicate latent
+correctness issues. Shipping v1.1 without these fixed provides no value.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| **Memory pool allocator for search loops** | Eliminates malloc/free overhead in `explore_neighbourhood` and `quantum_local_search_states`. Pre-allocate a pool per thread, bump-allocate during search, free entire pool at end. Could see 2-10x speedup in hot loops based on [arena allocator patterns](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator). | MEDIUM | Implement a simple arena/bump allocator per thread. Reset between iterations rather than individual frees. The allocation pattern (allocate many small things, free all at once) is ideal for arenas. |
-| **Incremental constraint evaluation** | The `adjusted_constraint_violation` function exists but is commented out in `explore_neighbourhood` (lines 185-191), replaced with full `constraint_violation` per constraint per move. Re-enabling incremental evaluation would avoid O(clauses) work per move. | HIGH | The incremental path was abandoned (commented out), suggesting correctness issues. Fixing and re-enabling it is high value but needs careful validation. The full evaluation at line 182 is an O(C * clauses) bottleneck. |
-| **Sparse constraint preprocessing** | `preprocessing_sparse` already exists and is used. But the realloc pattern (line 300-301) reallocates on bitmask check `counter & (size_steps - 1)` which is inverted -- it reallocates when the counter is NOT a multiple of size_steps, which is almost always. This wastes enormous time in realloc. | MEDIUM | Fix the realloc condition (should be `== 0` not the current logic). This is likely a significant performance bug in preprocessing. Same bug exists in `preprocessing` (lines 185-186). |
-| **Solution diagnostics and logging** | Currently uses printf scattered through code (many commented out). No structured logging, no way to track solver progress programmatically beyond the callback. | LOW | Add optional verbose mode with structured output: iteration count, objective value, feasibility status, constraint violations per iteration. Route through callback rather than printf. |
-| **Bounds-aware move generation** | `move_list` generates all k-flip combinations up to distance d. For n=100, d=3, this is O(n^3) = ~160K moves. Could prune moves that are guaranteed infeasible based on constraint structure. | HIGH | Requires constraint analysis at preprocessing time. Significant algorithmic work. Defer unless profiling shows move generation as bottleneck. |
-| **Configurable thread count at runtime** | `NUMThreads = 6` is compile-time. `mod->num_workers = 12` exists but is used for joblib parallelism, not for C-level threading. The C local search always uses exactly 6 threads. | LOW | Pass `mod->num_workers` to `accept_best_routine` and use it instead of `NUMThreads`. Replace fixed-size arrays `data[NUMThreads]` and `threads[NUMThreads]` with dynamic allocation. |
-| **VLA elimination** | `int bits[dat->d]` (local_search.c line 152), `int64_t totals[C]` (line 175), `int64_t remainings[C]` (line 449) use variable-length arrays on the stack. Large values cause stack overflow. | LOW | Replace with malloc or thread-local pre-allocated buffers. Not urgent for small problems but prevents scaling to large instances. |
+### 1. SATISFY Mode Crash (P0 -- Crashes at Runtime)
 
-### Anti-Features (Do NOT Build in This Milestone)
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/SearchLib.pyx`, line 220 |
+| **Bug** | `stpvl = -len(mod.mod[0].con[0].num_constraints)` calls `len()` on a `uint32_t` scalar |
+| **Root cause** | `num_constraints` is a `uint32_t` field in the `new_constraints_t` struct (see `constraint.h:34`), not an array. `len()` on an int raises `TypeError: object of type 'int' has no len()` |
+| **Impact** | Any model that uses `solver == SATISFY` (the default mode for models without `set_objective`) crashes immediately when `solve()` is called |
+| **Expected fix** | Replace `len(mod.mod[0].con[0].num_constraints)` with `mod.mod[0].con[0].num_constraints` (the integer value directly) |
+| **Complexity** | LOW -- single line change |
+| **Confidence** | HIGH -- verified by reading both `SearchLib.pyx:220` and `constraint.h:34` |
 
-Features that seem useful but would distract from stabilization, add complexity, or are premature.
+**Additional SATISFY mode issue at line 236:** The SATISFY branch still uses `signal.raise_signal(signal.SIGINT)` to stop all workers when a solution is found. This was supposed to be replaced by the `solver_ctx_request_stop()` mechanism in v1.0 Phase 4. The OPTIMIZE branch correctly uses the ctx-based stop, but the SATISFY branch was apparently missed. This should be fixed alongside the crash.
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| **New solver algorithms** | "We could add simulated annealing / genetic algorithms / ADMM" | This milestone is about making existing algorithms reliable, not adding new ones. New algorithms on a broken foundation inherit all existing bugs. | Stabilize current sampling + local search + quantum local search first. New algorithms belong in a future feature milestone. |
-| **ML-guided branching** | "ML could learn better branching heuristics" | Adds massive dependency complexity (ML runtime), training pipeline, and a completely new failure mode. The current branching works; it just needs to be thread-safe. | Optimize the existing `set_bias_wrapper` mechanism. Profile branching to see if it is actually a bottleneck before adding ML. |
-| **GPU/Metal acceleration** | Metal executor code already exists (`Metal_executor.pyx`). "Finish GPU support." | GPU acceleration adds platform-specific complexity. The current code has fundamental memory safety issues that must be fixed first. GPU code would inherit and amplify these bugs. | Fix CPU path completely. GPU is a separate future milestone. |
-| **Expression simplification / CSE** | "Expressions should be automatically simplified before solving" | `merge_expression` already exists but has O(n^2) complexity (nested loops at lines 40-55 of Expression.c). Making it smarter adds complexity to code that first needs to be correct. | Fix the O(n^2) merge to O(n log n) via sort+linear-scan as a differentiator, but do not add more algebraic manipulation. |
-| **Distributed solving** | "Run across multiple machines" | The solver cannot even safely share state between threads on one machine. Distributed solving requires all the threading issues to be fixed first, plus networking, serialization, and fault tolerance. | Fix single-machine parallelism first. |
-| **Python API redesign** | "The Python API is awkward" | API changes break downstream users. The internal C issues are invisible to users until they cause crashes. Fix internals first; API polish is a separate milestone. | Document current API limitations. Fix the dangerous patterns (double copy_state, signal-based stopping) without changing the public interface. |
-| **Automatic preprocessing selection** | "Auto-detect sparse vs dense" | `process_constraints` already does this (Constraint.pyx line 14). The heuristic `10 * tot > n * num_constraints` works. Don't over-engineer the selection logic. | Keep existing heuristic. If it proves wrong in practice, adjust the threshold -- don't build an auto-tuning system. |
+**SATISFY mode semantics (from solver library patterns):**
 
-## Feature Dependencies
+In established solvers (SCIP, OR-Tools CP-SAT), satisfaction and optimization modes differ fundamentally:
+- **Satisfaction**: Goal is finding ANY feasible solution. There is no objective function to track. The solver should return as soon as feasibility is achieved, or report infeasibility. In OR-Tools, `SearchForAllSolutions` is only valid when no objective is set. In SCIP, satisfaction problems use `SCIPsolve()` with early termination on first feasible solution.
+- **Optimization**: Goal is improving objective iteratively. History tracking, incumbent solutions, and convergence are meaningful.
+
+The CBQS SATISFY path in `ctg()` (SearchLib.c:110-194) correctly uses `CSearch_sat` which maximizes the count of satisfied constraints. The stop condition at line 194 checks `cur_sol->tot_profit == -(int64_t)mod->con->num_constraints` (all constraints satisfied). This is logically correct -- the Cython-side crash is purely a type error in the Python wrapper, not a C-level logic bug.
+
+### 2. Remaining VLA in local_search.c (P1 -- Stack Overflow Risk)
+
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/src/local_search.c`, line 332 |
+| **Bug** | `int64_t remainings[C]` where C is `con->num_constraints` (runtime value) |
+| **Root cause** | This VLA was missed during the v1.0 VLA elimination pass (Phase 5). Other VLAs in the same file were replaced with heap or per-thread buffers |
+| **Impact** | Stack overflow for large constraint counts. C23 removes VLA entirely. GCC 15 may warn with `-Wvla` |
+| **Expected fix** | Replace with `int64_t *remainings = malloc(C * sizeof(int64_t))` plus NULL check and corresponding `free()` before all return paths |
+| **Complexity** | LOW -- follows the exact pattern already used elsewhere in the same file (e.g., lines 572-576) |
+| **Confidence** | HIGH -- verified at `local_search.c:332` |
+
+### 3. GCC 15 Type Mismatch Warnings (P1 -- Compiler Correctness)
+
+| Attribute | Detail |
+|-----------|--------|
+| **Files** | Multiple C source files |
+| **Bug** | Type mismatches between `int`, `size_t`, `uint32_t`, and `int64_t` in function calls and comparisons |
+| **Root cause** | The constraint struct uses `uint32_t` for counts and offsets, but many functions use `int` or `size_t` for the same values. GCC 15 is stricter about implicit narrowing conversions |
+| **Impact** | Clean compilation is a prerequisite for CI trust. Warnings may hide real truncation bugs (e.g., constraint counts exceeding INT_MAX on 32-bit) |
+| **Expected fix** | Audit all warning sites, use consistent types, add explicit casts where narrowing is intentional and safe |
+| **Complexity** | MEDIUM -- requires systematic review, but each individual fix is trivial |
+| **Confidence** | MEDIUM -- exact warning list needs a GCC 15 build to enumerate |
+
+### 4. Incomplete local_search() API Migration (P1 -- Incorrect Behavior)
+
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/Model.pyx`, `local_search()` method (line 371-417) |
+| **Bug** | The method signature and parameter passing were updated in v1.0 to match `solve()`, but the internal wiring may be incomplete |
+| **Root cause** | `local_search()` was updated to return `OptimizeResult` but some parameters (seed, num_threads) may not flow correctly through to the C layer since the `run_local_search` call pattern differs from `run_sampling` |
+| **Impact** | `local_search()` results may not reflect configured seed/threads correctly |
+| **Expected fix** | Verify parameter flow: seed -> ctx, num_threads -> ctx for local_search path. Ensure `model.seed` and `model.num_threads` are honored |
+| **Complexity** | LOW -- mostly verification and small wiring fixes |
+| **Confidence** | MEDIUM -- needs testing to confirm whether behavior is actually wrong |
+
+---
+
+## Nice-to-Have (Could Defer to v1.2)
+
+These improve code quality and maintainability but do not fix user-facing bugs. Ideally done in v1.1
+for cleanliness, but deferrable without harm.
+
+### 5. Dead Code Removal -- Commented-Out VLA/Debug Code
+
+| Attribute | Detail |
+|-----------|--------|
+| **Files** | `local_search.c` (lines 47, 53-66, 179, 231-238, 252-256, 496-498, 506-511, 541-544, etc.), `Branching.c` (lines 48-97, 101, 113-132), `SearchLib.c` (lines 91, 159, etc.), `solver.c` (scattered printf), `Model.pyx` (lines 86, 105, 109, 245-248), `Expression.pyx` (line 197) |
+| **Issue** | Dozens of commented-out code blocks: old VLA declarations, debug printf statements, abandoned algorithm variants, commented-out aspiration criteria |
+| **Impact** | Reduces readability, confuses maintainers about what is active, makes grep/search noisy |
+| **Expected approach** | Remove all `//` and `#`-commented code blocks that are clearly dead (old implementations, debug prints). Preserve comments that document WHY something is done a certain way. Git history preserves the deleted code |
+| **Complexity** | LOW -- mechanical, but needs care to not remove meaningful comments |
+| **Confidence** | HIGH -- verified by reading every source file |
+
+### 6. Module-Level cdef History Callback Rework
+
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/SearchLib.pyx`, lines 137-159 |
+| **Bug** | Four module-level `cdef` variables (`_history_list`, `_history_prev_best`, `_history_original_callback`, `_history_mod`) store per-solve history state at module scope |
+| **Root cause** | Cython `cpdef` functions cannot capture closures, and regular Python classes cannot access `cdef` attributes. The module-level state was a pragmatic workaround |
+| **Impact** | If two `solve()` calls run concurrently in the same process (e.g., from different threads or async contexts), they overwrite each other's history state. The current joblib-based parallelism in `solve()` is safe because all workers share the same `_history_mod` object, but any future multi-model concurrent solving would break |
+| **Constraint** | No breaking changes in v1.1 |
+
+**How established solvers handle this:**
+
+- **SCIP**: Uses per-solve event handler objects. Event handlers are registered per SCIP instance. Each handler has its own data pointer (`SCIPeventhdlrGetData`). History tracking is done via `SCIP_EVENTTYPE_BESTSOLFOUND` events, with history stored in the handler's private data.
+- **OR-Tools CP-SAT**: Uses `CpSolverSolutionCallback` subclasses. Each callback instance has its own state. The solver guarantees that "at most one thread executes solution_callback at a time" but callbacks are per-solve-call, not global. The `SharedResponseManager` class handles cross-thread history with explicit thread safety.
+- **Pattern**: The universal pattern is **per-solve callback state**, not module-level state. The callback object/struct carries its own history buffer.
+
+**Expected approach for CBQS:**
+
+Move the four module-level `cdef` variables into the `Model` object's `cdef` attributes (which are accessible from `cdef`/`cpdef` functions). Pass the Model instance through the callback chain. This keeps the callback mechanism working identically but scopes state to the solve call. Since `_history_mod` is already set to the Model instance, the refactor is straightforward.
+
+**Alternative**: Use a Python `dict` keyed by `id(mod)` as module-level state, with cleanup in a `finally` block. Less clean but lower risk.
+
+| Complexity | MEDIUM -- requires understanding the Cython cdef/cpdef closure limitation |
+|------------|---------|
+| **Confidence** | HIGH -- verified the pattern and the limitation |
+
+### 7. Bare Except Clause in Model.pyx
+
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/Model.pyx` |
+| **Bug** | Bare `except:` clauses that catch `BaseException` including `KeyboardInterrupt` and `SystemExit` |
+| **Impact** | Can mask bugs, prevent clean shutdown, and swallow keyboard interrupts during debugging |
+| **Expected fix** | Replace `except:` with `except Exception:` throughout |
+| **Complexity** | LOW |
+| **Confidence** | MEDIUM -- the grep for `except:` returned no matches, which may mean the issue was already partially addressed or the pattern uses `except Exception` with too broad a scope. Need to verify during implementation |
+
+**Note:** My grep for `bare except|except:` in the cbqs directory found zero matches. This item may have been fixed during v1.0 or the issue may manifest differently (e.g., `try/except` in `__init__.py` catching `ImportError` broadly). Verify during implementation.
+
+### 8. Deprecated Global BranchingStats Cleanup
+
+| Attribute | Detail |
+|-----------|--------|
+| **Files** | `cbqs/src/Branching.c` (lines 6-21), `cbqs/src/Branching.h` (line 30) |
+| **Current state** | Global `BranchingStats` variable still exists alongside the per-context `ctx->branching_stats`. The global functions `set_bias()`, `set_factors()`, `set_obj_dependence()`, `set_constraint_dependence()` modify the global. The Python-side `branching.pyx` calls these global setters |
+| **Issue** | Two parallel state systems (global and per-ctx) must stay in sync. The global is marked `DEPRECATED` in the header but is still actively used by `branching.pyx` |
+| **v1.1 approach** | Keep the API (`set_bias_wrapper()` etc.) but have the global setters ALSO propagate to any active solver context. Or, have `branching.pyx` wrappers call the ctx-based setters when a ctx is available. Do NOT remove the global API -- that's a breaking change for v2.0 |
+| **Complexity** | MEDIUM -- needs careful thought about the sync mechanism |
+| **Confidence** | HIGH -- verified both code paths |
+
+### 9. signal.raise_signal in SATISFY Branch
+
+| Attribute | Detail |
+|-----------|--------|
+| **File** | `cbqs/SearchLib.pyx`, line 236 |
+| **Bug** | `signal.raise_signal(signal.SIGINT)` is still used in the SATISFY mode branch to stop parallel workers |
+| **Root cause** | The v1.0 Phase 4 refactoring to `solver_ctx_request_stop()` covered the OPTIMIZE path but missed the SATISFY path |
+| **Impact** | Sends SIGINT to the entire process when a satisfying solution is found, which can interfere with Jupyter notebooks, debuggers, and calling applications |
+| **Expected fix** | Replace with `solver_ctx_request_stop(ctx)` and check `not_stop[0] = 0` for the Python-level loop, matching the OPTIMIZE branch pattern |
+| **Complexity** | LOW |
+| **Confidence** | HIGH -- verified at SearchLib.pyx:236 |
+
+---
+
+## Anti-Features (Do NOT Do During v1.1 Cleanup)
+
+Over-engineering risks during cleanup milestones. Each of these is a real temptation during
+"while we're in there" refactoring.
+
+### A1. Refactoring the Solver Architecture While Fixing Bugs
+
+| Why tempting | "The OPTIMIZE and SATISFY paths share so much code, we should unify them" |
+|-------------|---------|
+| **Why avoid** | The `ctg()` function in SearchLib.c is the core solver loop. It has complex state transitions between stages (satisfaction -> constraint tightening -> optimization). Refactoring this while fixing the SATISFY crash risks breaking the working OPTIMIZE path. The function is ~130 lines and well-understood; it does not need structural changes |
+| **What to do instead** | Fix the specific Cython-side crash (line 220) and the signal.raise_signal (line 236). Leave the C-level `ctg()` function untouched |
+
+### A2. Adding New Test Infrastructure Beyond What Bugs Require
+
+| Why tempting | "We should add property-based testing, mutation testing, fuzz testing for the cleanup" |
+|-------------|---------|
+| **Why avoid** | v1.0 already established 58+ C tests and 200+ Python tests with ASan/Valgrind/TSan in CI. Adding new testing infrastructure is a feature, not a bug fix. The existing test suite is sufficient to validate v1.1 fixes |
+| **What to do instead** | Write targeted regression tests for each bug fix (SATISFY mode test, VLA boundary test, concurrent history test). Use existing pytest + CMocka frameworks |
+
+### A3. Reworking the Expression System
+
+| Why tempting | "While cleaning up dead code in Expression.pyx, we should fix the __eq__ method returning self" |
+|-------------|---------|
+| **Why avoid** | The Expression `__eq__` returning `self` (line 367-380) is intentional -- it converts the expression into a constraint with EQUAL sense. This is the API's constraint-building DSL. "Fixing" it to return a boolean would break every model that uses `expr == value`. Similarly, `__le__` and `__ge__` return self with sense metadata. This is correct by design |
+| **What to do instead** | Remove commented-out code in Expression.pyx. Do not change operator semantics |
+
+### A4. Making BranchingStats Fully Context-Only
+
+| Why tempting | "The global BranchingStats is deprecated, just remove it now" |
+|-------------|---------|
+| **Why avoid** | Removing `extern BranchingStats_t BranchingStats` and the global setter functions is a breaking change. Downstream code (including the project's own `branching.pyx` and potentially user scripts) calls `set_bias_wrapper()` which calls the global `set_bias()`. Removing it requires migrating all callers to pass a solver context |
+| **What to do instead** | Clean the internals (ensure ctx and global stay in sync). Mark the global API with deprecation warnings. Plan removal for v2.0 |
+
+### A5. Optimizing Hot Paths During Cleanup
+
+| Why tempting | "The commented-out incremental constraint evaluation in local_search.c should be re-enabled" |
+|-------------|---------|
+| **Why avoid** | The incremental path (`adjusted_constraint_violation` calls at lines 231-238) was commented out and replaced with full evaluation (`constraint_violation` at line 229). This was a deliberate choice -- the incremental path had correctness issues. Re-enabling it is a performance optimization, not a bug fix. Mixing optimization work with cleanup increases risk |
+| **What to do instead** | Remove the commented-out incremental code as dead code. If performance optimization is needed, do it in a dedicated future milestone with proper benchmarking |
+
+### A6. Migrating to Python Free-Threading (nogil)
+
+| Why tempting | "Cython 3 has experimental free-threading support, we should adopt it" |
+|-------------|---------|
+| **Why avoid** | Cython's free-threading support (documented in `cython.readthedocs.io`) is explicitly described as not yet ensuring "any significant level of thread safety" for extension modules. The `critical_section` primitive exists but the ecosystem is immature. Adopting it during a bug-fix milestone would introduce new, poorly-understood failure modes |
+| **What to do instead** | The existing GIL-based callback mechanism works. The C-level parallelism (pthreads) is already GIL-free. Leave the threading model as-is |
+
+---
+
+## Feature Dependencies for v1.1
 
 ```
-[Test Suite]
+[SATISFY Mode Crash Fix (#1)]
     |
-    +-- enables safe work on --> [Thread Safety Fixes]
-    |                                |
-    |                                +-- enables --> [Memory Pool Allocator]
-    |                                |
-    |                                +-- enables --> [Configurable Thread Count]
+    +-- includes --> [signal.raise_signal fix (#9)]
     |
-    +-- enables safe work on --> [Memory Leak Fixes]
-    |                                |
-    |                                +-- enables --> [Malloc-in-Hot-Loop Removal]
-    |                                                    |
-    |                                                    +-- enhances --> [Memory Pool Allocator]
-    |
-    +-- enables safe work on --> [Input Validation]
-    |
-    +-- enables --> [Solution Validation]
-    |                   |
-    |                   +-- enables --> [Incremental Constraint Re-enabling]
-    |
-    +-- enables --> [Expression Copy Safety]
+    +-- regression test needed
 
-[Fixed-Size Array Elimination] -- independent, can proceed in parallel
+[Remaining VLA (#2)]
+    |
+    +-- follows v1.0 VLA elimination pattern exactly
+    |
+    +-- regression test: large constraint count
 
-[Proper Thread Stopping] -- requires --> [Thread Safety Fixes]
+[GCC 15 Warnings (#3)]
+    |
+    +-- independent, can be done in parallel with all others
+    |
+    +-- requires GCC 15 build to enumerate warnings
 
-[Hardcoded Constant Elimination] -- independent, low risk
+[local_search() API Migration (#4)]
+    |
+    +-- depends on understanding ctx flow from run_local_search
+    |
+    +-- test: verify seed_used populated after local_search()
 
-[Sparse Preprocessing Realloc Fix] -- independent, high value
+[Dead Code Removal (#5)]
+    |
+    +-- independent, but do AFTER bug fixes (avoid merge conflicts)
+
+[History Callback Rework (#6)]
+    |
+    +-- depends on understanding Cython cdef attribute access rules
+    |
+    +-- test: concurrent model solves produce correct history
+
+[BranchingStats Cleanup (#8)]
+    |
+    +-- depends on understanding global/ctx sync requirements
+    |
+    +-- test: global setters still work, ctx-based setters still work
 ```
 
-### Dependency Notes
+## Comparable Solver Cleanup Patterns
 
-- **Test Suite is prerequisite for everything else:** Without tests, each fix is a gamble. The test suite must come first or in parallel with the earliest fixes.
-- **Thread Safety enables Memory Pool:** Memory pools must be thread-local, so thread architecture must be settled before implementing pools.
-- **Memory Leak Fixes enable Malloc Removal:** Must understand current allocation patterns before restructuring them.
-- **Solution Validation enables Incremental Re-enabling:** The commented-out incremental path needs validation infrastructure to safely re-enable.
-- **Thread Safety Fixes enable Proper Stopping:** The signal-based stopping is a symptom of the threading model problem; fix the model first.
+How established solvers handle the same categories of cleanup:
 
-## Stabilization Priority (This Milestone)
+| Category | SCIP Pattern | OR-Tools Pattern | CBQS v1.1 Approach |
+|----------|-------------|-----------------|-------------------|
+| **Callback state** | Per-instance event handler data pointer | Per-call callback class instances | Move from module-level to Model-level cdef attributes |
+| **Deprecated API** | `SCIP_DEPRECATED` macro, kept for 2 major versions | Proto field deprecation with `deprecated = true` | Keep API, mark DEPRECATED in header, plan removal for v2.0 |
+| **Dead code** | Aggressive removal in minor versions | Removed in release branches | Remove all commented-out code, git preserves history |
+| **Compiler warnings** | Zero-warning policy (`-Werror` in CI) | Zero-warning policy | Fix all GCC 15 warnings, consider adding `-Wvla` flag |
+| **VLA elimination** | Never used VLAs (C89 compatibility) | C++ does not have VLAs | Replace remaining VLA with malloc + error handling |
+| **Signal handling** | Per-instance interrupt handler via `SCIPinterruptSolve()` | No signals, uses atomic stop flags | Replace `signal.raise_signal` with `solver_ctx_request_stop()` |
 
-### Phase 1: Foundation (Must Complete First)
+## MVP Recommendation for v1.1
 
-- [x] **Test suite** -- Create tests for expression arithmetic, constraint evaluation, small model solve-and-verify. Use these to gate all subsequent changes.
-- [x] **Memory leak fixes** -- Fix the use-after-free in `accept_best_routine` (critical safety bug). Fix double `copy_state` leak. Validate with valgrind.
-- [x] **Sparse preprocessing realloc fix** -- Fix the inverted bitmask condition in `preprocessing` and `preprocessing_sparse`. This is a near-zero-risk high-value fix.
+**Must ship (P0/P1):**
+1. SATISFY mode crash fix (line 220 type error + line 236 signal)
+2. Remaining VLA replacement (local_search.c:332)
+3. GCC 15 type mismatch warnings
+4. local_search() API migration completion
 
-### Phase 2: Thread Safety (Requires Phase 1 Tests)
+**Should ship (P2):**
+5. Dead code removal (commented-out blocks across all C/Cython files)
+6. History callback rework (module-level to Model-level)
+7. Bare except clause fix (if still present)
+8. BranchingStats cleanup (sync global and ctx)
 
-- [x] **Eliminate global python_callback** -- Pass callback through struct/context, not global variable.
-- [x] **Replace signal-based stopping** -- Use atomic flag in model_t.
-- [x] **Fix stopping_criterion race** -- Use atomic operations for the shared int.
-- [x] **Make NUMThreads configurable** -- Use mod->num_workers.
-
-### Phase 3: Performance (Requires Phase 2)
-
-- [x] **Remove malloc from hot loops** -- Pre-allocate scratch buffers in thread data structs.
-- [x] **Memory pool for search iterations** -- Arena allocator per thread.
-- [x] **Re-enable incremental constraint evaluation** -- Fix and validate the commented-out fast path.
-
-### Phase 4: Robustness (Can Proceed After Phase 1)
-
-- [x] **Input validation at Cython boundary** -- Check all indices, sizes, and parameters.
-- [x] **Solution validation** -- Verify returned solutions satisfy constraints.
-- [x] **Fixed-size array elimination** -- Replace MINARRAYSIZE/MAXCLAUSESIZE patterns.
-- [x] **Expression ownership clarification** -- Document and enforce copy/mutation rules.
-- [x] **VLA elimination** -- Replace stack VLAs with heap allocations.
-- [x] **Hardcoded constant elimination** -- Move to model parameters.
-
-## Feature Prioritization Matrix
-
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Test suite | HIGH | MEDIUM | P1 |
-| Memory leak fixes (use-after-free) | HIGH | LOW | P1 |
-| Realloc condition fix | HIGH | LOW | P1 |
-| Thread safety (global state) | HIGH | HIGH | P1 |
-| Signal-based stopping replacement | HIGH | MEDIUM | P1 |
-| Malloc in hot loop removal | MEDIUM | MEDIUM | P2 |
-| Input validation | MEDIUM | LOW | P2 |
-| Solution validation | MEDIUM | LOW | P2 |
-| Memory pool allocator | MEDIUM | MEDIUM | P2 |
-| Fixed-size array elimination | MEDIUM | MEDIUM | P2 |
-| Expression ownership model | MEDIUM | MEDIUM | P2 |
-| Incremental constraint re-enabling | HIGH | HIGH | P2 |
-| Configurable thread count | LOW | LOW | P3 |
-| VLA elimination | LOW | LOW | P3 |
-| Hardcoded constant elimination | LOW | LOW | P3 |
-| Solution diagnostics | LOW | LOW | P3 |
-
-**Priority key:**
-- P1: Must fix -- solver produces wrong results or crashes without these
-- P2: Should fix -- solver is slow or fragile without these
-- P3: Nice to have -- cleanup that improves maintainability
-
-## Comparable Solver Feature Analysis
-
-| Feature | SCIP (C) | OR-Tools (C++) | Gurobi (C) | Our Approach |
-|---------|----------|----------------|------------|--------------|
-| Thread safety | Full (per-solver context) | Full (protobuf-based) | Full (env-based) | BROKEN -- must fix |
-| Memory management | Custom allocators, block memory | Arena allocators | Opaque, no leaks | malloc/free everywhere, leaks present |
-| Input validation | Extensive (SCIP_RETCODE) | Proto validation | Parameter checking | None -- must add |
-| Solution verification | Built-in feasibility check | Solution validator | Automatic | Missing -- must add |
-| Test suite | Extensive (CTest) | Extensive (GTest) | Internal | None -- must create |
-| Configurable threading | Runtime parameter | Runtime parameter | Runtime parameter | Compile-time constant |
+**Defer to v1.2:**
+- Any performance optimization
+- Any new test infrastructure beyond regression tests
+- Any API redesign
+- Free-threading adoption
 
 ## Sources
 
-- Direct codebase analysis (HIGH confidence) -- all specific line references verified against source files
-- [Arena Allocator patterns](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator) -- MEDIUM confidence, established pattern
-- [Thread safety in C](https://peerdh.com/blogs/programming-insights/implementing-threadsafe-design-patterns-in-c) -- MEDIUM confidence
-- [Memory pool allocators](https://8dcc.github.io/programming/pool-allocator.html) -- MEDIUM confidence
-- [SEI CERT thread safety](https://wiki.sei.cmu.edu/confluence/display/c/POS47-C.+Do+not+use+threads+that+can+be+canceled+asynchronously) -- HIGH confidence, authoritative standard
-- [Memory safety and thread safety relationship](https://www.ralfj.de/blog/2025/07/24/memory-safety.html) -- MEDIUM confidence
+- Direct codebase analysis (HIGH confidence) -- all line references verified against source
+- [SCIP Event Handler documentation](https://www.scipopt.org/doc/html/EVENT.php) -- HIGH confidence, official docs
+- [SCIP Concurrent Solving](https://www.scipopt.org/doc/html/CONCSCIP.php) -- HIGH confidence, official docs
+- [OR-Tools CP-SAT Callback documentation](https://developers.google.com/optimization/reference/python/sat/python/cp_model) -- HIGH confidence, official docs
+- [OR-Tools SharedResponseManager](https://developers.google.com/optimization/reference/sat/synchronization/SharedResponseManager) -- HIGH confidence, official docs
+- [OR-Tools log callback thread safety issue](https://groups.google.com/g/or-tools-discuss/c/5FHrIjHBstc) -- MEDIUM confidence, community discussion
+- [Cython free-threading documentation](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- HIGH confidence, official docs
+- [Cython cdef globals should be module state](https://github.com/cython/cython/issues/5425) -- MEDIUM confidence, open issue
+- [VLA pitfalls in C](https://jorenar.com/blog/vla-pitfalls) -- MEDIUM confidence, technical blog
+- [C23 VLA removal](https://www.codegenes.net/blog/in-which-versions-of-the-c-standard-are-variable-length-arrays-not-part-of-the-language-required-or-optional/) -- MEDIUM confidence, technical reference
 
 ---
-*Feature research for: CBQS Solver Stabilization and C Optimization*
-*Researched: 2026-02-04*
+*Feature research for: CBQS v1.1 Bug Fixes and Code Polish*
+*Researched: 2026-02-06*
+*Supersedes: v1.0 FEATURES.md (2026-02-04)*

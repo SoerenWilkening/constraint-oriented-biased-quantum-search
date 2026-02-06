@@ -1,194 +1,390 @@
-# Stack Research
+# Stack Research: v1.1 Bug Fixes and Code Polish
 
-**Domain:** C/Cython/Python solver optimization and stabilization
-**Researched:** 2026-02-04
-**Confidence:** HIGH (most tools verified via official docs and multiple sources)
+**Project:** CBQS v1.1
+**Researched:** 2026-02-06
+**Scope:** Stack additions/changes needed for GCC 15 warnings, Cython callback rework, VLA cleanup, dead code removal
+**Confidence:** HIGH (verified against official GCC docs, Cython docs, C standard references)
 
-## Recommended Stack
+---
 
-### Core Technologies (Already In Place)
+## 1. GCC 15 Type Mismatch Warnings
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Python | 3.13.7 | Top-level API, orchestration, joblib parallelism | Already in use; 3.13 is current stable line |
-| Cython | 3.2.x (latest 3.2.4) | Python-to-C bridge, .pyx middleware layer | Already in use; 3.2.4 is latest stable (Jan 2026). Upgrade from "Cython 3" unspecified to pin 3.2.x for free-threading groundwork and bug fixes |
-| C11 | gcc/clang | Core solver kernel: local search, branching, constraint evaluation | Already in use; C11 is correct choice for `_Atomic`, VLAs, and `stdint.h` |
-| setuptools + Cython.Build | current | Build system for extensions | Already in use; adequate for this project size |
+### What Changed
 
-### Memory Debugging Tools
+GCC 15 defaults to `-std=gnu23` (C23) instead of `-std=gnu17`. This is the root cause of all new warnings/errors. Three specific C23 changes affect this codebase.
 
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| AddressSanitizer (ASan) | Built into gcc/clang | Heap/stack buffer overflows, use-after-free, double-free | **Primary memory debugger.** 2-3x slowdown (vs Valgrind's 20-50x). Catches stack overflows Valgrind cannot. Compile with `-fsanitize=address -fno-omit-frame-pointer`. Already partially set up (commented ASan flags in setup.py). |
-| Valgrind (memcheck) | 3.26.0 (Oct 2025) | Heap leak detection, uninitialized memory reads | **Secondary leak detector.** No recompilation needed; use `PYTHONMALLOC=malloc` and CPython suppression file to filter interpreter noise. Essential for finding the leaks in `explore_neighbourhood` (calloc/free in hot loop). |
-| LeakSanitizer (LSan) | Built into ASan | Focused leak detection | Runs automatically with ASan. Use `ASAN_OPTIONS=detect_leaks=1` to enable standalone leak reports. |
+**Confidence:** HIGH -- verified via [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) and [trofi's analysis](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html).
 
-### Thread Safety Analysis
+### Issue 1: `callback_t` Empty Parameter List
 
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| ThreadSanitizer (TSan) | Built into gcc/clang | Data race detection on shared memory | **Primary thread safety tool.** Compile with `-fsanitize=thread -g -O1`. 5-15x slowdown. Directly addresses the `stopping_criterion` shared-write race and any BranchingStats global state races. Cannot combine with ASan in same build -- use separate build configs. |
-| Helgrind (Valgrind tool) | 3.26.0 | Alternative thread error detector | **Backup option.** Use when TSan is impractical (e.g., cannot recompile all libraries). Detects lock ordering violations TSan may miss. Run with `valgrind --tool=helgrind`. |
-
-### Performance Profiling
-
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| `perf` | Linux kernel tool | CPU sampling profiler, hardware counters | **Primary profiler.** Zero instrumentation overhead sampling. Use `perf record -g -F 99` then generate flame graphs. Build with `-fno-omit-frame-pointer` for accurate stacks. |
-| FlameGraph | Latest from github.com/brendangregg/FlameGraph | Visualization of perf sampling data | **Essential companion to perf.** Converts perf stacks to interactive SVG. Immediately identifies hot C functions (constraint_violation, explore_neighbourhood). |
-| `gprof` | Part of binutils | Function-level call counts and timing | **Lightweight alternative** when perf is unavailable (e.g., macOS without root). Compile with `-pg`. Less accurate than perf for multithreaded code. |
-| cProfile + py-spy | Python packages | Python-level profiling | **For Python/Cython layer.** py-spy can profile without code changes and shows both Python and C frames. Use to find overhead in joblib dispatch and Cython wrapper calls. |
-
-### C Unit Testing
-
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| CMocka | 2.0.x (2.0.1, Dec 2025) | C unit test framework with mocking | **Recommended C test framework.** TAP 14 output for CI integration. Type-safe assertions (C99 `intmax_t`). Built-in mock support for isolating functions like `constraint_violation`, `move_list`, `accept_move`. Used by samba, libssh, OpenVPN. CMake and Meson build support. |
-
-### Python/Cython Testing
-
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| pytest | 8.x | Python test runner | **Standard choice.** Run integration tests that exercise the full Python -> Cython -> C stack. Test the public API (Model, SearchLib, Constraint). |
-| pytest-cython | 0.2.x | Doctest support for .pyx files | **Optional.** Useful for testing Cython-only `cdef` functions by writing test wrappers in .pyx files that pytest discovers. |
-| hypothesis | 6.x | Property-based testing | **Recommended for solver correctness.** Generate random constraint models and verify invariants (feasibility check consistency, objective monotonicity). Catches edge cases manual tests miss. |
-
-### Static Analysis
-
-| Tool | Version | Purpose | Why Recommended |
-|------|---------|---------|-----------------|
-| cppcheck | 2.x | Static analysis of C code | **Lightweight first pass.** Catches uninitialized variables, null pointer dereferences, buffer overflows without running code. Run on `cbqs/src/*.c` before committing. |
-| Cython boundscheck/cdivision | Compiler directives | Catch array/division errors in development | Enable `boundscheck=True` and `cdivision=False` in dev builds. Disable for release (`-O3`). |
-
-### Memory Allocation Patterns (No External Dependency)
-
-| Pattern | Purpose | Where to Apply |
-|---------|---------|----------------|
-| Arena/bump allocator | Eliminate per-iteration malloc/free in hot loops | `explore_neighbourhood`: replace `calloc(MINSIZE, sizeof(int))` for `changed_con` and `changes` with a per-thread arena that resets each iteration. Also for `sw_init` temporary bitvectors. |
-| Thread-local arenas | Avoid synchronization overhead | Each pthread gets its own arena (allocated once in `accept_best_routine`, freed after join). No locking needed. |
-| Stack allocation | Replace small heap allocations | VLA `int bits[dat->d]` is already on stack (good). Consider converting `int64_t totals[C]` from VLA to arena-backed if C is large. |
-
-## Installation
-
-```bash
-# Python dependencies (existing + new)
-pip install cython>=3.2.0 numpy pandas pytest hypothesis py-spy
-
-# Dev dependencies
-pip install pytest-cython
-
-# System tools (Ubuntu/Debian)
-sudo apt install valgrind linux-tools-common linux-tools-generic cppcheck cmake
-
-# FlameGraph (clone once)
-git clone https://github.com/brendangregg/FlameGraph.git ~/FlameGraph
+**File:** `cbqs/src/definitions.h:31`
+```c
+typedef void (*callback_t)();  // <-- Problem
 ```
 
-## Build Configurations
+In C17, `()` means "unspecified parameters" (accepts anything). In C23, `()` means `(void)` -- zero parameters. Every function that takes a `callback_t` and calls it with zero arguments technically works, but the Cython-generated code casts a `void (*)(void)` to this type when the actual C callback `my_callback_c` is declared `cdef void my_callback_c() with gil:` -- which Cython compiles into a function taking no arguments. So the types happen to match, but GCC 15 may still warn during intermediate casts.
 
-```bash
-# === Release build (existing) ===
-CFLAGS="-O3 -flto -pthread" pip install -e .
+**The real problem:** If the callback_t typedef is ever used to pass functions that DO take parameters (e.g., future callbacks with context), the C23 interpretation breaks that. The typedef should be explicit.
 
-# === ASan debug build ===
-CFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer -pthread" \
-LDFLAGS="-fsanitize=address" \
-pip install -e . --no-build-isolation
-
-# === TSan thread safety build ===
-CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer -pthread" \
-LDFLAGS="-fsanitize=thread" \
-pip install -e . --no-build-isolation
-
-# === Profiling build ===
-CFLAGS="-O2 -g -fno-omit-frame-pointer -pthread" \
-pip install -e . --no-build-isolation
-
-# === Valgrind run ===
-PYTHONMALLOC=malloc valgrind --leak-check=full --suppressions=valgrind-python.supp \
-  python -c "import cbqs; ..."
+**Fix:**
+```c
+typedef void (*callback_t)(void);  // Explicit: takes no arguments
 ```
 
-## Alternatives Considered
+This is a one-line change. It matches the actual usage (all callbacks in this codebase take zero arguments). No behavioral change.
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| CMocka 2.0 | Unity (ThrowTheSwitch) | If you need embedded system support or want zero external dependencies (Unity is 2 headers + 1 .c file). Unity lacks built-in mocking -- needs CMock addon. |
-| CMocka 2.0 | Check | If you prefer fork-based test isolation (each test runs in a subprocess). Heavier weight than CMocka. |
-| ASan | Valgrind only | If you cannot recompile (e.g., testing binary-only libraries). Valgrind works on unmodified binaries. |
-| TSan | Helgrind | When you need lock-ordering analysis or cannot recompile all threaded code. Helgrind is Valgrind-based, no recompilation needed. |
-| perf + FlameGraph | Instruments (macOS) | On macOS development. perf is Linux-only. Use Instruments.app or `sample` command on macOS. |
-| pytest | unittest | Never -- pytest is strictly superior for this use case. |
-| Arena allocator (custom) | jemalloc/tcmalloc | If you want a drop-in malloc replacement without rewriting allocation sites. Does not eliminate the overhead of individual free() calls though. Arena is better for batch-allocate/batch-free patterns in the hot loop. |
+**Impact:** All files using `callback_t` -- `SearchLib.c`, `SearchLib.h`, `local_search.c`, `local_search.h`, `solver.c`, `solver.h`, `definitions.h`.
 
-## What NOT to Use
+### Issue 2: `#define false 0` / `#define true 1`
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| gprof for multithreaded code | gprof does not handle pthreads correctly; it only profiles the main thread and misses time in spawned threads | perf + FlameGraph |
-| `-fsanitize=address` + `-fsanitize=thread` together | ASan and TSan are mutually exclusive; combining them causes false positives and crashes | Separate build configurations |
-| `rand()` in threaded code | `rand()` uses global state, creating a data race. Already present in `move_list` shuffle. | `rand_r()` with per-thread seed, or `drand48_r()` |
-| VLAs with unbounded size | `int64_t totals[C]` and `int64_t remainings[C]` where C comes from user input can overflow stack for large constraint counts | Arena-allocated buffer or heap with size check |
-| `#define false 0` / `#define true 1` in definitions.h | Conflicts with C99 `<stdbool.h>` and C++ `bool` | `#include <stdbool.h>` (C99 standard) |
+**File:** `cbqs/src/definitions.h:45-46`
+```c
+#define false 0
+#define true 1
+```
 
-## Stack Patterns by Variant
+In C23, `bool`, `true`, and `false` are **keywords** (not macros from `<stdbool.h>`). `#define true 1` redefines a keyword, which is an error in C23.
 
-**If targeting macOS development (current, based on Metal backend):**
-- Use Instruments.app for profiling instead of perf
-- ASan and TSan work with Apple Clang
-- Valgrind does NOT support Apple Silicon (arm64). Use ASan/TSan exclusively on macOS.
+**Confidence:** HIGH -- verified via [OpenSSL issue #27516](https://github.com/openssl/openssl/issues/27516) and [open-simh issue #490](https://github.com/open-simh/simh/issues/490).
 
-**If scaling to larger problem sizes (>1000 variables):**
-- Arena allocator becomes critical (malloc per-iteration at 1000+ vars = measurable overhead)
-- Consider SIMD for bitvector operations (sw_tstbit, sw_setbit, sw_clrbit)
-- Thread count should be configurable, not hardcoded `#define NUMThreads 6`
+**Fix:**
+```c
+// Remove the #define false 0 and #define true 1 lines entirely.
+// C23 provides them as keywords.
+// For C11/C17 compatibility, use a version guard:
+#if __STDC_VERSION__ < 202311L
+#include <stdbool.h>
+#endif
+```
 
-**If adding CI/CD pipeline:**
-- CMocka TAP 14 output integrates directly with GitHub Actions test reporters
-- ASan/TSan builds should be separate CI jobs (different compiler flags)
-- Use `cppcheck --xml` for static analysis reporting
+Or simpler: just `#include <stdbool.h>` and remove the defines. `<stdbool.h>` in C11 defines `bool`, `true`, `false` as macros; in C23 the header is a no-op (keywords already exist). Both ways work.
 
-## Version Compatibility
+**Note:** The codebase also uses `atomic_bool` in `solver_ctx.h` via `<stdatomic.h>`, which already implies `bool` support. The `#define` macros in `definitions.h` are technically conflicting even in C11 if `<stdbool.h>` is included transitively.
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| Cython 3.2.x | Python 3.9-3.13 | Python 3.8 support dropped in 3.2.0 |
-| Cython 3.2.x | Python 3.13t (free-threaded) | Experimental support since Cython 3.1. Extension modules not yet thread-safe for cdef class attributes. |
-| CMocka 2.0.x | C99+ compilers | Requires C99 for `intmax_t`; project already uses C11 |
-| Valgrind 3.26.0 | Linux x86_64, aarch64 | Does NOT support macOS arm64 (Apple Silicon) |
-| ASan/TSan | gcc 4.8+, clang 3.2+ | Supported on both Linux and macOS |
+### Issue 3: Operator Precedence Warnings
+
+GCC 15 has improved diagnostic coloring and may surface new `-Wparentheses` warnings for expressions like:
+
+```c
+// local_search.c:545
+if (time > mod->stopping_time || (cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)) break;
+```
+
+The `&&` binds tighter than `||`, so this may not behave as intended. GCC 15's enhanced diagnostics will flag this more visibly.
+
+**Fix:** Add explicit parentheses:
+```c
+if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
+```
+
+Several similar patterns exist in `SearchLib.c:194` and `solver.c` with mixed `&&`/`||` without parentheses.
+
+### Recommended Approach
+
+**Do NOT add `-std=gnu17` to suppress warnings.** That is a workaround, not a fix, and delays the inevitable.
+
+**Instead:**
+1. Fix `callback_t` typedef to use `(void)` -- 1 line
+2. Remove `#define true/false`, add `#include <stdbool.h>` -- 3 lines
+3. Add parentheses to ambiguous `&&`/`||` expressions -- ~5 locations
+4. Optionally add `-std=gnu11` explicitly to `setup.py` compiler_args and CMakeLists.txt to document the intentional standard choice, since the codebase uses C11 features (`_Atomic`, `<stdatomic.h>`). This pins the standard explicitly rather than relying on compiler defaults.
+
+**CI consideration:** `ubuntu-latest` currently ships GCC 13 or 14. When it upgrades to GCC 15 (likely Ubuntu 25.10), these will become build failures if not fixed. Fix proactively.
+
+---
+
+## 2. Cython Callback Concurrency Rework
+
+### Current Problem
+
+`SearchLib.pyx` uses four module-level `cdef` variables for history callback state:
+
+```python
+cdef object _history_list = None
+cdef object _history_prev_best = None
+cdef object _history_original_callback = None
+cdef Model _history_mod = None
+```
+
+These are shared across ALL concurrent workers spawned by `joblib.Parallel(n_jobs=num_workers, backend="threading")`. When `run_sampling` is called by 12 threads simultaneously (the default `num_workers=12`), every thread overwrites the same globals. The history captured is from whichever thread wrote last, not from all threads.
+
+**Why it exists:** Cython `cdef` functions cannot capture closures, and the C callback signature `void (*)()` has no `void *user_data` parameter to pass context through. The module-level globals were the path of least resistance.
+
+### Recommended Pattern: Per-Thread Dict Keyed by Thread ID
+
+**Confidence:** MEDIUM -- pattern derived from Cython docs and general Python threading practices. Not verified in an identical codebase.
+
+**Approach:** Replace the four module-level variables with a single thread-safe dict, keyed by `threading.get_ident()`:
+
+```python
+import threading
+
+# Single module-level dict, protected by the GIL
+cdef dict _callback_state = {}
+
+cdef void my_callback_c() with gil:
+    tid = threading.get_ident()
+    state = _callback_state.get(tid)
+    if state is not None:
+        state['callback']()
+
+def _history_callback_fn():
+    tid = threading.get_ident()
+    state = _callback_state.get(tid)
+    if state is None:
+        return
+    mod = state['mod']
+    history_list = state['history']
+    # ... rest of callback logic using state dict ...
+
+cpdef run_sampling(Model mod, object callback, not_stop):
+    tid = threading.get_ident()
+    _callback_state[tid] = {
+        'history': [],
+        'prev_best': None,
+        'original_callback': callback,
+        'mod': mod,
+    }
+    try:
+        # ... existing solve logic ...
+        history = list(_callback_state[tid]['history'])
+    finally:
+        del _callback_state[tid]  # Clean up
+```
+
+**Why this works:** The GIL protects Python dict operations. The `with gil` on `my_callback_c` ensures the GIL is held when accessing `_callback_state`. Each thread gets its own history list.
+
+**Why NOT a C-level `void *user_data` approach:** That would require changing the `callback_t` signature throughout the C kernel to `void (*callback_t)(void *user_data)`, which is a larger refactor affecting `ctg()`, `local_search()`, `quantum_local_search()`, and all callers. Save that for v2.0 if needed.
+
+**Why NOT `threading.local()`:** `threading.local()` is a Python-level construct. Accessing it inside a `cdef` function that was called from C (via `with gil`) works but adds overhead from the descriptor protocol. A plain dict lookup by `threading.get_ident()` is faster and more explicit.
+
+### Alternative: Callback Context Struct (v2.0)
+
+For a future clean architecture, change the C callback signature:
+
+```c
+typedef void (*callback_t)(void *ctx);
+```
+
+Then pass a `solver_ctx_t *` as the callback context. This is the "correct" pattern used by most C libraries (pthreads, libevent, etc.) but requires touching every callback call site in the C kernel. Not appropriate for a bug-fix milestone.
+
+### No New Dependencies
+
+This rework uses only `threading.get_ident()` from the Python standard library. No new packages needed.
+
+---
+
+## 3. VLA Replacement for Remaining Instance
+
+### Current State
+
+Most VLAs were already replaced in v1.0 Phase 5. One remains:
+
+**File:** `cbqs/src/local_search.c:332`
+```c
+int64_t remainings[C];  // C = con->num_constraints (user-controlled)
+```
+
+This is inside `accept_best_routine()`, which runs on the main thread (not inside the pthread workers). The VLA is stack-allocated with a size determined by the number of constraints, which is user input.
+
+### Why It Must Go
+
+1. **Stack overflow risk:** If `C` is large (hundreds of constraints), `C * sizeof(int64_t)` = `C * 8` bytes on the stack. At 1000 constraints, that's 8KB. Default thread stack is 2-8MB, so this is unlikely to overflow for the main thread, but it is unbounded.
+2. **MSVC incompatibility:** VLAs are not supported by MSVC, blocking any future Windows build.
+3. **C23 status:** VLAs are optional in C11 and remain optional in C23. The `__STDC_NO_VLA__` macro may be defined on some compilers.
+4. **Consistency:** The rest of the codebase was already converted to heap allocation. This one instance is an oversight.
+
+**Confidence:** HIGH -- VLA status in C standards verified via [cppreference](https://en.cppreference.com/w/c/language/array) and [Wikipedia VLA article](https://en.wikipedia.org/wiki/Variable-length_array).
+
+### Recommended Fix
+
+Replace with heap allocation, matching the pattern already used elsewhere in the same file:
+
+```c
+// Before:
+int64_t remainings[C];
+
+// After:
+int64_t *remainings = malloc(C * sizeof(int64_t));
+if (remainings == NULL) {
+    // Handle allocation failure - clean up and return error
+    free_state(cur_best, 1);
+    free_state(cur_best_tabu, 1);
+    return -1;
+}
+// ... use remainings ...
+free(remainings);  // Before each return path
+```
+
+This matches the exact pattern used at `local_search.c:572` for the same purpose in `quantum_local_search_states()`.
+
+### Alternative Considered: Arena Allocation
+
+The `solver_ctx_t` already contains an arena allocator. Could use:
+```c
+int64_t *remainings = (int64_t*)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
+```
+
+However, `accept_best_routine()` already has a well-defined lifecycle (allocate at start, free at end), so a simple `malloc/free` is clearer and sufficient. Arena is better for the hot inner loop (which already uses it).
+
+### No Other VLAs Remain
+
+Grep confirms:
+- `local_search.c:332` -- the one remaining VLA (`int64_t remainings[C]`)
+- `local_search.c:496` -- already commented out (dead code, should be deleted)
+- All other former VLA sites already converted to heap or arena allocation
+
+---
+
+## 4. Dead/Commented-Out Code Cleanup
+
+### Scale of the Problem
+
+A grep for comment patterns resembling code (commented `printf`, `for`, `if`, assignments) found **260 occurrences across 15 files** in `cbqs/src/`. This is substantial noise.
+
+### Cleanup Strategy: No New Tools Needed
+
+**Do NOT add cppcheck, clang-tidy, or other static analysis tools just for this.** The problem is well-defined and can be solved with manual review.
+
+**Approach:**
+1. **Remove all `//` commented-out code blocks** -- These are debug artifacts, old algorithm attempts, and disabled features. They add cognitive overhead, confuse grep searches, and make diffs noisier.
+2. **Preserve `/* ... */` documentation comments** -- Block comments explaining WHY something works should stay.
+3. **Use `git blame` before deleting** -- If a commented block was recently added (v1.0), verify it is not a deliberate "keep for reference" note.
+
+### Files with the Most Commented-Out Code
+
+| File | Commented Lines | Nature |
+|------|----------------|--------|
+| `local_search.c` | ~52 | Old VLA code, disabled aspiration criterion, debug printf |
+| `Branching.c` | ~42 | Disabled branching strategies |
+| `solver.c` | ~40 | Old objective computation, disabled constraints paths |
+| `SearchLib.c` | ~5 | Old iteration tracking |
+| `constraint.c` | ~33 | Old constraint evaluation methods |
+
+### GCC Warning Flags for Dead Code
+
+Already available in the toolchain, no installation needed:
+
+| Flag | What It Catches |
+|------|----------------|
+| `-Wunused-function` | Static functions never called |
+| `-Wunused-variable` | Variables declared but never used |
+| `-Wunused-parameter` | Function parameters never used |
+| `-Wunused-but-set-variable` | Variables set but never read |
+| `-Wunreachable-code` | Code after unconditional return/break |
+
+**Recommendation:** Add `-Wall -Wextra` to both `setup.py` `compiler_args` and the CMake test build. This captures all of the above. Currently only `-O3 -flto -pthread` is specified. Adding warnings does not change runtime behavior.
+
+```python
+# setup.py
+compiler_args = ["-O3", "-flto", "-pthread", "-Wall", "-Wextra", "-Wno-unused-parameter"]
+```
+
+The `-Wno-unused-parameter` exception is needed because many callback and API functions have intentionally unused parameters (e.g., `direction` in some solver paths).
+
+### Python-Side Bare Except
+
+The milestone description mentions a "bare except clause." Grep found none in the current `.py` or `.pyx` files. This may have already been fixed, or it may be in a file not yet checked. If it exists, the fix is:
+
+```python
+# Before:
+except:
+    pass
+
+# After:
+except Exception:
+    pass
+```
+
+Or more specifically, catch only the expected exception type.
+
+---
+
+## 5. What NOT to Add
+
+| Temptation | Why Avoid | Instead |
+|------------|-----------|---------|
+| clang-tidy or cppcheck for this milestone | Overkill for a targeted cleanup. These tools produce hundreds of findings, most irrelevant to the v1.1 goals. | Manual review guided by GCC warnings |
+| Linting CI job (flake8/pylint) | Not in scope for a C-focused bug fix milestone. Would require significant configuration to avoid noise. | Defer to v2.0 |
+| `-std=gnu23` flag | The codebase uses `_Atomic` (C11) but not C23 features. Explicitly targeting C23 invites more breakage with no benefit. | Keep C11, fix only the forward-compatibility issues |
+| PyCapsule-based callback architecture | Requires rewriting the entire callback chain through C. Correct but too much churn for a cleanup milestone. | Thread-ID dict for v1.1, C-level context for v2.0 |
+| alloca() for VLA replacement | Non-standard, not portable, same stack overflow risk as VLAs | malloc/free (already the codebase pattern) |
+| Free-threaded Python (3.13t) | Experimental. Cython support for free-threading is incomplete. Would introduce new concurrency bugs. | Stay on GIL-based Python 3.13.7 |
+
+---
+
+## 6. Compiler/Standard Recommendations
+
+### Explicit Standard Pin
+
+Add `-std=gnu11` to compiler flags in both `setup.py` and `CMakeLists.txt`. This:
+- Documents the intended standard
+- Prevents GCC 15's default-to-C23 from causing surprise failures
+- Still allows all C11 features used (`_Atomic`, `<stdatomic.h>`, designated initializers)
+
+```python
+# setup.py
+compiler_args = ["-std=gnu11", "-O3", "-flto", "-pthread", "-Wall", "-Wextra", "-Wno-unused-parameter"]
+```
+
+```cmake
+# CMakeLists.txt - already has set(CMAKE_C_STANDARD 11)
+# Add warning flags:
+add_compile_options(-Wall -Wextra -Wno-unused-parameter)
+```
+
+### Forward Compatibility
+
+Even with `-std=gnu11`, fix the three C23 issues (`callback_t`, `true`/`false` defines, parentheses) anyway. This way:
+- The fixes are correct under any standard
+- When the project eventually moves to C23, there is no breakage
+- The code is cleaner regardless of compiler version
+
+---
+
+## Summary of Changes Required
+
+| Change | Files Affected | Risk | Effort |
+|--------|---------------|------|--------|
+| `callback_t` typedef: `()` to `(void)` | `definitions.h` | None | 1 line |
+| Remove `#define true/false`, add `<stdbool.h>` | `definitions.h` | Low (test all builds) | 3 lines |
+| Add parentheses to `&&`/`||` expressions | `local_search.c`, `SearchLib.c`, `solver.c` | None | ~5 locations |
+| Replace VLA `remainings[C]` with malloc | `local_search.c` | Low | ~10 lines |
+| Rework history callback to per-thread dict | `SearchLib.pyx` | Medium (needs testing) | ~40 lines |
+| Delete commented-out code | 15 C files | Low | ~260 lines deleted |
+| Add `-Wall -Wextra` to build flags | `setup.py`, `CMakeLists.txt` | Low (may surface warnings to fix) | 2 lines |
+| Add `-std=gnu11` to build flags | `setup.py`, `CMakeLists.txt` | None | 2 lines |
+
+**No new dependencies. No new tools. No new packages.**
+
+---
 
 ## Confidence Assessment
 
 | Item | Confidence | Source |
 |------|------------|--------|
-| ASan/TSan flags and behavior | HIGH | Official Clang docs, Google Sanitizers wiki |
-| Valgrind 3.26.0 version | HIGH | valgrind.org official downloads page |
-| CMocka 2.0 features | HIGH | Official cmocka.org, LWN.net announcement (Dec 2025) |
-| Cython 3.2.4 current version | HIGH | PyPI official page |
-| Arena allocator 50-100x speedup claim | MEDIUM | Multiple blog posts, no benchmark on this specific codebase |
-| py-spy compatibility with Cython 3.2 | MEDIUM | Generally works but not verified for this specific version combo |
-| Free-threaded Python + Cython safety | MEDIUM | Cython docs state "experimental"; not recommended for production yet |
-| Helgrind vs TSan tradeoffs | MEDIUM | Based on Valgrind docs and Google Sanitizers wiki; not tested side-by-side on this codebase |
+| GCC 15 C23 default change | HIGH | [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) |
+| Empty `()` meaning `(void)` in C23 | HIGH | [trofi's blog](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html), GCC docs |
+| `bool`/`true`/`false` as C23 keywords | HIGH | [OpenSSL #27516](https://github.com/openssl/openssl/issues/27516), C23 standard |
+| Thread-ID dict pattern for Cython callbacks | MEDIUM | Derived from Cython threading docs and Python stdlib; not verified in identical codebase |
+| VLA replacement with malloc | HIGH | Standard C practice, matches existing codebase pattern |
+| 260 commented-out code lines count | HIGH | Direct grep of source tree |
+| `-Wall -Wextra` safety | HIGH | GCC official documentation |
 
 ## Sources
 
-- [Valgrind 3.26.0 release](https://valgrind.org/downloads/) -- verified version and platform support
-- [ThreadSanitizer manual](https://github.com/google/sanitizers/wiki/threadsanitizercppmanual) -- compilation flags, overhead, pthread support
-- [Clang ThreadSanitizer docs](https://clang.llvm.org/docs/ThreadSanitizer.html) -- official compiler documentation
-- [Red Hat: Comparing Sanitizers and Valgrind](https://developers.redhat.com/blog/2021/05/05/memory-error-checking-in-c-and-c-comparing-sanitizers-and-valgrind) -- ASan vs Valgrind tradeoffs
-- [Using Valgrind with Cython](https://adrianeboyd.github.io/using-valgrind-with-cython/) -- PYTHONMALLOC, suppression files
-- [CMocka 2.0 release announcement](https://blog.cryptomilk.org/2025/12/04/cmocka-2-0-released-enhancing-unit-testing-in-c/) -- TAP 14, type-safe assertions
-- [cmocka.org](https://cmocka.org/) -- official project page
-- [Cython 3.2.4 on PyPI](https://pypi.org/project/Cython/) -- current version verification
-- [Cython free threading docs](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- experimental nogil status
-- [Brendan Gregg's FlameGraph](https://github.com/brendangregg/FlameGraph) -- perf visualization
-- [Brendan Gregg's perf examples](https://www.brendangregg.com/perf.html) -- profiling workflow
-- [Arena allocator patterns](https://nullprogram.com/blog/2023/09/27/) -- implementation tips
-- [Arena performance claims](https://medium.com/@ramogh2404/arena-and-memory-pool-allocators-the-50-100x-performance-secret-behind-game-engines-and-browsers-1e491cb40b49) -- MEDIUM confidence
-- [joblib parallel docs](https://joblib.readthedocs.io/en/stable/parallel.html) -- threading backend with nogil
-- [pytest-cython](https://github.com/lgpage/pytest-cython) -- Cython test integration
+- [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) -- official migration guide
+- [gcc-15 switched to C23 (trofi)](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html) -- detailed analysis of C23 breaking changes
+- [6 usability improvements in GCC 15 (Red Hat)](https://developers.redhat.com/articles/2025/04/10/6-usability-improvements-gcc-15) -- diagnostic improvements
+- [OpenSSL C23 bool keyword issue #27516](https://github.com/openssl/openssl/issues/27516) -- real-world bool breakage example
+- [open-simh C23 bool issue #490](https://github.com/open-simh/simh/issues/490) -- another bool breakage example
+- [Cython free threading docs](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- Cython concurrency model
+- [Cython external C code docs](https://cython.readthedocs.io/en/latest/src/userguide/external_C_code.html) -- callback GIL handling
+- [SciPy LowLevelCallable pattern](https://github.com/scipy/scipy/blob/main/scipy/_lib/_ccallback.py) -- reference for callback architecture
+- [Wikipedia: Variable-length array](https://en.wikipedia.org/wiki/Variable-length_array) -- VLA standard status
+- [CERT C: VLA size validation](https://wiki.sei.cmu.edu/confluence/x/AdcxBQ) -- security implications of VLAs
+- [GCC Warning Options](https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html) -- `-Wunused-*` flag reference
 
 ---
-*Stack research for: CBQS solver optimization and stabilization*
-*Researched: 2026-02-04*
+*Stack research for: CBQS v1.1 bug fixes and code polish*
+*Researched: 2026-02-06*

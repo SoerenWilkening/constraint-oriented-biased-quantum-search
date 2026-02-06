@@ -1,555 +1,585 @@
-# Architecture Research
+# Architecture Research: v1.1 Bug Fixes and Code Polish
 
-**Domain:** C-based constraint-oriented quantum search solver (CBQS) -- stabilization and optimization
-**Researched:** 2026-02-04
-**Confidence:** HIGH (based on direct codebase analysis + established C systems programming patterns)
+**Domain:** C/Cython/Python solver (CBQS) -- cleanup milestone targeting history callback, local_search API, SATISFY mode crash, VLA removal, and deprecated BranchingStats
+**Researched:** 2026-02-06
+**Confidence:** HIGH (direct codebase analysis of every relevant source file)
 
-## Current System Overview
+---
 
-```
-+---------------------------------------------------------------+
-|                     Python API Layer                           |
-|  Model.pyx  |  Constraint.pyx  |  Expression.pyx  |  state.pyx|
-+------+---------------------------+------------------------+---+
-       |                           |                        |
-+------v---------------------------v------------------------v---+
-|                     Cython Binding Layer                       |
-|  SearchLib.pyx (run_sampling, run_local_search, etc.)         |
-|  Model.pxd / Constraint.pxd / SearchLib.pxd                  |
-+------+---------------------------+------------------------+---+
-       |                           |                        |
-+------v---------------------------v------------------------v---+
-|                      C Kernel Layer                            |
-|  +-----------+  +-------------+  +-----------+  +-----------+ |
-|  | model.c   |  | constraint.c|  | solver.c  |  |Branching.c| |
-|  +-----------+  +-------------+  +-----------+  +-----------+ |
-|  +-----------+  +-------------+  +-----------+  +-----------+ |
-|  |local_search| |quantum_search| | state.c   |  |intarray.h | |
-|  +-----------+  +-------------+  +-----------+  +-----------+ |
-|  +-----------+                                                 |
-|  |Expression.c|  (+ approximate_state_sampler, metal_files)   |
-|  +-----------+                                                 |
-+---------------------------------------------------------------+
+## Executive Summary
+
+The v1.0 milestone delivered the `solver_ctx_t` architecture, arena allocator, per-thread PRNG, and an `OptimizeResult` return type. However, five cleanup items remain that intersect with the existing architecture in non-trivial ways. This document maps each cleanup item onto the current code, identifies the root cause, analyzes dependencies between fixes, and recommends a fix order.
+
+The key architectural insight: four of the five items (history callback, local_search API, SATISFY mode, deprecated BranchingStats) share a common pattern -- they are remnants of pre-`solver_ctx_t` global/module-level state that was left in place for backward compatibility during the v1.0 migration. The fifth (VLA replacement) is a portability fix already partially addressed by pre-allocated per-thread buffers.
+
+---
+
+## Item 1: History Callback Rework
+
+### Current Architecture
+
+The history callback is implemented as module-level `cdef` state in `SearchLib.pyx` (lines 134-159):
+
+```python
+# Module-level state for history callback wrapper.
+cdef object _history_list = None
+cdef object _history_prev_best = None
+cdef object _history_original_callback = None
+cdef Model _history_mod = None
 ```
 
-### Current Component Responsibilities
+The callback function `_history_callback_fn()` (line 143) reads from these module-level variables. It is set as the global `python_callback` before the solve loop starts (lines 201-206 in `run_sampling`, lines 297-302 in `run_local_search`).
 
-| Component | Responsibility | Current Issues |
-|-----------|----------------|----------------|
-| `model_t` (model.h/c) | Holds all solver parameters, pointers to constraints/objective/states | Flat struct, no separation of shared vs mutable state |
-| `BranchingStats` (Branching.h/c) | Branching heuristic weights and per-variable biases | **GLOBAL VARIABLE** -- data race under joblib threading |
-| `new_constraints_t` (constraint.h/c) | Stores constraint/objective expressions in flattened arrays | Read-only after preprocessing; safe to share |
-| `expression_t` (Expression.h) | Intermediate expression builder with MAXCLAUSESIZE=4 fixed slots | Fixed `MAXCLAUSESIZE` wastes memory for linear terms, blocks higher-order |
-| `state_t` (state.h) | Solution vector (bit array) + objective + feasibility | Copied per thread correctly |
-| `local_search_data_t` (local_search.h) | Per-thread work packet for neighbourhood exploration | Reasonably isolated, but references shared `con`/`obj` |
-| `array_t` (intarray.h) | Compact bit vector using uint64 parts | Good design; inline ops; heap-allocated parts |
-| `move_t` / `tabu_list_t` (local_search.h) | Move generation and tabu memory | Each move allocates its own `flips` array via malloc |
+**Call chain:**
 
-## Critical Architectural Problems
-
-### Problem 1: Global BranchingStats (Thread Safety Violation)
-
-**Location:** `Branching.c` line 5: `BranchingStats_t BranchingStats = { ... };`
-
-**Impact:** `BranchingStats` is a process-wide global. When `Model.solve()` calls `joblib.Parallel(n_jobs=num_workers, backend="threading")`, all threads read/write the same `BranchingStats`. The `set_bias()`, `set_factors()`, `set_obj_dependence()` functions mutate it without synchronization. The `BranchingFunction()` inline reads it on every branching decision.
-
-**Current usage path:**
 ```
-Python Model.solve()
-  -> joblib Parallel (threading backend)
-    -> run_sampling() per worker
-      -> set_bias_wrapper() [WRITES global BranchingStats]
-      -> ctg() -> solver -> BranchingFunction() [READS global BranchingStats]
+Model.solve() [Python]
+  -> joblib.Parallel(n_jobs=N, backend="threading")
+    -> run_sampling(Model, callback, not_stop) [Cython, per-worker]
+      1. Sets module-level: _history_list = [], _history_mod = mod, etc.
+      2. Sets module-level: python_callback = _history_callback_fn
+      3. Calls ctg(ctx, mod_ptr, stt, cb_ptr, inc.incumbent) [C, nogil]
+        4. On improvement: callback() [C, acquires GIL]
+          5. my_callback_c() [Cython, with gil]
+            6. python_callback() -> _history_callback_fn() [Python]
+              7. Reads _history_mod.mod[0].global_opt[0].tot_profit
+              8. Appends to _history_list
 ```
 
-**Severity:** This is a data race. Under threading, workers may see torn writes or stale values. Because all workers currently use the same bias value, the race is "benign" (same value written), but it is still undefined behavior, and any future per-worker bias tuning will break silently.
+### The Concurrency Problem
 
-### Problem 2: malloc/free in Hot Loops
+When `Model.solve()` uses `joblib.Parallel(backend="threading")` with `num_workers > 1`, all N workers execute `run_sampling()` in separate threads. Each thread:
 
-**Location:** `explore_neighbourhood()` in `local_search.c`, lines 178-179 and 225:
+1. **Overwrites** the same module-level `_history_list`, `_history_mod`, `_history_prev_best`, `_history_original_callback`
+2. **Overwrites** the same module-level `python_callback`
+
+This is a data race on Python objects. Because of the GIL, it does not cause memory corruption, but it causes logical corruption: one worker's history setup overwrites another's. The last worker to set up wins; earlier workers' callback state is lost.
+
+**Observed behavior:** All workers share the same `_history_list` and `_history_mod`, so history entries from all workers end up in one list. The `_history_prev_best` deduplication check races between workers. The merged history in `Model.solve()` (lines 333-336) then collects from all workers' `res[6]`, but each worker returns the same shared `_history_list` at that point.
+
+### Why Module-Level State Was Used
+
+Cython imposes a constraint: `cpdef` functions cannot capture closures. A regular Python class cannot access `cdef` attributes on Cython extension types. The workaround was module-level `cdef` variables that act as a manual closure.
+
+### Recommended Rework: Per-Worker History via Thread-Local Dictionary
+
+**Approach:** Replace the four module-level `cdef` variables with a thread-keyed dictionary. Each worker stores its own history state under `threading.get_ident()`.
+
+```python
+import threading
+
+# Thread-keyed history state (replaces module-level cdef variables)
+cdef dict _history_state = {}  # {thread_id: (list, prev_best, original_callback, Model)}
+
+def _history_callback_fn():
+    tid = threading.get_ident()
+    state = _history_state.get(tid)
+    if state is None:
+        return
+    hist_list, prev_best, orig_cb, mod = state
+    obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
+    elapsed_ms = mod.mod[0].runtime * 1000.0
+    is_feasible = bool(mod.mod[0].global_opt[0].feasible)
+    iteration = mod.mod[0].qtg_applications
+    if prev_best is None or obj_val != prev_best:
+        hist_list.append((iteration, obj_val, elapsed_ms, is_feasible))
+        _history_state[tid] = (hist_list, obj_val, orig_cb, mod)
+    if orig_cb is not None:
+        orig_cb()
+```
+
+**Setup in run_sampling (replaces lines 200-206):**
+
+```python
+tid = threading.get_ident()
+hist = []
+_history_state[tid] = (hist, None, callback, mod)
+python_callback = _history_callback_fn
+```
+
+**Teardown after solve loop:**
+
+```python
+history = list(_history_state.get(tid, ([], None, None, None))[0])
+_history_state.pop(tid, None)
+```
+
+**Why this works:**
+- `threading.get_ident()` is fast (no syscall on CPython, just reads a cached value)
+- The GIL protects dictionary writes, so `_history_state[tid] = ...` is atomic from Python's perspective
+- Each worker gets its own history list, preventing cross-worker corruption
+- The `python_callback` module-level variable is still shared, but it points to the same function -- the function itself dispatches per-thread. This is safe because the callback is always `_history_callback_fn` for all workers.
+
+**Remaining issue with `python_callback`:** The module-level `python_callback` variable is still shared. If `run_quantum_local_search` sets it to a different callback while sampling is running, there is a race. However, `run_quantum_local_search` is not called concurrently with `run_sampling` in practice. To be safe, the `python_callback` global could also be keyed by thread, but this requires changing `my_callback_c()` which acquires the GIL -- adding `threading.get_ident()` there is acceptable since the GIL is already held.
+
+**Alternative approach (not recommended):** Embed callback pointer and user data in `solver_ctx_t` at the C level. This would require changing the C `callback_t` typedef from `void (*)()` to `void (*)(void *userdata)` and threading `userdata` through `ctg()`, `local_search()`, etc. This is cleaner architecturally but touches many C function signatures and is a larger change than v1.1 scope warrants.
+
+### Impact on solver_ctx_t
+
+No changes needed to `solver_ctx_t`. The history callback operates entirely at the Python/Cython level, above the nogil boundary. The C kernel just calls `callback()` which acquires the GIL and enters Python code.
+
+---
+
+## Item 2: SATISFY Mode Crash Analysis
+
+### Current Architecture: OPTIMIZE vs SATISFY Code Paths
+
+The `mod.solver` field determines the code path at two levels:
+
+**C level (SearchLib.c, `ctg()` function, lines 110-122):**
+
 ```c
-int *changed_con = calloc(MINSIZE, sizeof(int));  // every move iteration
-...
-free(changed_con);
-...
-int *changes = calloc(MINSIZE, sizeof(int));       // every feasible move
-...
-free(changes);
-```
-
-Also: `sw_init()` allocates `part` array on heap via `malloc` for temporary `inv` bit arrays created per move.
-
-**Impact:** For a problem with n=100 variables and distance d=2, there are ~5050 moves. Each move allocates and frees 2-3 heap buffers. This means roughly 15,000 malloc/free pairs per neighbourhood scan, per iteration. Heap allocator overhead dominates for small allocations.
-
-### Problem 3: Fixed MAXCLAUSESIZE in Expressions
-
-**Location:** `Expression.h` line 10: `#define MAXCLAUSESIZE 4`
-
-**Impact:** Every clause occupies `(MAXCLAUSESIZE - 1) = 3` variable slots in the flattened `variables` array, regardless of actual clause length. A linear constraint (1 variable) wastes 2/3 of its variable storage. The `variable_index()` function hardcodes stride as `(MAXCLAUSESIZE - 1)`:
-```c
-static inline size_t first_variable_index(size_t cls, size_t clause_offset) {
-    return clause_offset * (MAXCLAUSESIZE - 1) + (MAXCLAUSESIZE - 1) * cls;
+if (mod->solver == SATISFY) search_function = CSearch_sat;
+if (mod->solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat;
+if (mod->solver == OPTIMIZE && feasible) {
+    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
+    stage = 3;
+    search_function = CSearch_opt;
 }
 ```
 
-This creates a tight coupling: changing MAXCLAUSESIZE requires recompiling everything and changes memory layout for all clauses. Higher-order terms (degree > 3) are impossible.
+For SATISFY mode:
+- Uses `CSearch_sat` only (no objective function involved)
+- `tot_profit` represents negative constraint violation count (not objective value)
+- Stop condition: `cur_sol->tot_profit == -(int64_t)mod->con->num_constraints` (all constraints satisfied)
+- `mod->global_opt->tot_profit` comparison: `> cur_sol->tot_profit` (lower is better, since values are negative)
 
-### Problem 4: Redundant Full Constraint Re-evaluation
+For OPTIMIZE mode:
+- Uses `CSearch_opt_sat` then transitions to `CSearch_opt`
+- `tot_profit` represents actual objective value
+- Different stop conditions based on `stop_val`
 
-**Location:** `explore_neighbourhood()` lines 181-183:
+**Cython level (SearchLib.pyx, `run_sampling()` lines 213-239):**
+
+OPTIMIZE path (line 213-216): calls `ctg()` once.
+
+SATISFY path (lines 217-239): calls `ctg()` in a loop with increasing delta, adjusting M and bias each iteration. Signals SIGINT when solution found.
+
+**Python level (Model.pyx, `solve()` lines 327-367):**
+
+After workers complete, `solve()`:
+1. `self.final_state = self.global_opt` (line 330) -- but `self.global_opt` is a Python attribute that is `None` unless set; not the C `mod->global_opt`
+2. Extracts solution from `self.mod[0].global_opt[0].vector` (lines 339-340)
+3. Reads `self.objective_value` which is `self.mod[0].global_opt[0].tot_profit * self.sense` (line 467-468)
+
+### Root Cause of SATISFY Mode Crash
+
+**Location of crash:** The crash occurs in the history callback (`_history_callback_fn`, line 151) or in the `objective_value` property (line 468) when the model is in SATISFY mode.
+
+**The problem chain:**
+
+1. When `Model.__init__` runs, `self.mod.solver = SATISFY` (line 103) and `self.sense = MAXIMIZE` (line 96), which is `-1`.
+
+2. If the user never calls `set_objective()`, `self.sense` remains `MAXIMIZE = -1`.
+
+3. In `_history_callback_fn()` (line 151):
+   ```python
+   obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
+   ```
+   In SATISFY mode, `tot_profit` is a negative violation count (e.g., `-3`). Multiplying by `sense = -1` gives `3`, which is meaningless as an objective value.
+
+4. More critically, `self.objective_value` (line 467-468) does the same multiplication. For SATISFY mode, there is no meaningful "objective value" -- the solver is finding feasibility, not optimizing.
+
+5. **The actual crash:** In SATISFY mode in `run_sampling`, the code at line 220:
+   ```python
+   stpvl = -len(mod.mod[0].con[0].num_constraints)
+   ```
+   This accesses `mod.mod[0].con[0].num_constraints` as if it were a Python object with `len()`. But `num_constraints` is a C `size_t` (integer), not a sequence. `len()` on an integer raises `TypeError`.
+
+   **Wait -- looking more carefully:** In the Cython `.pxd` declarations, `new_constraints_t` has `num_constraints` as `size_t`. In Cython, `len()` on a `size_t` would indeed fail. However, this code has been working for OPTIMIZE mode because the SATISFY branch is only entered when `mod.mod[0].solver != OPTIMIZE`.
+
+   **Actually, re-reading line 220:** `mod.mod[0].con[0].num_constraints` -- this dereferences `con[0]` which is a `new_constraints_t` struct. The `.num_constraints` field is a `size_t`. Wrapping it in `-len(...)` treats it as if it had a length. This is likely the crash: **`len()` called on a C integer type**.
+
+   The correct code should be: `stpvl = -mod.mod[0].con[0].num_constraints` (without `len()`).
+
+6. **Secondary crash path:** Even if line 220 is fixed, `Model.solve()` unconditionally accesses `self.mod[0].global_opt[0].vector` (lines 339-340) and `self.objective_value` (line 356). In SATISFY mode without an objective function, `objective_value` returns `tot_profit * sense` which is a constraint violation count times -1 -- semantically wrong.
+
+### How SATISFY Differs Architecturally from OPTIMIZE
+
+| Aspect | OPTIMIZE | SATISFY |
+|--------|----------|---------|
+| `mod->solver` | `2` | `3` |
+| `tot_profit` semantics | Objective value (lower is better internally) | Negative constraint violation count |
+| `global_opt` semantics | Best objective found so far | Most-feasible solution found so far |
+| Stop condition (C) | `tot_profit <= stop_val` | `tot_profit == -num_constraints` |
+| Stop condition (Cython) | Single `ctg()` call | Loop over delta values, SIGINT on solve |
+| Objective function | Required (set via `set_objective()`) | Not required |
+| `self.sense` | Set by `set_objective()` | Remains `MAXIMIZE = -1` (default) |
+| History callback meaning | Objective improvement events | Feasibility improvement events |
+
+### Recommended Fix
+
+**Fix 1 (Critical): Line 220 in SearchLib.pyx:**
+```python
+# BEFORE (crashes):
+stpvl = -len(mod.mod[0].con[0].num_constraints)
+# AFTER (correct):
+stpvl = -<int>mod.mod[0].con[0].num_constraints
+```
+
+**Fix 2: Guard objective_value for SATISFY mode in Model.pyx:**
+```python
+@property
+def objective_value(self):
+    if self.mod[0].solver == SATISFY:
+        # In SATISFY mode, tot_profit is constraint violation count, not objective
+        return None
+    return self.mod[0].global_opt[0].tot_profit * self.sense
+```
+
+**Fix 3: Guard history callback for SATISFY mode:**
+In `_history_callback_fn()`, check solver mode. For SATISFY, report constraint satisfaction progress instead of objective value:
+```python
+if mod.mod[0].solver == SATISFY:
+    obj_val = mod.mod[0].global_opt[0].tot_profit  # raw violation count
+else:
+    obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
+```
+
+**Fix 4: Guard OptimizeResult construction in Model.pyx solve():**
+```python
+if self.mod[0].solver == SATISFY:
+    objective = None  # or number of satisfied constraints
+else:
+    objective = self.objective_value
+```
+
+### SATISFY Mode Signal Handling Concern
+
+In SATISFY mode, `run_sampling()` raises `SIGINT` (line 236) when a solution is found:
+```python
+signal.raise_signal(signal.SIGINT)
+```
+
+This is architecturally problematic because:
+- `SIGINT` is process-global; it will interrupt ALL threads, not just the current worker
+- When run inside joblib, this can cause the entire parallel pool to tear down
+- The signal handler in SearchLib.c (`handle_signal`, lines 53-56) sets `solver_ctx_request_stop(g_active_ctx)`, but `g_active_ctx` is a global pointing to the last worker's context
+
+This is a pre-existing issue but should be noted for the fix: the SATISFY mode stop mechanism should use `solver_ctx_request_stop()` directly instead of `SIGINT`.
+
+---
+
+## Item 3: local_search() API Layer Mismatch
+
+### Current Call Chain
+
+```
+Model.local_search() [Python, Model.pyx line 371]
+  -> Parameters: distance, callback, stop_time, max_worse_acceptances, stopping_condition, verify
+  -> Sets: mod.distance, mod.stopping_time, mod.stop_val=-1, mod.max_worse_acceptances, mod.stopping_condition
+  -> Calls: run_local_search(self, callback) [Cython]
+
+run_local_search() [Cython, SearchLib.pyx line 269]
+  -> Creates solver_ctx_t
+  -> Sets up history callback
+  -> Calls: local_search(ctx, st, mod.mod, cb_ptr) [C, nogil]
+
+local_search() [C, local_search.c line 478]
+  -> Signature: int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback)
+  -> Reads: mod->distance, mod->con, mod->obj, mod->stopping_time, mod->stop_val
+  -> Reads: mod->max_worse_acceptances, mod->stopping_condition
+  -> Writes: mod->runtime, mod->global_opt (via accept_move)
+  -> Calls: accept_best_routine(ctx, cur_sol, mod->global_opt, mod->con, mod->obj, ...)
+```
+
+### The Mismatch
+
+The `local_search()` C function reads parameters from `model_t` and also writes to `model_t.runtime` and `model_t.global_opt`. This creates two problems:
+
+1. **Parameter bundling:** `local_search()` takes the entire `model_t*` to access 7+ parameters. The `model_t` was designed as a flat bag for all solver parameters. `local_search()` only needs a subset: `{distance, con, obj, stopping_time, stop_val, max_worse_acceptances, stopping_condition, global_opt}`.
+
+2. **Mutable shared state through model_t:** `local_search()` writes `mod->runtime` on every iteration (line 538) and writes `mod->global_opt` via `accept_move()`. If `local_search()` were ever called from multiple workers (like `ctg` is via joblib), this would be a data race.
+
+### Current State: Is This Actually Broken?
+
+**No, `local_search()` is currently single-threaded at the Python level.** `Model.local_search()` does NOT use joblib. It calls `run_local_search()` once, not in parallel. The parallelism happens INSIDE `local_search.c` via pthreads in `accept_best_routine()`.
+
+However, `local_search.c` internally spawns `num_threads` pthreads for neighborhood exploration, and those threads share `mod->global_opt` via `accept_move()` called from `accept_best_routine()` (lines 445-446). The `accept_move()` on `global_opt` is NOT protected by a mutex in the local_search path (unlike `ctg()` which has `pthread_mutex_lock(&update_lock)` on line 184).
+
+### Recommended Cleanup
+
+**Approach: Extract parameter struct for local_search (LOW priority)**
+
+Since `local_search()` is single-threaded at the Python level, the main cleanup is cosmetic: make the API clearer about what it reads and writes. Options:
+
+**Option A (Minimal, recommended for v1.1):** Keep `model_t*` parameter. Add a comment documenting which fields are read and which are written. Add mutex protection to `global_opt` writes inside `accept_best_routine`.
+
+**Option B (Cleaner, deferred to v1.2):** Create a `local_search_params_t` struct with just the needed fields, and pass that instead of the full `model_t*`. This decouples local_search from the model layer.
+
+For v1.1, Option A is sufficient. The key safety fix is ensuring `accept_move()` on `global_opt` in `accept_best_routine()` (line 445) uses the `update_lock` mutex, matching the pattern already used in `ctg()`:
+
 ```c
-for (int i = 0; i < C; ++i){
-    totals[i] = constraint_violation(dat->con, new_sol, i);
-}
+// In accept_best_routine(), line 445:
+// BEFORE:
+int accepted = accept_move(new_sol, cur_best, global_opt);
+// AFTER:
+pthread_mutex_lock(&update_lock);
+int accepted = accept_move(new_sol, cur_best, global_opt);
+pthread_mutex_unlock(&update_lock);
 ```
 
-The optimized `adjusted_constraint_violation()` path is commented out (lines 184-190). Instead, every move re-evaluates ALL clauses of ALL constraints from scratch, even though only d bits changed. This is O(total_clauses) per move instead of O(affected_clauses).
+### Integration Point: Callback in local_search
 
-## Recommended Architecture After Refactoring
-
-```
-+---------------------------------------------------------------+
-|                     Python API Layer                           |
-|  Model (Python)  -- owns model_t via Cython                   |
-+---------------------------------------------------------------+
-       |
-+------v--------------------------------------------------------+
-|                     Cython Binding Layer                       |
-|  Creates solver_ctx_t per worker thread                       |
-|  Shares model_t (read-only after close())                     |
-+------+--------------------------------------------------------+
-       |
-+------v--------------------------------------------------------+
-|                      C Kernel Layer                            |
-|                                                                |
-|  SHARED (read-only after preprocessing):                      |
-|  +-------------------+  +-------------------+                  |
-|  | model_t           |  | new_constraints_t |                  |
-|  | (parameters only) |  | (obj + con)       |                  |
-|  +-------------------+  +-------------------+                  |
-|                                                                |
-|  PER-SOLVER (one per thread):                                 |
-|  +-------------------+                                         |
-|  | solver_ctx_t      |                                         |
-|  |  - branching_stats|  (was global BranchingStats)            |
-|  |  - scratch arena  |  (replaces hot-loop malloc)             |
-|  |  - state buffers  |  (cur_best, new_sol, etc.)              |
-|  |  - tabu list      |                                         |
-|  |  - move list      |                                         |
-|  |  - rng state      |  (thread-local PRNG)                    |
-|  +-------------------+                                         |
-+---------------------------------------------------------------+
-```
-
-### Component Responsibilities (Target)
-
-| Component | Responsibility | Communicates With |
-|-----------|----------------|-------------------|
-| `model_t` | Solver parameters + pointers to shared constraint data. Immutable after `close()`. | Read by all `solver_ctx_t` instances |
-| `new_constraints_t` | Flattened constraint/objective arrays + preprocessing indices. Immutable after `preprocessing()`. | Read by solver functions via `model_t` |
-| `solver_ctx_t` (NEW) | Per-thread mutable state: branching config, scratch memory, working states, tabu, RNG | Owns all mutable data for one solve thread |
-| `arena_t` (NEW) | Bump allocator for scratch memory within one neighbourhood scan | Owned by `solver_ctx_t`, reset per iteration |
-| `expression_t` | Build-time only. Consumed by `add_expression_to_constraints()`, then freed. | Feeds into `new_constraints_t` at setup time |
-
-## Architectural Patterns
-
-### Pattern 1: Solver Context Struct (Eliminate Globals)
-
-**What:** Bundle all per-solve mutable state into a single `solver_ctx_t` allocated per thread. Pass it explicitly to every function that currently touches `BranchingStats` or thread-local scratch data.
-
-**When to use:** Whenever converting global/static mutable state to thread-safe code in C.
-
-**Trade-offs:** Every function signature gains a `solver_ctx_t *ctx` parameter (more verbose), but eliminates all global mutable state and makes thread safety trivially verifiable.
-
-**Recommended struct design:**
+The `callback` parameter flows through `local_search()` to line 542:
 ```c
-typedef struct {
-    // Branching configuration (was global BranchingStats)
-    BranchingStats_t branching;
-
-    // Thread-local PRNG state (replace global rand())
-    uint64_t rng_state;
-
-    // Scratch arena for hot-loop allocations
-    arena_t arena;
-
-    // Pre-allocated working state buffers
-    state_t *cur_best;
-    state_t *cur_best_tabu;
-    state_t *new_sol;
-
-    // Pre-allocated scratch arrays (sized to problem)
-    int64_t *totals;        // [num_constraints]
-    int *changed_con;       // [MINSIZE]
-
-    // Tabu list (per solver invocation)
-    tabu_list_t tabu;
-
-    // Move list (can be shared read-only OR per-ctx)
-    move_t *moves;
-    int num_moves;
-
-    // Statistics
-    int count_states;
-    int id;
-} solver_ctx_t;
-
-solver_ctx_t *solver_ctx_create(const model_t *mod);
-void solver_ctx_destroy(solver_ctx_t *ctx);
-void solver_ctx_reset(solver_ctx_t *ctx);  // reset arena + working state between iterations
+if (callback) callback();
 ```
 
-**Migration path for BranchingFunction:**
+This callback is the same `my_callback_c` that acquires the GIL and calls `python_callback`. It is called from the main thread of `local_search()` (after `accept_best_routine()` joins all pthreads), so there is no concurrency issue with the callback in the local_search path.
+
+---
+
+## Item 4: VLA Replacement in accept_best_routine
+
+### Current State
+
+The VLA has already been partially addressed. Looking at `accept_best_routine()` (local_search.c line 332):
+
 ```c
-// BEFORE (reads global):
-static inline double BranchingFunction(int index, int bit_S, int bit_T,
-                                        int diffcount, const BranchingStats_t *stats);
-// This already takes stats as parameter! The fix is ensuring callers
-// pass &ctx->branching instead of &BranchingStats.
-
-// Functions that need updating:
-// - StateProbability()   -- currently uses &BranchingStats directly
-// - updated()            -- currently uses &BranchingStats via StateProbability
-// - set_bias()           -- becomes: ctx->branching.bias = bias
-// - set_factors()        -- becomes: set on ctx->branching fields
-// - set_obj_dependence() -- becomes: allocate into ctx->branching.obj_dependent
+int64_t remainings[C];  // <-- THIS IS THE REMAINING VLA
 ```
 
-### Pattern 2: Arena (Bump) Allocator for Scratch Memory
+**What has already been fixed:**
+- `totals[C]` in `explore_neighbourhood()` replaced with `data[i].thread_totals = malloc(C * sizeof(int64_t))` (line 377)
+- `bits[d]` in `explore_neighbourhood()` replaced with `data[i].thread_bits = malloc(d * sizeof(int))` (line 378)
+- Per-thread scratch buffers properly allocated and freed
 
-**What:** Pre-allocate a contiguous memory block per solver context. Hot-loop code "allocates" by bumping a pointer. Reset the entire arena between neighbourhood scans (zero-cost "free").
+**What remains:**
+- `int64_t remainings[C]` in `accept_best_routine()` at line 332 is still a VLA on the stack
 
-**When to use:** When many small, short-lived allocations happen in a tight loop (exactly the case in `explore_neighbourhood()`).
+### Risk Assessment
 
-**Trade-offs:** Cannot free individual allocations (only reset entire arena). Requires knowing upper bound on total scratch memory per iteration. Dramatically reduces allocator overhead (pointer bump vs syscall).
+`C` is `con->num_constraints`. For typical problem sizes (C < 100), this is 800 bytes on the stack -- not a problem. For large problems (C > 10000), this could cause stack overflow (80KB+). VLAs are also not standard in C11 (they are optional) and not supported at all in MSVC.
 
-**Recommended implementation:**
+### Recommended Fix
+
+Replace with heap allocation:
+
 ```c
-typedef struct {
-    char *base;       // start of memory block
-    size_t capacity;  // total bytes
-    size_t offset;    // current bump position
-} arena_t;
-
-static inline void arena_init(arena_t *a, size_t capacity) {
-    a->base = malloc(capacity);
-    a->capacity = capacity;
-    a->offset = 0;
+int64_t *remainings = malloc(C * sizeof(int64_t));
+if (remainings == NULL) {
+    // ... cleanup and return -1
 }
-
-static inline void *arena_alloc(arena_t *a, size_t size) {
-    // Align to 8 bytes
-    size = (size + 7) & ~7;
-    if (a->offset + size > a->capacity) return NULL;  // or grow
-    void *ptr = a->base + a->offset;
-    a->offset += size;
-    return ptr;
-}
-
-static inline void arena_reset(arena_t *a) {
-    a->offset = 0;  // "free" everything at once
-}
-
-static inline void arena_destroy(arena_t *a) {
-    free(a->base);
-}
+for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
+// ... use remainings ...
+free(remainings);  // before every return path
 ```
 
-**Sizing the arena:** For `explore_neighbourhood()`, per-move scratch is:
-- `changed_con`: `MINSIZE * sizeof(int)` = 8192 bytes
-- `inv` bit array parts: `ceil(total_clauses / 64) * 8` bytes
-- `changes`: `MINSIZE * sizeof(int)` = 8192 bytes (feasible path)
+Or use arena allocation since `ctx` is available:
 
-A conservative arena of 64KB per solver context handles all scratch for one move evaluation. Reset between moves.
-
-### Pattern 3: Pre-allocated Working Buffers
-
-**What:** Instead of allocating `cur_best`, `cur_best_tabu`, `new_sol` states inside every `explore_neighbourhood()` call, pre-allocate them once in `solver_ctx_t` and reuse.
-
-**When to use:** When the same-sized temporary objects are created and destroyed on every function call.
-
-**Current waste in `explore_neighbourhood()`:**
 ```c
-state_t *cur_best = copy_state(dat->sol);      // malloc for vector.part
-state_t *cur_best_tabu = copy_state(dat->sol);  // malloc for vector.part
-state_t *new_sol = copy_state(dat->sol);         // malloc for vector.part
-// ... work ...
-free_state(new_sol, 1);  // free vector.part
-// cur_best, cur_best_tabu returned to caller who frees them
+int64_t *remainings = (int64_t*)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
+// No free needed -- arena_reset handles it
 ```
 
-**After:** Working states live in `solver_ctx_t`, just reset their contents:
-```c
-// In solver_ctx_create():
-ctx->cur_best = copy_state(initial);
-ctx->cur_best_tabu = copy_state(initial);
-ctx->new_sol = copy_state(initial);
+The arena approach is preferred since `accept_best_routine()` already calls `solver_ctx_arena_reset(ctx)` at line 437. The `remainings` array's lifetime fits within one call to `accept_best_routine()`, and the arena is reset at the end.
 
-// In explore_neighbourhood():
-sw_set_inplace(ctx->new_sol->vector, sol->vector);
-ctx->cur_best->tot_profit = INT64_MAX;
-ctx->cur_best_tabu->tot_profit = INT64_MAX;
-// ... use ctx->new_sol, ctx->cur_best, ctx->cur_best_tabu ...
-// No malloc, no free
+### Dependency
+
+This fix is independent of all other items. It can be done first or last.
+
+---
+
+## Item 5: Deprecated BranchingStats Global
+
+### Current Architecture
+
+The global `BranchingStats` in `Branching.c` (line 6) coexists with the per-context `ctx->branching_stats` in `solver_ctx_t`. The migration status:
+
+| Function | Uses Global | Uses ctx | Status |
+|----------|------------|----------|--------|
+| `BranchingFunction()` | No (takes `const BranchingStats_t *stats`) | Via caller | Migrated |
+| `StateProbability()` | No (uses `&ctx->branching_stats`) | Yes | Migrated |
+| `set_bias()` | Yes (writes `BranchingStats.bias`) | No | DEPRECATED |
+| `set_factors()` | Yes (writes `BranchingStats.*`) | No | DEPRECATED |
+| `set_obj_dependence()` | Yes (writes `BranchingStats.obj_dependent`) | No | DEPRECATED |
+| `set_constraint_dependence()` | Yes (writes `BranchingStats.constraint_dependent`) | No | DEPRECATED |
+| `solver_ctx_set_bias()` | No | Yes | NEW (replacement) |
+| `solver_ctx_set_factors()` | No | Yes | NEW (replacement) |
+
+The deprecated global setters are still called from Python-level wrappers:
+
+```python
+# In Model.pyx solve(), line 309:
+set_bias_wrapper(bias)
+set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
 ```
 
-### Pattern 4: Dynamic Variable Storage (Replace Fixed MAXCLAUSESIZE Stride)
+These call through to `branching.pxd` wrappers which call `set_bias()` and `set_factors()` -- the **global** versions.
 
-**What:** Replace the fixed-stride `variable_index()` with offset-based variable storage that adapts to actual clause length.
-
-**When to use:** When clause sizes vary significantly (many linear terms mixed with few quadratic/cubic terms).
-
-**Current layout (fixed stride = MAXCLAUSESIZE - 1 = 3):**
-```
-variables[]: [v0 v1 v2 | v0 v1 __ | v0 __ __ | v0 v1 v2 | ...]
-              clause 0    clause 1   clause 2   clause 3
-              (3 vars)    (2 vars)   (1 var)    (3 vars)
-              ^ wastes 0  ^ wastes 1 ^ wastes 2  ^ wastes 0
+Meanwhile, in `run_sampling()` (SearchLib.pyx), the context is created and configured:
+```python
+cdef solver_ctx_t *ctx = solver_ctx_create()  # line 184
+solver_ctx_set_bias(ctx, cur_sol.state[0].vector.bits / delta - 1)  # line 228 (SATISFY only)
 ```
 
-**Recommended layout (packed with offset array):**
-```
-variables[]: [v0 v1 v2 v0 v1 v0 v0 v1 v2 ...]
-              clause 0  cl 1  cl2 clause 3
-variable_offset[]: [0, 3, 5, 6, 9, ...]  // start index per clause
-```
+But the bias/factors from `solve()` parameters are set on the GLOBAL, not on the context. The `solver_ctx_create()` initializes `branching_stats` with defaults (bias=5, bias_factor=1, etc.), NOT from the global.
 
-**Migration approach:**
-```c
-// Replace:
-static inline size_t variable_index(size_t cls, size_t k, size_t clause_offset) {
-    return first_variable_index(cls, clause_offset) + k;
-}
+### The Bug
 
-// With:
-static inline size_t variable_index_packed(const new_constraints_t *con,
-                                            size_t clause_index, size_t k) {
-    return con->variable_offset[clause_index] + k;
-}
-```
+There is an inconsistency: `Model.solve()` calls `set_bias_wrapper(bias)` which sets the global, but the actual solve uses `ctx->branching_stats` which has defaults. The global bias value is never propagated to the context.
 
-**Trade-offs:**
-- Pro: Eliminates wasted memory (significant for large linear programs)
-- Pro: Better cache locality (denser packing)
-- Pro: Removes MAXCLAUSESIZE compile-time limit
-- Con: Requires populating `variable_offset[]` during `add_expression_to_constraints()`
-- Con: One extra indirection per variable access (offset lookup)
-- Con: Touches many call sites that use `variable_index()`
+**In OPTIMIZE mode:** `run_sampling()` does not call `solver_ctx_set_bias()`, so the context keeps the default bias of 5. The `solve()` method set `bias = self.n / 4` on the global, but the context does not see this.
 
-**Build order dependency:** This change touches `constraint.h` (the most widely included header) and every function that iterates clause variables. It must be done carefully with a compatibility shim or all-at-once.
+**In SATISFY mode:** `run_sampling()` calls `solver_ctx_set_bias(ctx, ...)` on each delta iteration (line 228), overriding the context bias. But the factors (objective_factor, constraint_factor, etc.) from `set_factors_wrapper()` are never propagated.
 
-## Data Flow
+### Recommended Fix for v1.1
 
-### Solve Request Flow (Current)
+**Phase 1: Propagate bias/factors to context in run_sampling():**
 
-```
-Python: model.solve(num_workers=12)
-    |
-    v
-Cython: run_sampling(Model mod, callback, not_stop)
-    |
-    +-- set_bias_wrapper()          [WRITES global BranchingStats]
-    +-- set_seed()                  [WRITES global rand state]
-    |
-    v
-C: ctg(model_t *mod, state_t *cur_sol, callback, incumbents)
-    |
-    +-- initial_state_preparation(mod)
-    |       +-- CSearch_opt/sat(cur_sol, ..., &BranchingStats)
-    |                              [READS global BranchingStats]
-    |
-    +-- [loop] QSearch / updated / StateProbability
-                                   [READS global BranchingStats]
+Add to `run_sampling()` after context creation (after line 195):
+
+```python
+# Propagate branching parameters from global to context
+# (bridges the gap until Model.solve() is updated to set these on ctx directly)
+solver_ctx_set_bias(ctx, BranchingStats.bias)
+solver_ctx_set_factors(ctx,
+    BranchingStats.objective_factor,
+    BranchingStats.constraint_factor,
+    BranchingStats.bias_factor,
+    BranchingStats.look_factor)
 ```
 
-### Solve Request Flow (Target)
+This requires exposing `BranchingStats` fields in the Cython declaration, which `branching.pxd` already does (line 17: `cdef BranchingStats_t BranchingStats`).
+
+**Phase 2 (deferred to v1.2): Remove global setters entirely.**
+
+Move bias/factor configuration from `Model.solve()` into `run_sampling()` where the context is available. Remove `set_bias_wrapper()` and `set_factors_wrapper()` calls from `solve()`. This is a breaking change if any user code calls these wrappers directly.
+
+### Backward Compatibility
+
+The deprecated global setters must remain for v1.1 because:
+1. External code may call `set_bias_wrapper()` directly
+2. `Model.solve()` still uses them
+3. The `branching.py` module exposes them as public API
+
+For v1.1: keep globals, add bridging code to propagate global values to context. Add deprecation warnings to `set_bias_wrapper()` etc. For v1.2: remove globals.
+
+---
+
+## Fix Order and Dependencies
 
 ```
-Python: model.solve(num_workers=12)
-    |
-    v
-Cython: creates solver_ctx_t per worker
-    |
-    +-- solver_ctx_create(mod)      [allocates per-thread state]
-    +-- ctx->branching.bias = ...   [thread-local write]
-    |
-    v
-C: ctg(model_t *mod, solver_ctx_t *ctx, state_t *cur_sol, callback, incumbents)
-    |
-    +-- initial_state_preparation(mod, ctx)
-    |       +-- CSearch_opt/sat(cur_sol, ..., &ctx->branching)
-    |
-    +-- [loop] QSearch / updated(... &ctx->branching) / StateProbability(... &ctx->branching)
+                    +--------------------+
+                    | 4. VLA replacement |  (independent, no deps)
+                    +--------------------+
+
++---------------------+     +-------------------------+
+| 1. SATISFY mode     |---->| 2. History callback     |
+| crash fix (line 220)|     | per-thread rework       |
++---------------------+     +-------------------------+
+         |                            |
+         v                            v
++---------------------+     +-------------------------+
+| 3. BranchingStats   |     | 5. local_search API     |
+| global->ctx bridge  |     | mutex + cleanup         |
++---------------------+     +-------------------------+
 ```
 
-### Shared vs Thread-Local State Boundaries
+### Recommended Order
 
-| Data | Shared/Thread-Local | Mutability | Notes |
-|------|---------------------|------------|-------|
-| `model_t` parameters (M, stopping_time, etc.) | Shared | Read-only after `close()` | Safe |
-| `model_t.obj`, `model_t.con` (constraint arrays) | Shared | Read-only after `preprocessing()` | Safe |
-| `model_t.global_opt` | **Shared mutable** | Written by accept_move | **Needs mutex or atomic compare-swap** |
-| `model_t.runtime` | **Shared mutable** | Written in local_search loop | **Needs protection or move to ctx** |
-| `model_t.qtg_applications` | **Shared mutable** | Accumulated across workers | **Needs atomic add or move to ctx** |
-| `BranchingStats` | Currently shared mutable (global) | **Move to solver_ctx_t** | Critical fix |
-| `state_t` (cur_sol, new_sol) | Thread-local | Mutable | Already per-thread in local_search |
-| `tabu_list_t` | Thread-local | Mutable | Already per-thread in local_search |
-| `move_t[]` list | Can be shared | Read-only during search | Generated once, shared across threads |
-| `rand()` state | Process-global | **Use per-ctx PRNG** | `rand()` is not thread-safe |
+**Step 1: SATISFY mode crash fix**
+- Fix: `stpvl = -<int>mod.mod[0].con[0].num_constraints` (line 220)
+- Fix: Guard `objective_value` property for SATISFY mode
+- Fix: Guard `OptimizeResult` construction for SATISFY mode
+- Why first: This is a crash bug. Nothing else can be properly tested in SATISFY mode until this is fixed.
+- Risk: LOW. Localized fix, no architectural changes.
+- Files: `SearchLib.pyx`, `Model.pyx`
 
-### Key Shared Mutable Data Requiring Synchronization
+**Step 2: VLA replacement in accept_best_routine**
+- Fix: Replace `int64_t remainings[C]` with arena allocation
+- Why second: Independent, low risk, easy to verify.
+- Risk: LOW. Single location, arena infrastructure already exists.
+- Files: `local_search.c`
 
-1. **`model_t.global_opt`** -- multiple threads call `accept_move()` which writes to this. Needs either:
-   - A mutex around global_opt updates, OR
-   - Per-thread best, merged after join (current local_search does this correctly; ctg path does not)
+**Step 3: History callback per-thread rework**
+- Fix: Replace module-level `cdef` state with thread-keyed dictionary
+- Why third: Depends on SATISFY crash being fixed (the callback reads `global_opt` which behaves differently in SATISFY mode).
+- Risk: MEDIUM. Changes callback plumbing that all workers use.
+- Files: `SearchLib.pyx`
 
-2. **`model_t.qtg_applications`** -- accumulated counter. Use `__atomic_add_fetch` or merge after join.
+**Step 4: BranchingStats global-to-context bridge**
+- Fix: Propagate global bias/factors to solver context in `run_sampling()` and `run_local_search()`
+- Why fourth: Requires understanding the callback rework (step 3) since the callback also reads model state.
+- Risk: MEDIUM. Must verify that branching behavior does not change (regression test critical).
+- Files: `SearchLib.pyx`, potentially `branching.pxd`
 
-3. **`model_t.runtime`** -- written by each worker. Move to `solver_ctx_t`, report max after join.
+**Step 5: local_search API mutex + cleanup**
+- Fix: Add `update_lock` mutex around `global_opt` writes in `accept_best_routine()`
+- Fix: Document read/write fields on `local_search()` signature
+- Why last: Lowest priority, not a user-facing bug.
+- Risk: LOW. Adding mutex is additive.
+- Files: `local_search.c`
 
-## Build Order for Refactoring
+### Dependency Justification
 
-The refactoring has strict dependency ordering. Phases must proceed in this sequence:
+- Steps 1 and 2 are **fully independent** of each other and can be done in parallel.
+- Step 3 depends on Step 1 because the history callback must handle SATISFY mode correctly (no objective value), and testing it requires the SATISFY crash to be fixed.
+- Step 4 is logically independent but should follow Step 3 because both touch `run_sampling()` and `run_local_search()` setup code; doing them together would cause merge conflicts.
+- Step 5 is fully independent and can be done at any point, but is lowest priority.
+
+---
+
+## Component Boundary Map
 
 ```
-Phase 1: solver_ctx_t introduction
-    |  - Define struct, create/destroy functions
-    |  - Thread BranchingStats into ctx (eliminate global)
-    |  - Thread rand() into ctx (per-thread PRNG)
-    |  - Update Cython bindings to create/pass ctx
-    |
-    v
-Phase 2: Arena allocator + pre-allocated buffers
-    |  - Implement arena_t
-    |  - Add arena to solver_ctx_t
-    |  - Replace hot-loop malloc/free with arena_alloc/arena_reset
-    |  - Pre-allocate working states in ctx
-    |
-    v
-Phase 3: Re-enable incremental constraint evaluation
-    |  - Fix/uncomment adjusted_constraint_violation() path
-    |  - Verify correctness against full re-evaluation
-    |  - Benchmark improvement
-    |
-    v
-Phase 4: Dynamic variable storage (optional, higher risk)
-    |  - Add variable_offset[] to new_constraints_t
-    |  - Migrate add_expression_to_constraints() to pack variables
-    |  - Update all variable_index() call sites
-    |  - Remove MAXCLAUSESIZE dependency
-    |
-    v
-Phase 5: Shared mutable state cleanup
-    - Protect or eliminate model_t.global_opt sharing
-    - Move runtime/qtg_applications to per-ctx, merge after join
++------------------------------------------------------------------+
+|  Model.pyx                                                        |
+|  +-- solve()       : sets params on model_t, launches joblib     |
+|  +-- local_search(): sets params on model_t, calls run_local_search|
+|  +-- objective_value: reads global_opt.tot_profit * sense         |
+|  TOUCHES: Items 1 (SATISFY crash), 3 (BranchingStats via set_bias)|
++--------+-----------------------+---------------------------------+
+         |                       |
+         v                       v
++------------------+    +------------------+
+| SearchLib.pyx    |    | branching.pxd    |
+| run_sampling()   |    | set_bias_wrapper |
+| run_local_search |    | set_factors_wrap |
+| _history_callback|    | (DEPRECATED)     |
+| TOUCHES: Items   |    | TOUCHES: Item 4  |
+| 1, 2, 3, 4       |    +------------------+
++--------+---------+
+         |
+         v (nogil)
++------------------------------------------------------------------+
+|  C Kernel                                                         |
+|  +-- SearchLib.c: ctg() -- OPTIMIZE/SATISFY dispatch             |
+|  +-- local_search.c: local_search(), accept_best_routine()       |
+|  +-- Branching.c: BranchingStats global, StateProbability()      |
+|  +-- solver_ctx.c: solver_ctx_t lifecycle                        |
+|  TOUCHES: Items 1 (SATISFY C path), 2 (VLA), 4 (global), 5 (mutex)|
++------------------------------------------------------------------+
 ```
 
-**Why this order:**
-- Phase 1 is prerequisite for everything: without solver_ctx_t, you cannot safely add per-thread arenas or buffers
-- Phase 2 is independent of constraint evaluation changes and gives immediate perf wins
-- Phase 3 is the biggest algorithmic performance win but requires correctness verification
-- Phase 4 is a data structure change touching the most code; defer until core is stable
-- Phase 5 is cleanup that can happen anytime after Phase 1 but is lower priority than perf work
+---
 
-## Anti-Patterns
+## Risks and Mitigations
 
-### Anti-Pattern 1: Global Mutable State for Thread Configuration
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| History callback rework breaks existing callback behavior | MEDIUM | Test with user-supplied callback that counts invocations; verify count matches before/after |
+| SATISFY mode fix changes stop semantics | LOW | Test SATISFY problems that have known solutions; verify solution found |
+| BranchingStats bridge changes solve results | MEDIUM | Run existing benchmarks, compare objective values and iteration counts before/after |
+| VLA removal changes behavior | NONE | Pure memory allocation change; identical behavior guaranteed |
+| Mutex in local_search adds overhead | NEGLIGIBLE | Mutex is only taken once per neighborhood scan (not per move), and only for a pointer copy |
 
-**What people do:** Define a global struct (like `BranchingStats`) to hold configuration, mutate it before launching threads, read it from threads.
-
-**Why it's wrong:** Even if all threads write the same value, this is undefined behavior per C11. Compiler/CPU may reorder or cache stale values. Any future differentiation per thread will silently corrupt.
-
-**Do this instead:** Allocate configuration per thread in a context struct. Pass context pointer explicitly to all functions.
-
-### Anti-Pattern 2: malloc/free for Fixed-Size Scratch in Tight Loops
-
-**What people do:** `calloc()` a temporary buffer at the top of a loop body, `free()` it at the bottom.
-
-**Why it's wrong:** Heap allocation is O(log n) or worse, involves locks in many allocators, causes fragmentation, and thrashes the allocator metadata cache.
-
-**Do this instead:** Pre-allocate buffers in the solver context or use a bump arena. Reset between iterations instead of freeing.
-
-### Anti-Pattern 3: Compile-Time Array Size Limits via #define
-
-**What people do:** `#define MAXCLAUSESIZE 4` and use it to compute fixed-stride indexing into arrays.
-
-**Why it's wrong:** Wastes memory for smaller elements, prevents larger elements, requires full recompilation to change, and the constant propagates through many translation units.
-
-**Do this instead:** Store per-element offsets in an auxiliary array. The one extra indirection is negligible compared to the memory and flexibility gains.
-
-### Anti-Pattern 4: Using `rand()` in Multi-Threaded Code
-
-**What people do:** Call `rand()` or `srand()` from multiple threads (e.g., `move_list()` with Fisher-Yates shuffle uses `rand()`).
-
-**Why it's wrong:** `rand()` uses global state and is not thread-safe. Results will be correlated across threads or cause data races.
-
-**Do this instead:** Use a per-thread PRNG. A simple xoshiro256** or even `rand_r()` with per-thread seed stored in `solver_ctx_t`.
-
-### Anti-Pattern 5: Freeing Memory Immediately After Thread Creation
-
-**What people do:** In `accept_best_routine()` lines 308-311:
-```c
-for (int i = 0; i < NUMThreads; ++i) {
-    pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
-    free(data[i].remainings);     // <-- freed while thread may still be using it!
-    sw_clear(data[i].ful_con);    // <-- freed while thread may still be using it!
-    sw_clear(data[i].ful);
-}
-```
-
-**Why it's wrong:** `pthread_create` returns before the thread has necessarily started executing. The thread's `explore_neighbourhood()` accesses `dat->remainings` and `dat->ful_con`, but these are freed in the loop that created the thread. This is a use-after-free race condition.
-
-**Do this instead:** Free thread-local data after `pthread_join()`, not after `pthread_create()`.
-
-## Scaling Considerations
-
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| n < 100 vars, C < 50 constraints | Current architecture works. Global state races are "benign" (same values). Malloc overhead is tolerable. |
-| n = 100-1000, C = 50-500 | Arena allocator essential. Incremental constraint evaluation essential. Per-thread PRNG needed for reproducibility. |
-| n > 1000, C > 500 | Dynamic variable storage important (memory savings compound). Constraint preprocessing sparse path (`preprocessing_sparse`) already exists. Consider SIMD for bit operations in `intarray.h`. |
-
-### Scaling Priorities
-
-1. **First bottleneck:** `constraint_violation()` called for ALL constraints on EVERY move. Re-enabling incremental evaluation (Phase 3) gives the largest algorithmic speedup: O(affected_clauses) vs O(total_clauses) per move.
-
-2. **Second bottleneck:** Heap allocation overhead in hot loops. Arena allocator (Phase 2) eliminates this. Expected 10-50x improvement in allocation-dominated portions.
-
-3. **Third bottleneck:** Memory waste from MAXCLAUSESIZE padding. For large linear programs (many 1-variable clauses), this can waste 66% of variable storage, reducing cache effectiveness.
-
-## Integration Points
-
-### Cython-C Boundary
-
-| Boundary | Communication | Refactoring Notes |
-|----------|---------------|-------------------|
-| Model.pyx -> model.c | `model_t *mod` pointer | Add `solver_ctx_t *` parameter to `ctg()`, `local_search()`, `initial_state_preparation()` |
-| SearchLib.pyx -> local_search.c | Direct C function calls with `nogil` | `run_sampling()` must create `solver_ctx_t` before entering nogil block |
-| SearchLib.pyx -> Branching.c | `set_bias_wrapper()` etc. | Replace global setters with `ctx->branching.bias = value` |
-| Constraint.pyx -> constraint.c | `add_expression_to_constraints()` | No change needed (build-time only) |
-
-### joblib Parallel Integration
-
-Currently: `Parallel(n_jobs=num_workers, backend="threading")` calls `run_sampling()` which shares `Model` object across threads.
-
-Target: Each `run_sampling()` call creates its own `solver_ctx_t` from the shared (read-only) `model_t`. All mutable state lives in `solver_ctx_t`. The `model_t` fields that are currently mutated (`global_opt`, `runtime`, `qtg_applications`) move to `solver_ctx_t` and are merged back after all workers complete.
-
-### pthread Integration (local_search.c)
-
-Currently: `accept_best_routine()` spawns `NUMThreads` pthreads with `local_search_data_t` per thread.
-
-Target: Each pthread gets its own `solver_ctx_t` (or a lightweight sub-context derived from it). The `#define NUMThreads 6` should become a runtime parameter on `model_t`. The use-after-free bug in the create/free loop must be fixed.
+---
 
 ## Sources
 
-- Direct codebase analysis (HIGH confidence) -- all architecture observations verified against source files
-- [Ryan Fleury: Untangling Lifetimes: The Arena Allocator](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator) -- arena allocator design patterns (MEDIUM confidence)
-- [Arena and Memory Pool Allocators: 50-100x Performance Secret](https://medium.com/@ramogh2404/arena-and-memory-pool-allocators-the-50-100x-performance-secret-behind-game-engines-and-browsers-1e491cb40b49) -- performance characteristics of arena allocators (LOW confidence, single source)
-- [SEI CERT: MEM33-C Flexible Array Members](https://wiki.sei.cmu.edu/confluence/display/c/MEM33-C.++Allocate+and+copy+structures+containing+a+flexible+array+member+dynamically) -- flexible array member patterns (HIGH confidence, authoritative)
-- [Red Hat: Benefits and Limitations of Flexible Array Members](https://developers.redhat.com/articles/2022/09/29/benefits-limitations-flexible-array-members) -- flexible array member trade-offs (MEDIUM confidence)
-- [Clang Thread Safety Analysis](https://clang.llvm.org/docs/ThreadSafetyAnalysis.html) -- annotation-based thread safety verification (HIGH confidence, official docs)
-- [Fast Efficient Fixed-Size Memory Pool](https://arxiv.org/pdf/2210.16471) -- pool allocator design for fixed-size objects (MEDIUM confidence, academic paper)
+- Direct codebase analysis of all listed source files (HIGH confidence)
+- `SearchLib.pyx` lines 126-159: history callback implementation
+- `SearchLib.pyx` line 220: SATISFY mode crash location
+- `local_search.c` line 332: remaining VLA
+- `Branching.c` lines 6-21: deprecated global
+- `solver_ctx.h/c`: current solver_ctx_t architecture
+- `Model.pyx` lines 277-369: solve() method (SATISFY/OPTIMIZE dispatch)
+- `Model.pyx` lines 371-417: local_search() method
+- `SearchLib.c` lines 89-217: ctg() function (OPTIMIZE/SATISFY C-level dispatch)
 
 ---
-*Architecture research for: CBQS solver stabilization and optimization*
-*Researched: 2026-02-04*
+
+*Architecture research for: CBQS v1.1 bug fixes and code polish*
+*Researched: 2026-02-06*
