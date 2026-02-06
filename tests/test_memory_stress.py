@@ -158,6 +158,7 @@ class TestEdgeCases:
 
         Tests zero-length array handling in preprocessing and solver.
         This was the original source of the preprocessing memory leak.
+        Uses validate=False to bypass API validation (testing C-level safety).
         """
         m = Model()
         xs = m.add_variables(5)
@@ -165,7 +166,7 @@ class TestEdgeCases:
 
         # No constraints - tests zero-length array handling
         m.set_objective(sum(x))
-        m.close()
+        m.close(validate=False)
 
         try:
             m.solve(stopping_time=0.1, num_workers=1)
