@@ -70,33 +70,33 @@ Deferred to next cleanup release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRASH-01 | TBD | Pending |
-| CRASH-02 | TBD | Pending |
-| CRASH-03 | TBD | Pending |
-| CRASH-04 | TBD | Pending |
-| BRANCH-01 | TBD | Pending |
-| BRANCH-02 | TBD | Pending |
-| BRANCH-03 | TBD | Pending |
-| GCC-01 | TBD | Pending |
-| GCC-02 | TBD | Pending |
-| GCC-03 | TBD | Pending |
-| GCC-04 | TBD | Pending |
-| GCC-05 | TBD | Pending |
-| MEM-01 | TBD | Pending |
-| MEM-02 | TBD | Pending |
-| CB-01 | TBD | Pending |
-| CB-02 | TBD | Pending |
-| CB-03 | TBD | Pending |
-| CLEAN-01 | TBD | Pending |
-| CLEAN-02 | TBD | Pending |
-| CLEAN-03 | TBD | Pending |
-| CLEAN-04 | TBD | Pending |
+| CRASH-01 | Phase 9 | Pending |
+| CRASH-02 | Phase 9 | Pending |
+| CRASH-03 | Phase 9 | Pending |
+| CRASH-04 | Phase 9 | Pending |
+| BRANCH-01 | Phase 12 | Pending |
+| BRANCH-02 | Phase 12 | Pending |
+| BRANCH-03 | Phase 12 | Pending |
+| GCC-01 | Phase 10 | Pending |
+| GCC-02 | Phase 10 | Pending |
+| GCC-03 | Phase 10 | Pending |
+| GCC-04 | Phase 10 | Pending |
+| GCC-05 | Phase 10 | Pending |
+| MEM-01 | Phase 10 | Pending |
+| MEM-02 | Phase 12 | Pending |
+| CB-01 | Phase 11 | Pending |
+| CB-02 | Phase 11 | Pending |
+| CB-03 | Phase 11 | Pending |
+| CLEAN-01 | Phase 13 | Pending |
+| CLEAN-02 | Phase 13 | Pending |
+| CLEAN-03 | Phase 13 | Pending |
+| CLEAN-04 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 21 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 21
+- Mapped to phases: 21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-06 after initial definition*
+*Last updated: 2026-02-06 after roadmap creation*
