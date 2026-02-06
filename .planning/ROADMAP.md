@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Solver Context Architecture** - Introduce solver_ctx_t and eliminate global mutable state
 - [x] **Phase 4: Thread Isolation** - Per-thread PRNG and configurable parallelism
 - [x] **Phase 5: Memory Safety** - Fix leaks and eliminate unsafe stack allocations
-- [ ] **Phase 6: Memory Optimization** - Dynamic arrays and arena allocator for hot paths
+- [x] **Phase 6: Memory Optimization** - Dynamic arrays and arena allocator for hot paths
 - [ ] **Phase 7: API Robustness** - Input validation and solution verification
 - [ ] **Phase 8: Solve Diagnostics** - Structured result object with timing and history
 
@@ -127,7 +127,7 @@ Plans:
 - [x] 06-02-PLAN.md — Create dynamic expression with small-object optimization (dyn_expr.h/c)
 - [x] 06-03-PLAN.md — Integrate arena into solver_ctx, replace hot-path allocations in local_search.c
 - [x] 06-04-PLAN.md — Create benchmark suite with pytest-benchmark, CI integration
-- [ ] 06-05-PLAN.md — (Gap closure) Integrate dyn_expr into Expression.c, remove fixed MAXCLAUSESIZE allocation
+- [x] 06-05-PLAN.md — (Gap closure) Integrate dyn_expr into Expression.c, remove fixed MAXCLAUSESIZE allocation
 
 ### Phase 7: API Robustness
 **Goal**: The solver rejects invalid inputs with clear error messages and verifies that returned solutions are actually correct
@@ -169,6 +169,6 @@ Note: Phases 4, 5, and 7 can proceed independently after their dependencies comp
 | 3. Solver Context Architecture | 5/5 | Complete | 2026-02-05 |
 | 4. Thread Isolation | 3/3 | Complete | 2026-02-05 |
 | 5. Memory Safety | 5/5 | Complete | 2026-02-05 |
-| 6. Memory Optimization | 0/4 | Planned | - |
+| 6. Memory Optimization | 5/5 | Complete | 2026-02-06 |
 | 7. API Robustness | 0/TBD | Not started | - |
 | 8. Solve Diagnostics | 0/TBD | Not started | - |
