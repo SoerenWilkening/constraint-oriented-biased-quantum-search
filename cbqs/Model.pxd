@@ -67,6 +67,9 @@ cdef class Model:
 	cdef public object constraints_compiled
 	cdef public object circuit
 
+	# Post-solve verification (Phase 7)
+	cdef public object _verified
+
 	# Thread isolation (Phase 4): seed and thread configuration
 	cdef public object _seed
 	cdef public object _num_threads

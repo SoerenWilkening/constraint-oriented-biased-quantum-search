@@ -25,6 +25,7 @@ from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
 from .SearchLib cimport initial_state_preparation
 from .state cimport print_state
+from .state cimport sw_tstbit
 
 
 def _merge_duplicate_variable_terms(Expression expr):
@@ -113,6 +114,9 @@ cdef class Model:
 		self.constraints_compiled: bool = False
 
 		self.circuit: circuit | None = None
+
+		# Post-solve verification (Phase 7)
+		self._verified = None  # None = not verified, True = passed, False = failed
 
 		# Thread isolation (Phase 4): seed and thread configuration
 		self._seed = None  # None = auto-generate
@@ -277,7 +281,8 @@ or {self.runtime}s sampling
 	          bias_factor = 1.,
 	          manual_bias_factor = 0.,
 	          look_ahead_factor = 0.,
-	          monte_calor_estimate = False
+	          monte_calor_estimate = False,
+	          verify = False
 	          ) -> list | None:
 		"""
 
@@ -341,10 +346,13 @@ or {self.runtime}s sampling
 			except:
 				break
 
+		if verify:
+			self.verify_solution()
+
 		return total_incumbent
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
-	                 stopping_condition: int = STOPATFIRST):
+	                 stopping_condition: int = STOPATFIRST, verify = False):
 		assert stopping_condition in [STOPATFIRST, STOPATBEST]
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		t1 = time()
@@ -358,7 +366,10 @@ or {self.runtime}s sampling
 		self.final_state = run_local_search(self, callback)
 		print(self.final_state)
 		# self.runtime = time() - t1
-	# self.objective_value = self.final_state.objective_value
+		# self.objective_value = self.final_state.objective_value
+
+		if verify:
+			self.verify_solution()
 
 	def quantum_local_search(self, distance, callback = None, num_workers = 1):
 		Parallel(n_jobs = num_workers, backend = "threading")(
@@ -471,3 +482,56 @@ or {self.runtime}s sampling
 			if not isinstance(value, int) or value < 1:
 				raise ValueError("num_threads must be a positive integer or None")
 		self._num_threads = value
+
+	# ============================================================
+	# Post-Solve Verification (Phase 7)
+	# ============================================================
+
+	def verify_solution(self):
+		"""Verify that the current solution satisfies all constraints
+		and the reported objective value matches recomputation.
+
+		Returns True if the solution is valid, False otherwise.
+		Emits UserWarning on violations but does not raise exceptions.
+		Sets self._verified to True or False accordingly.
+		"""
+		if self.mod[0].global_opt is NULL:
+			warnings.warn(
+				"No solution to verify: solve() has not been called",
+				UserWarning, stacklevel=2
+			)
+			self._verified = False
+			return False
+
+		verified = True
+
+		# Reconstruct a state_py from the C-level global_opt for evaluation
+		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
+		arr = [sw_tstbit(self.mod[0].global_opt[0].vector, i) for i in range(n_bits)]
+		cdef long long obj_val = self.mod[0].global_opt[0].tot_profit
+		st = state_py(obj_val, arr)
+
+		# Check constraint satisfaction using existing C evaluation
+		constraints_ok = self.constraint.eval_con(st)
+		if not constraints_ok:
+			warnings.warn(
+				"Post-solve verification FAILED: solution violates one or more constraints",
+				UserWarning, stacklevel=2
+			)
+			verified = False
+
+		# Recompute objective value and compare with reported value
+		# eval_obj returns raw value (negated for MAXIMIZE); apply sense to get user-facing value
+		recomputed_obj = self.objective.eval_obj(st) * self.sense
+		reported_obj = self.objective_value
+		EPSILON = 1e-9
+		if abs(recomputed_obj - reported_obj) > EPSILON:
+			warnings.warn(
+				f"Post-solve verification FAILED: reported objective {reported_obj} "
+				f"does not match recomputed {recomputed_obj}",
+				UserWarning, stacklevel=2
+			)
+			verified = False
+
+		self._verified = verified
+		return verified
