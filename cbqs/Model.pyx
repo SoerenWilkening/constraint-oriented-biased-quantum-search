@@ -465,6 +465,8 @@ or {self.runtime}s sampling
 
 	@property
 	def objective_value(self):
+		if self.mod[0].solver == SATISFY:
+			return None
 		return self.mod[0].global_opt[0].tot_profit * self.sense
 
 	@property
@@ -566,17 +568,18 @@ or {self.runtime}s sampling
 			verified = False
 
 		# Recompute objective value and compare with reported value
-		# eval_obj returns raw value (negated for MAXIMIZE); apply sense to get user-facing value
-		recomputed_obj = self.objective.eval_obj(st) * self.sense
-		reported_obj = self.objective_value
-		EPSILON = 1e-9
-		if abs(recomputed_obj - reported_obj) > EPSILON:
-			warnings.warn(
-				f"Post-solve verification FAILED: reported objective {reported_obj} "
-				f"does not match recomputed {recomputed_obj}",
-				UserWarning, stacklevel=2
-			)
-			verified = False
+		# Skip in SATISFY mode (no objective to verify)
+		if self.mod[0].solver != SATISFY:
+			recomputed_obj = self.objective.eval_obj(st) * self.sense
+			reported_obj = self.objective_value
+			EPSILON = 1e-9
+			if abs(recomputed_obj - reported_obj) > EPSILON:
+				warnings.warn(
+					f"Post-solve verification FAILED: reported objective {reported_obj} "
+					f"does not match recomputed {recomputed_obj}",
+					UserWarning, stacklevel=2
+				)
+				verified = False
 
 		self._verified = verified
 		return verified
