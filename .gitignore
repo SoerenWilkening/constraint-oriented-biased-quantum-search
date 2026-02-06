@@ -33,3 +33,7 @@ Projects
 plot_smth.py
 others
 *.egg-info
+
+.venv-test
+build-*
+.github
