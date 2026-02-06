@@ -138,10 +138,12 @@ Plans:
   2. Negative variable bounds, zero-length constraint arrays, and duplicate variable indices in a constraint are caught and reported
   3. After every solve, the solver automatically checks that the returned solution satisfies all constraints and the reported objective matches recomputation
   4. If post-solve validation detects a violation, the result is flagged with a warning (not silently returned as feasible)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 07-01: TBD
+- [ ] 07-01-PLAN.md -- Expression-level input validation (Variable bounds, coefficient NaN/Inf/overflow checks)
+- [ ] 07-02-PLAN.md -- Model-level input validation (add_constraint, set_objective, close, validate=False bypass)
+- [ ] 07-03-PLAN.md -- Post-solve solution verification (verify_solution method, verify=True on solve)
 
 ### Phase 8: Solve Diagnostics
 **Goal**: Researchers get a structured result object containing everything needed to analyze solver behavior without manual instrumentation
