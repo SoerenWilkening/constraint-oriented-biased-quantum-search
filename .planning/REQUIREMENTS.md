@@ -9,10 +9,10 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 
 ### Crash Fixes
 
-- [ ] **CRASH-01**: SATISFY mode solve completes without crashing (fix len() on uint32_t at SearchLib.pyx:220)
-- [ ] **CRASH-02**: SATISFY mode uses solver_ctx_request_stop() instead of signal.raise_signal(SIGINT)
-- [ ] **CRASH-03**: objective_value property returns None in SATISFY mode (not meaningless violation count * sense)
-- [ ] **CRASH-04**: OptimizeResult correctly handles SATISFY mode (no objective, feasibility-based history)
+- [x] **CRASH-01**: SATISFY mode solve completes without crashing (fix len() on uint32_t at SearchLib.pyx:220)
+- [x] **CRASH-02**: SATISFY mode uses solver_ctx_request_stop() instead of signal.raise_signal(SIGINT)
+- [x] **CRASH-03**: objective_value property returns None in SATISFY mode (not meaningless violation count * sense)
+- [x] **CRASH-04**: OptimizeResult correctly handles SATISFY mode (no objective, feasibility-based history)
 
 ### BranchingStats Correctness
 
@@ -70,10 +70,10 @@ Deferred to next cleanup release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRASH-01 | Phase 9 | Pending |
-| CRASH-02 | Phase 9 | Pending |
-| CRASH-03 | Phase 9 | Pending |
-| CRASH-04 | Phase 9 | Pending |
+| CRASH-01 | Phase 9 | Complete |
+| CRASH-02 | Phase 9 | Complete |
+| CRASH-03 | Phase 9 | Complete |
+| CRASH-04 | Phase 9 | Complete |
 | BRANCH-01 | Phase 12 | Pending |
 | BRANCH-02 | Phase 12 | Pending |
 | BRANCH-03 | Phase 12 | Pending |
@@ -99,4 +99,4 @@ Deferred to next cleanup release.
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-06 after roadmap creation*
+*Last updated: 2026-02-06 after Phase 9 completion*

@@ -25,7 +25,7 @@
 
 **Milestone Goal:** Fix all known bugs, eliminate tech debt, and clean up code quality issues from v1.0. Zero breaking changes.
 
-- [ ] **Phase 9: SATISFY Mode Crash Fixes** - Fix the critical SATISFY mode crash and related signal/objective handling
+- [x] **Phase 9: SATISFY Mode Crash Fixes** (2/2 plans) — completed 2026-02-06
 - [ ] **Phase 10: C23 Migration & VLA Elimination** - Clean GCC 15 compilation and replace remaining VLA with heap allocation
 - [ ] **Phase 11: Callback Concurrency Rework** - Thread-safe history tracking for concurrent solves
 - [ ] **Phase 12: BranchingStats & Local Search Cleanup** - Propagate branching parameters correctly and add mutex protection
@@ -45,8 +45,8 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Fix all four SATISFY mode bugs in SearchLib.pyx and Model.pyx
-- [ ] 09-02-PLAN.md — Add SATISFY-mode integration tests and None-objective unit tests
+- [x] 09-01-PLAN.md — Fix all four SATISFY mode bugs in SearchLib.pyx and Model.pyx
+- [x] 09-02-PLAN.md — Add SATISFY-mode integration tests and None-objective unit tests
 
 ### Phase 10: C23 Migration & VLA Elimination
 **Goal**: Codebase compiles cleanly under GCC 15 with zero warnings, and no VLAs remain anywhere
@@ -122,7 +122,7 @@ Plans:
 | 6. Memory Optimization | v1.0 | 5/5 | Complete | 2026-02-06 |
 | 7. API Robustness | v1.0 | 3/3 | Complete | 2026-02-06 |
 | 8. Solve Diagnostics | v1.0 | 2/2 | Complete | 2026-02-06 |
-| 9. SATISFY Mode Crash Fixes | v1.1 | 0/0 | Not started | - |
+| 9. SATISFY Mode Crash Fixes | v1.1 | 2/2 | Complete | 2026-02-06 |
 | 10. C23 Migration & VLA Elimination | v1.1 | 0/0 | Not started | - |
 | 11. Callback Concurrency Rework | v1.1 | 0/0 | Not started | - |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 0/0 | Not started | - |
