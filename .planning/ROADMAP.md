@@ -42,11 +42,11 @@
   2. Stopping a SATISFY solve mid-execution does not raise SIGINT (uses solver_ctx_request_stop instead)
   3. OptimizeResult from a SATISFY solve reports objective_value as None (not a meaningless violation count)
   4. OptimizeResult from a SATISFY solve contains feasibility-based history (not objective-based)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: TBD
-- [ ] 09-02: TBD
+- [ ] 09-01-PLAN.md — Fix all four SATISFY mode bugs in SearchLib.pyx and Model.pyx
+- [ ] 09-02-PLAN.md — Add SATISFY-mode integration tests and None-objective unit tests
 
 ### Phase 10: C23 Migration & VLA Elimination
 **Goal**: Codebase compiles cleanly under GCC 15 with zero warnings, and no VLAs remain anywhere
