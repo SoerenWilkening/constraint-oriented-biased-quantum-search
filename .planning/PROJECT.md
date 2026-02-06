@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A solver for integer programs combining probabilistic sampling and local search heuristics, with the ability to compute quantum search oracle call counts for both solvers. Built as a Python API backed by Cython bindings over a C computation kernel. Currently works well for binary problems; integer variable support exists but has usability issues.
+A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, and structured solve diagnostics.
 
 ## Core Value
 
@@ -13,34 +13,30 @@ A stable, performant, and correct solver engine that researchers can trust for b
 ### Validated
 
 - ✓ Binary variable model definition (variables, constraints, objectives) — existing
-- ✓ Probabilistic sampling solver with parallel workers (joblib) — existing
+- ✓ Probabilistic sampling solver with parallel workers — existing
 - ✓ Local search solver — existing
 - ✓ Quantum search oracle call computation for both solvers — existing
-- ✓ Constraint-oriented biased branching with configurable factors (objective, constraint, lookahead, base) — existing
+- ✓ Constraint-oriented biased branching with configurable factors — existing
 - ✓ Dense and sparse constraint representations with automatic selection — existing
-- ✓ Integer variable support via binary decomposition — existing (but mutation bug)
+- ✓ Integer variable support via binary decomposition — existing
 - ✓ Expression system with operator overloading for constraint/objective building — existing
 - ✓ User callback mechanism during search — existing
+- ✓ C unit test suite (CMocka) + Python test suite (pytest) + CI pipeline — v1.0
+- ✓ Fix use-after-free, realloc condition, Expression mutation bugs — v1.0
+- ✓ solver_ctx_t architecture eliminating global mutable state — v1.0
+- ✓ Atomic stop flag replacing signal.raise_signal — v1.0
+- ✓ Per-thread xoshiro256** PRNG with deterministic reproducibility — v1.0
+- ✓ Configurable thread count via Model API — v1.0
+- ✓ Memory leak fixes and VLA replacement with heap buffers — v1.0
+- ✓ Arena allocator for hot-path allocation elimination — v1.0
+- ✓ Dynamic expression storage (dyn_expr with small-object optimization) — v1.0
+- ✓ Input validation at API boundary (coefficients, bounds, sense, indices) — v1.0
+- ✓ Post-solve solution verification (verify_solution, verify=True) — v1.0
+- ✓ Structured OptimizeResult with timing, history, and diagnostics — v1.0
 
 ### Active
 
-- [ ] Fix integer variable expression mutation — reusing a variable silently corrupts expressions
-- [ ] Remove global BranchingStats — encapsulate in model/solver context for thread safety
-- [ ] Fix bare except clause in Model.pyx — replace with proper exception handling
-- [ ] Remove commented-out debug code throughout codebase
-- [ ] Replace signal.raise_signal with thread-safe stopping mechanism
-- [ ] Fix incomplete API migration in Model.local_search()
-- [ ] Validate MAXCLAUSESIZE change impact (2→4) and add tests
-- [ ] Fix potential memory leak in move list generation (local_search.c)
-- [ ] Add NULL pointer checks in SearchLib.c
-- [ ] Protect BranchingStats access across threads (extend mutex or per-thread stats)
-- [ ] Fix Python callback GIL safety in nogil context
-- [ ] Replace fixed-size expression arrays with dynamic allocation
-- [ ] Optimize constraint evaluation in hot loop (caching, batch checks)
-- [ ] Reduce malloc/free in hot path (memory pools, pre-allocation, stack allocation)
-- [ ] Make thread count configurable instead of hardcoded NUMThreads
-- [ ] Add post-solve solution validation (constraint satisfaction + objective correctness)
-- [ ] Add input validation on user-supplied data (coefficients, bounds, sense values)
+(No active requirements — next milestone not yet defined)
 
 ### Out of Scope
 
@@ -50,16 +46,15 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - Branch-and-bound extension — deferred to future milestone
 - Circuit backend / quantum hardware execution — exists as submodule but not active
 - GUI or web interface — CLI/API only
+- Python free-threading (nogil) — Cython support experimental
+- Metal/GPU acceleration — macOS-only, not relevant to solver stabilization
 
 ## Context
 
-- This is a research solver used for academic work on quantum-inspired optimization
-- The codebase has a three-layer architecture: Python API → Cython middleware → C kernel
-- Recent commits (741e97f) introduced bug fixes but also potentially incomplete migrations
-- The solver uses joblib for parallel sampling with 12 workers by default
-- Expression system uses fixed-size arrays (`MAXCLAUSESIZE`) which wastes memory for small expressions and limits large ones
-- Integer variables return expressions (binary decomposition) but operations mutate the expression in-place, requiring manual copying — this is the most user-facing bug
-- CONCERNS.md from codebase mapping identifies thread safety, memory management, and missing tests as primary issues
+Shipped v1.0 with 15,211 LOC across C/Python/Cython.
+Tech stack: Python 3.13.7, Cython 3, C11, CMocka, pytest, GitHub Actions CI.
+Test suite: 58+ C tests, 200+ Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer.
+Known tech debt: 6 items (deprecated globals, missing baseline, remaining VLA). See audit.
 
 ## Git Workflow
 
@@ -75,11 +70,6 @@ This project uses **Git Flow**:
 
 All phase work is done on feature branches. Features merge to `develop`. Releases merge `develop` to `main`.
 
-**Release strategy:**
-- Milestone completion → formal release (v1.0, v2.0, etc.)
-- On-demand tags for checkpoints (v1.0-alpha.1, etc.) — no formal release process
-- This keeps overhead low while solo, scales when other developers/users join
-
 ## Constraints
 
 - **Language**: Must maintain Python/Cython/C architecture — core performance lives in C
@@ -91,9 +81,16 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Cleanup before features | Stabilize foundation before extending branching/integer UX | — Pending |
-| Dynamic expression arrays | Fixed-size wastes memory on small expressions, limits large ones | — Pending |
-| Encapsulate global state | BranchingStats as global breaks thread safety in parallel solves | — Pending |
+| Cleanup before features | Stabilize foundation before extending branching/integer UX | ✓ Good — v1.0 shipped stable |
+| Dynamic expression arrays | Fixed-size wastes memory on small expressions, limits large ones | ✓ Good — dyn_expr with SOO |
+| Encapsulate global state | BranchingStats as global breaks thread safety in parallel solves | ✓ Good — solver_ctx_t, zero TSan races |
+| Expression operators return new objects | Standard Python semantics for binary ops | ✓ Good — mutation bug fixed |
+| In-place operators mutate self | Match Python int behavior for +=, etc. | ✓ Good — consistent semantics |
+| xoshiro256** with SplitMix64 seeding | Fast, high-quality per-thread PRNG with jump functions | ✓ Good — deterministic results |
+| Arena allocator (1MB initial) | Eliminate malloc/free in hot loop | ✓ Good — zero hot-path allocations |
+| verify=False default on solve() | Opt-in verification, no performance cost by default | ✓ Good — clean API |
+| Module-level cdef for history callback | cpdef cannot use closures in Cython | ⚠️ Revisit — limits concurrent history tracking |
+| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Revisit — remove in v2.0 |
 
 ---
-*Last updated: 2026-02-04 after initialization*
+*Last updated: 2026-02-06 after v1.0 milestone*
