@@ -1,5 +1,6 @@
 from copy import copy
 from time import time
+import warnings
 from warnings import warn
 
 import numpy as np
@@ -24,6 +25,49 @@ from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
 from .SearchLib cimport initial_state_preparation
 from .state cimport print_state
+
+
+def _merge_duplicate_variable_terms(Expression expr):
+	"""Merge duplicate variable terms in an expression.
+
+	Scans all terms and if two terms have the same set of variable indices,
+	adds the coefficient of the later term to the earlier one and zeroes
+	the later term. For example, 3*x1 + 5*x1 becomes 8*x1.
+
+	This operates directly on the C expression_t structure for efficiency.
+	"""
+	cdef int i, j, k
+	cdef int expr_size = expr.expr[0].expr_size
+	cdef int found_dup = 0
+
+	# Build a dict mapping variable-index tuples to term index
+	# Only consider terms with len_literal >= 2 (variable terms, not constants)
+	term_map = {}  # frozenset of variable indices -> first term index
+	for i in range(expr_size):
+		ll = expr.expr[0].len_literal[i]
+		if ll < 2:
+			continue  # skip constants and zeroed terms
+		# Extract variable indices (everything after the coefficient at position 0)
+		var_indices = tuple(sorted(
+			expr.expr[0].literals[MAXCLAUSESIZE * i + k] for k in range(1, ll)
+		))
+		if var_indices in term_map:
+			# Duplicate found -- merge coefficient into the earlier term
+			first_idx = term_map[var_indices]
+			expr.expr[0].literals[MAXCLAUSESIZE * first_idx] += expr.expr[0].literals[MAXCLAUSESIZE * i]
+			# Zero out this duplicate term
+			expr.expr[0].literals[MAXCLAUSESIZE * i] = 0
+			expr.expr[0].len_literal[i] = 0
+			found_dup = 1
+		else:
+			term_map[var_indices] = i
+
+	if found_dup:
+		warnings.warn(
+			"Duplicate variable terms detected and merged in expression",
+			UserWarning,
+			stacklevel=3
+		)
 
 cdef class Model:
 	def __cinit__(self):
@@ -117,6 +161,8 @@ or {self.runtime}s sampling
 		return x
 
 	def add_variables(self, n: int = 1, name: str = "x", bound = 1) -> dict:
+		if n < 1:
+			raise ValueError(f"Number of variables must be >= 1, got {n}")
 		x = {}
 		if bound > 1:
 			for i in range(n):
@@ -130,14 +176,27 @@ or {self.runtime}s sampling
 
 		return x
 
-	def set_objective(self, Expression objective = None, sense: int = MAXIMIZE) -> None:
-		if sense not in [MINIMIZE, MAXIMIZE]:
-			raise TypeError
+	def set_objective(self, Expression objective = None, sense: int = MAXIMIZE, validate = True) -> None:
+		if validate:
+			if objective is None:
+				raise ValueError("Objective expression cannot be None")
+			if sense not in [MINIMIZE, MAXIMIZE]:
+				raise TypeError(
+					f"Invalid sense {sense}. Use MAXIMIZE ({MAXIMIZE}) or MINIMIZE ({MINIMIZE})"
+				)
+		else:
+			# Even without validation, sense check is critical for correctness
+			if sense not in [MINIMIZE, MAXIMIZE]:
+				raise TypeError(
+					f"Invalid sense {sense}. Use MAXIMIZE ({MAXIMIZE}) or MINIMIZE ({MINIMIZE})"
+				)
 
 		self.sense = sense
 		self.mod.solver = OPTIMIZE
 		expr = objective
 		expr.merge()
+		if validate:
+			_merge_duplicate_variable_terms(expr)
 		if sense == MINIMIZE:
 			expr = expr <= 0
 		else:
@@ -147,9 +206,19 @@ or {self.runtime}s sampling
 		add_expression_to_constraints(self.mod.obj, <expression_t *> objective.expr)
 		self.objective.add_expression(expr)
 
-	def add_constraint(self, Expression constraint = None) -> None:
+	def add_constraint(self, Expression constraint = None, validate = True) -> None:
+		if validate:
+			if constraint is None:
+				raise ValueError("Constraint cannot be None")
+			if constraint.sense == -2:
+				raise ValueError(
+					"Expression is not a constraint. Apply <=, >=, or == first "
+					"(e.g., expr <= 5)"
+				)
 		expr = constraint
 		expr.merge()
+		if validate:
+			_merge_duplicate_variable_terms(expr)
 		add_expression_to_constraints(self.mod.con, <expression_t *> constraint.expr)
 		self.constraint.add_expression(expr)
 		self.con_expr.append(expr)
@@ -180,7 +249,12 @@ or {self.runtime}s sampling
 		self.constraint = None
 		self.circuit = None
 
-	def close(self, enforce_density = False):
+	def close(self, enforce_density = False, validate = True):
+		if validate:
+			if self.n == 0:
+				raise ValueError("Model has no variables; add variables before closing")
+			if len(self.con_expr) == 0:
+				raise ValueError("Model has no constraints; add constraints before closing")
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
 			process_constraints(self.mod.obj, self.n, enforce_density)
@@ -215,7 +289,8 @@ or {self.runtime}s sampling
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
 
-		assert results in ["min", "average"]
+		if results not in ["min", "average"]:
+			raise ValueError(f"results must be 'min' or 'average', got '{results}'")
 
 		self.calls += 1
 
