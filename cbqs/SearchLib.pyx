@@ -217,7 +217,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 		else:
 			# Run satisfyability solver with increasing delta (only up to 7)
 			# delta determines M and bias
-			stpvl = -len(mod.mod[0].con[0].num_constraints)
+			stpvl = -mod.mod[0].con[0].num_constraints
 			delta = 0
 			mod.mod[0].stop_val = stpvl
 			# for delta in range(1, max_delta):
@@ -233,7 +233,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 				if stt.tot_profit == stpvl:
 					not_stop[0] = 0
 					t_total = time.time() - t_start
-					signal.raise_signal(signal.SIGINT)
+					solver_ctx_request_stop(ctx)
 					break
 				if not not_stop[0]:
 					break
