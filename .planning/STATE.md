@@ -9,18 +9,18 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 12 of 13 (BranchingStats & Local Search Cleanup) -- IN PROGRESS
-Plan: 1 of 2 in current phase
-Status: Plan 12-01 complete, Plan 12-02 pending
-Last activity: 2026-02-08 -- Completed 12-01-PLAN.md (branching param API + mutex protection)
+Phase: 12 of 13 (BranchingStats & Local Search Cleanup) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase 12 complete (both plans done)
+Last activity: 2026-02-08 -- Completed 12-02-PLAN.md (branching stats test suite)
 
-Progress: [v1.0 ########] [v1.1 ########..] Phase 12 in progress (1/2 plans)
+Progress: [v1.0 ########] [v1.1 #########.] Phase 12 complete (2/2 plans)
 
 ## Performance Metrics
 
 **Velocity (v1.0 baseline):**
 - Total plans completed: 35 (v1.0)
-- v1.1 plans completed: 7
+- v1.1 plans completed: 8
 - Total execution time: ~3 days (v1.0)
 
 **By Phase (v1.1):**
@@ -30,7 +30,7 @@ Progress: [v1.0 ########] [v1.1 ########..] Phase 12 in progress (1/2 plans)
 | 9. SATISFY Crash Fixes | 2/2 | 11m 01s | 5m 31s |
 | 10. C23 & VLA | 2/2 | 45m 28s | 22m 44s |
 | 11. Callback Rework | 2/2 | 12m 13s | 6m 07s |
-| 12. BranchingStats | 1/2 | 9m 01s | 9m 01s |
+| 12. BranchingStats | 2/2 | 12m 01s | 6m 01s |
 | 13. Dead Code Cleanup | 0/TBD | - | - |
 
 ## Accumulated Context
@@ -61,6 +61,8 @@ See PROJECT.md Key Decisions table for full log.
 - _params values take precedence over solve() kwargs over defaults for branching config
 - Deprecated branching setters remain functional but emit DeprecationWarning
 - pthread_mutex_trylock for non-blocking global_opt protection (contended lock skips update)
+- Deprecation tests verify DeprecationWarning type only, not message text
+- Determinism tests use single worker for reproducibility
 
 ### Pending Todos
 
@@ -74,6 +76,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 12-01-PLAN.md (branching param API + mutex protection)
-Resume file: .planning/phases/12-branchingstats-local-search-cleanup/12-01-SUMMARY.md
-Next action: Execute 12-02-PLAN.md (branching stats test suite)
+Stopped at: Completed 12-02-PLAN.md (branching stats test suite) -- Phase 12 complete
+Resume file: .planning/phases/12-branchingstats-local-search-cleanup/12-02-SUMMARY.md
+Next action: Begin Phase 13 (Dead Code Cleanup)
