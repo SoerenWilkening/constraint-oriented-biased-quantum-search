@@ -7,6 +7,9 @@
 #include "prng.h"
 #include "arena.h"
 
+/* MEM-02: Reference the mutex defined in SearchLib.c for global_opt protection */
+extern pthread_mutex_t update_lock;
+
 /**
  * Arena-based array_t initialization.
  * Like sw_init but allocates from arena instead of malloc.
@@ -427,7 +430,20 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		int acc = 0;
 		int acc_tab = 0;
 		if (data[i].cur_best != NULL) {
-			acc = accept_move(cur_best, data[i].cur_best, global_opt);
+			/* MEM-02: Protect global_opt writes with trylock (non-blocking) */
+			if (pthread_mutex_trylock(&update_lock) == 0) {
+				acc = accept_move(cur_best, data[i].cur_best, global_opt);
+				pthread_mutex_unlock(&update_lock);
+			} else {
+				acc = 0;
+				/* Lock contended -- merge thread-local cur_best without touching global_opt */
+				if (data[i].cur_best->tot_profit < cur_best->tot_profit) {
+					sw_set_inplace(cur_best->vector, data[i].cur_best->vector);
+					cur_best->tot_profit = data[i].cur_best->tot_profit;
+					cur_best->feasible = data[i].cur_best->feasible;
+					acc = 1;
+				}
+			}
 			free_state(data[i].cur_best, 1);
 		}
 		if (data[i].cur_best_tabu != NULL) {
@@ -454,7 +470,21 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	free(threads);
 	free(prog_data.progress);
 
-	int accepted = accept_move(new_sol, cur_best, global_opt);
+	/* MEM-02: Protect global_opt writes with trylock (non-blocking) */
+	int accepted;
+	if (pthread_mutex_trylock(&update_lock) == 0) {
+		accepted = accept_move(new_sol, cur_best, global_opt);
+		pthread_mutex_unlock(&update_lock);
+	} else {
+		/* Lock contended -- skip global_opt update, only update local state */
+		accepted = 0;
+		if (cur_best->tot_profit < new_sol->tot_profit) {
+			sw_set_inplace(new_sol->vector, cur_best->vector);
+			new_sol->tot_profit = cur_best->tot_profit;
+			new_sol->feasible = cur_best->feasible;
+			accepted = 1;
+		}
+	}
 //	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
 //	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
 
