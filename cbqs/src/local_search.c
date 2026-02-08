@@ -329,7 +329,20 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	array_t ful = sw_init(obj->num_clauses[0]);
 	array_t ful_con = sw_init(C * size_ful);
 
-	int64_t remainings[C];
+	int64_t *remainings;
+	int use_arena_for_remainings = (ctx != NULL && ctx->arena != NULL);
+	if (use_arena_for_remainings) {
+		remainings = (int64_t *)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
+	} else {
+		remainings = (int64_t *)malloc(C * sizeof(int64_t));
+	}
+	if (remainings == NULL) {
+		free_state(cur_best, 1);
+		free_state(cur_best_tabu, 1);
+		sw_clear(ful);
+		sw_clear(ful_con);
+		return -1;  /* Allocation failure */
+	}
 	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
 	prepare_constraints(con, new_sol, &ful_con);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
@@ -390,6 +403,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 			free(data);
 			free(threads);
 			free(prog_data.progress);
+			if (!use_arena_for_remainings) free(remainings);
 			free_state(cur_best, 1);
 			free_state(cur_best_tabu, 1);
 			sw_clear(ful);
@@ -449,6 +463,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	if (!accepted) {
 		if (*accept_worse_counter == max_worse_acceptances) {
 			/* MEM-01 FIX: Clean up before early return */
+			if (!use_arena_for_remainings) free(remainings);
 			free_state(cur_best, 1);
 			free_state(cur_best_tabu, 1);
 			sw_clear(ful);
@@ -468,6 +483,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	tabu_list->moves[tabu_list->head] = accepted_index;
 	tabu_list->head = (tabu_list->head + 1) % tabu_list->max_moves;
 
+	if (!use_arena_for_remainings) free(remainings);
 	free_state(cur_best, 1);
 	free_state(cur_best_tabu, 1);  /* MEM-01 FIX: was missing before */
 	sw_clear(ful);
