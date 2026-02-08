@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, and structured solve diagnostics.
+A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, and per-thread history tracking with concurrent solve isolation.
 
 ## Core Value
 
@@ -33,19 +33,23 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - ✓ Input validation at API boundary (coefficients, bounds, sense, indices) — v1.0
 - ✓ Post-solve solution verification (verify_solution, verify=True) — v1.0
 - ✓ Structured OptimizeResult with timing, history, and diagnostics — v1.0
+- ✓ SATISFY mode solve without crashes — v1.1
+- ✓ SATISFY mode returns None objective, feasibility-based history — v1.1
+- ✓ C23-compatible C kernel (stdbool.h, (void) params, portability macros) — v1.1
+- ✓ Zero GCC 15 warnings with -Wall -Wextra, -Werror in CI — v1.1
+- ✓ Zero VLA declarations in C kernel — v1.1
+- ✓ Per-thread callback state for concurrent solve isolation — v1.1
+- ✓ 2-tuple (value, elapsed_seconds) history format — v1.1
+- ✓ set_param/get_param API with strict validation for branching configuration — v1.1
+- ✓ Branching parameter propagation to both sampling and local search solvers — v1.1
+- ✓ Deprecated global branching setters emit DeprecationWarning — v1.1
+- ✓ Mutex-protected global_opt writes in local_search — v1.1
+- ✓ Dead code and commented-out code removed from C kernel and Cython — v1.1
+- ✓ Field annotations on major solver functions (local_search, ctg, preprocessing, initial_state_preparation) — v1.1
 
 ### Active
 
-- [ ] Fix SATISFY mode crash (run_sampling calls len() on int)
-- [ ] Fix bare except clause in Model.pyx (should be except Exception)
-- [ ] Fix incomplete local_search() API migration
-- [ ] Replace remaining VLA at local_search.c:286 with heap allocation
-- [ ] Remove commented-out VLA code (local_search.c:158, 445)
-- [ ] Remove commented-out debug code (Model.pyx, Expression.pyx, local_search.c)
-- [ ] Fix GCC 15 type mismatch warnings
-- [ ] Rework module-level cdef history callback to support concurrent tracking
-- [ ] Clean local_search() API (fix parameter passing, signature consistency)
-- [ ] Clean deprecated BranchingStats implementation (keep API, improve internals)
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -57,25 +61,15 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - GUI or web interface — CLI/API only
 - Python free-threading (nogil) — Cython support experimental
 - Metal/GPU acceleration — macOS-only, not relevant to solver stabilization
-
-## Current Milestone: v1.1 Bug Fixes & Polish
-
-**Goal:** Fix all known bugs, eliminate tech debt, and clean up code quality issues from v1.0.
-
-**Target features:**
-- Fix SATISFY mode crash and other runtime bugs
-- Remove all dead/commented-out code
-- Fix GCC 15 compiler warnings
-- Rework history callback for concurrent tracking
-- Clean local_search() API
-- Replace remaining VLA with heap allocation
+- Offline mode — not applicable
 
 ## Context
 
-Shipped v1.0 with 15,211 LOC across C/Python/Cython.
-Tech stack: Python 3.13.7, Cython 3, C11, CMocka, pytest, GitHub Actions CI.
-Test suite: 58+ C tests, 200+ Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer.
-v1.0 audit: 15/15 requirements satisfied, 6 tech debt items (0 blockers). All addressed in v1.1.
+Shipped v1.1 with 15,143 LOC across C/Python/Cython.
+Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), CMocka, pytest, GitHub Actions CI.
+Test suite: 56 C tests, 304 Python tests (51 new in v1.1), 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
+v1.0 audit: 15/15 requirements satisfied. v1.1 audit: 21/21 requirements satisfied.
+All known bugs fixed, all tech debt from v1.0 addressed, zero breaking changes.
 
 ## Git Workflow
 
@@ -84,7 +78,7 @@ This project uses **Git Flow**:
 - `main` — production-ready releases only
 - `develop` — integration branch for feature work
 - `feature/*` — feature development branches
-- `release/*` — release preparation (develop → main)
+- `release/*` — release preparation (develop -> main)
 - `hotfix/*` — urgent production fixes
 
 **Current branch:** `feature/feature_branch`
@@ -94,7 +88,7 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 ## Constraints
 
 - **Language**: Must maintain Python/Cython/C architecture — core performance lives in C
-- **Compatibility**: Python 3.13.7, C11 standard, Cython 3
+- **Compatibility**: Python 3.13.7, C11 standard (C23-compatible), Cython 3
 - **Dependencies**: Minimal — numpy, joblib required; gurobipy optional
 - **Build**: setuptools + Cython.Build with -O3 -flto -pthread flags
 
@@ -110,9 +104,13 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | xoshiro256** with SplitMix64 seeding | Fast, high-quality per-thread PRNG with jump functions | ✓ Good — deterministic results |
 | Arena allocator (1MB initial) | Eliminate malloc/free in hot loop | ✓ Good — zero hot-path allocations |
 | verify=False default on solve() | Opt-in verification, no performance cost by default | ✓ Good — clean API |
-| Module-level cdef for history callback | cpdef cannot use closures in Cython | ⚠️ Revisit — limits concurrent history tracking |
-| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Revisit — remove in v2.0 |
-| v1.1 no breaking changes | Aggressive cleanup but keep deprecated APIs working | — Pending |
+| objective_value returns None in SATISFY | None clearly signals "no objective" vs 0 which could be valid | ✓ Good — clean SATISFY semantics |
+| Per-thread _SolveState for callbacks | threading.get_ident()-keyed dict for concurrent solve isolation | ✓ Good — zero cross-contamination |
+| 2-tuple history format | (value, elapsed_seconds) simpler and sufficient vs old 4-tuple | ✓ Good — cleaner API |
+| set_param/get_param with validation | Strict _KNOWN_PARAMS set, ValueError for unknowns | ✓ Good — safe API |
+| pthread_mutex_trylock for global_opt | Non-blocking; contended lock skips update (loses one update at worst) | ✓ Good — no deadlock risk |
+| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Revisit — remove in v1.2+ |
+| v1.1 no breaking changes | Aggressive cleanup but keep deprecated APIs working | ✓ Good — clean release |
 
 ---
-*Last updated: 2026-02-06 after v1.1 milestone start*
+*Last updated: 2026-02-08 after v1.1 milestone*
