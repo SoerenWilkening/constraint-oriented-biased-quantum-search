@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(cbqs-tests C)
 
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 include(FetchContent)
@@ -22,6 +22,7 @@ set(CBQS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cbqs/src")
 
 # ASan option
 option(ASAN "Enable AddressSanitizer" OFF)
+option(WERROR "Enable -Werror for strict warning compliance" OFF)
 
 # Helper function to create a CMocka test
 # Usage: add_cmocka_test(NAME test_source.c [extra_cbqs_sources...])
@@ -37,6 +38,15 @@ function(add_cmocka_test NAME)
     if(ASAN)
         target_compile_options(${NAME} PRIVATE -fsanitize=address -fno-omit-frame-pointer)
         target_link_options(${NAME} PRIVATE -fsanitize=address)
+    endif()
+
+    # Strict warning flags for C23-forward compatibility
+    target_compile_options(${NAME} PRIVATE
+        -Wall -Wextra -Wpedantic -Wvla
+        -Wno-unused-parameter  # CMocka test helpers have unused params
+    )
+    if(WERROR)
+        target_compile_options(${NAME} PRIVATE -Werror)
     endif()
 
     add_test(NAME ${NAME} COMMAND ${NAME})

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 project(constraint-oriented-biased-quantum-search C)
 
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 
 include_directories(iqs/src)
 
@@ -30,6 +30,10 @@ add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/model.h
         cbqs/src/approximate_state_sampler.c
         cbqs/src/approximate_state_sampler.h
+)
+
+target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
+    -Wall -Wextra -Wpedantic -Wvla
 )
 
 
