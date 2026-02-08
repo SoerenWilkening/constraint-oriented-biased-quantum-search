@@ -27,7 +27,7 @@
 
 - [x] **Phase 9: SATISFY Mode Crash Fixes** (2/2 plans) — completed 2026-02-06
 - [x] **Phase 10: C23 Migration & VLA Elimination** (2/2 plans) — completed 2026-02-08
-- [ ] **Phase 11: Callback Concurrency Rework** - Thread-safe history tracking for concurrent solves
+- [x] **Phase 11: Callback Concurrency Rework** (2/2 plans) — completed 2026-02-08
 - [ ] **Phase 12: BranchingStats & Local Search Cleanup** - Propagate branching parameters correctly and add mutex protection
 - [ ] **Phase 13: Dead Code & Documentation Cleanup** - Remove dead code, fix bare except, document local_search fields
 
@@ -76,8 +76,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md — Replace module-level callback state with per-thread _SolveState, add track_history param, update history format to 2-tuple
-- [ ] 11-02-PLAN.md — Update all history tests for 2-tuple format, add concurrent solve independence tests
+- [x] 11-01-PLAN.md — Replace module-level callback state with per-thread _SolveState, add track_history param, update history format to 2-tuple
+- [x] 11-02-PLAN.md — Update all history tests for 2-tuple format, add concurrent solve independence tests
 
 ### Phase 12: BranchingStats & Local Search Cleanup
 **Goal**: Branching parameters set via Python API actually reach the solver, and local_search writes to shared state safely
@@ -124,6 +124,6 @@ Plans:
 | 8. Solve Diagnostics | v1.0 | 2/2 | Complete | 2026-02-06 |
 | 9. SATISFY Mode Crash Fixes | v1.1 | 2/2 | Complete | 2026-02-06 |
 | 10. C23 Migration & VLA Elimination | v1.1 | 2/2 | Complete | 2026-02-08 |
-| 11. Callback Concurrency Rework | v1.1 | 0/0 | Not started | - |
+| 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 0/0 | Not started | - |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 0/0 | Not started | - |

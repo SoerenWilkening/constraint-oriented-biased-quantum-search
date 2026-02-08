@@ -35,9 +35,9 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 
 ### Callback Concurrency
 
-- [ ] **CB-01**: History callback uses per-thread state (thread-keyed dictionary) instead of module-level cdef
-- [ ] **CB-02**: Concurrent solve() calls on different Model instances produce independent history lists
-- [ ] **CB-03**: History callback correctly handles SATISFY mode (reports feasibility progress, not objective)
+- [x] **CB-01**: History callback uses per-thread state (thread-keyed dictionary) instead of module-level cdef
+- [x] **CB-02**: Concurrent solve() calls on different Model instances produce independent history lists
+- [x] **CB-03**: History callback correctly handles SATISFY mode (reports feasibility progress, not objective)
 
 ### Code Cleanup
 
@@ -84,9 +84,9 @@ Deferred to next cleanup release.
 | GCC-05 | Phase 10 | Complete |
 | MEM-01 | Phase 10 | Complete |
 | MEM-02 | Phase 12 | Pending |
-| CB-01 | Phase 11 | Pending |
-| CB-02 | Phase 11 | Pending |
-| CB-03 | Phase 11 | Pending |
+| CB-01 | Phase 11 | Complete |
+| CB-02 | Phase 11 | Complete |
+| CB-03 | Phase 11 | Complete |
 | CLEAN-01 | Phase 13 | Pending |
 | CLEAN-02 | Phase 13 | Pending |
 | CLEAN-03 | Phase 13 | Pending |
@@ -99,4 +99,4 @@ Deferred to next cleanup release.
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-08 after Phase 10 completion*
+*Last updated: 2026-02-08 after Phase 11 completion*
