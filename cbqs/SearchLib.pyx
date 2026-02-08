@@ -1,5 +1,7 @@
+import logging
 import random
 import signal
+import threading
 import time
 import time as time_mod
 from copy import copy
@@ -131,45 +133,70 @@ cdef void my_callback_c() with gil:
 cdef object python_callback = None
 
 
-# Module-level state for history callback wrapper.
-# Used because Cython cpdef functions do not support closures,
-# and regular Python classes cannot access cdef attributes.
-cdef object _history_list = None
-cdef object _history_prev_best = None
-cdef object _history_original_callback = None
-cdef Model _history_mod = None
+# Per-thread/per-solve callback state for thread-safe history tracking.
+# Replaces the old module-level cdef globals that caused cross-contamination
+# when multiple solve() calls ran concurrently.
+
+class _SolveState:
+	"""Per-thread/per-solve callback state."""
+	__slots__ = ('history', 'prev_best', 'mod', 'original_callback',
+	             'start_time', 'mode')
+	def __init__(self, mod, original_callback, start_time, mode):
+		self.history = []
+		self.prev_best = None
+		self.mod = mod
+		self.original_callback = original_callback
+		self.start_time = start_time
+		self.mode = mode
+
+_solve_states = {}  # dict[int, _SolveState] keyed by threading.get_ident()
 
 
 def _history_callback_fn():
-	"""Module-level callback that accumulates improvement history.
+	"""Thread-safe callback that accumulates improvement history.
 
-	Reads from module-level state variables set up by run_sampling/run_local_search
-	before the solve loop.
+	Looks up per-thread state via threading.get_ident() to support
+	concurrent solve() calls without cross-contamination.
 	"""
-	global _history_list, _history_prev_best, _history_original_callback, _history_mod
-	cdef Model mod = _history_mod
-	if mod.mod[0].solver == SATISFY:
-		obj_val = None
-	else:
-		obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
-	elapsed_ms = mod.mod[0].runtime * 1000.0
-	is_feasible = bool(mod.mod[0].global_opt[0].feasible)
-	iteration = mod.mod[0].qtg_applications
-	if _history_prev_best is None or obj_val != _history_prev_best:
-		_history_list.append((iteration, obj_val, elapsed_ms, is_feasible))
-		_history_prev_best = obj_val
-	if _history_original_callback is not None:
-		_history_original_callback()
+	tid = threading.get_ident()
+	state = _solve_states.get(tid)
+	if state is None:
+		return
+	try:
+		mod = state.mod
+		if state.mode == SATISFY:
+			# Satisfaction count: num_constraints + tot_profit
+			# (tot_profit is negative, so this gives constraints-remaining complement)
+			value = mod.mod[0].con[0].num_constraints + mod.mod[0].global_opt[0].tot_profit
+		else:
+			value = mod.mod[0].global_opt[0].tot_profit * mod.sense
+		elapsed = time_mod.monotonic() - state.start_time
+		if state.prev_best is None or value != state.prev_best:
+			state.history.append((value, elapsed))
+			state.prev_best = value
+	except Exception:
+		logging.warning("History callback: error computing entry, skipping", exc_info=True)
+	# Call original user callback if provided
+	if state.original_callback is not None:
+		try:
+			state.original_callback()
+		except Exception:
+			logging.warning("History callback: error in user callback", exc_info=True)
 
-cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
+cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_history=True, double solve_start_time=0.0):
 	preprocess_start = time_mod.monotonic()
 	t_start: float = time.time()
 	t_total: float = 0
 	set_seed(randint(0, 10000000))
 	global python_callback
 
-	# python callback to c callback
-	cdef callback_t cb_ptr = <callback_t> my_callback_c
+	# Determine callback pointer based on track_history and user callback
+	cdef callback_t cb_ptr
+	if track_history or callback is not None:
+		cb_ptr = <callback_t> my_callback_c
+	else:
+		cb_ptr = NULL
+
 	cdef unsigned long long seed_used_val = 0
 
 	n = mod.mod[0].initial_state[0].vector.bits
@@ -200,13 +227,15 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)
 
-	# Set up module-level history callback state
-	global _history_list, _history_prev_best, _history_original_callback, _history_mod
-	_history_list = []
-	_history_prev_best = None
-	_history_original_callback = callback
-	_history_mod = mod
-	python_callback = _history_callback_fn
+	# Set up per-thread callback state for history tracking
+	if track_history:
+		tid = threading.get_ident()
+		mode = mod.mod[0].solver
+		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
+		python_callback = _history_callback_fn
+	elif callback is not None:
+		# Direct user callback without history wrapping
+		python_callback = callback
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -241,8 +270,11 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 				if not not_stop[0]:
 					break
 
-		# Capture history before clearing module-level state
-		history = list(_history_list)
+		# Capture history from per-thread state
+		if track_history:
+			history = list(_solve_states[threading.get_ident()].history)
+		else:
+			history = []
 
 		cur_sol.get_x()
 		arr = []
@@ -266,10 +298,13 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int]):
 
 		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms
 	finally:
+		# Clean up per-thread state
+		if track_history:
+			_solve_states.pop(threading.get_ident(), None)
 		solver_ctx_free(ctx)
 
 
-cpdef run_local_search(Model mod, object callback):
+cpdef run_local_search(Model mod, object callback, bint track_history=True, double solve_start_time=0.0):
 	preprocess_start = time_mod.monotonic()
 	cur_sol: state_py = state_py(0, [0] * mod.mod[0].initial_state[0].vector.bits)
 	free_state(cur_sol.state, 1)
@@ -279,8 +314,12 @@ cpdef run_local_search(Model mod, object callback):
 	cdef unsigned long long seed_used_local = 0
 	global python_callback
 
-	# python callback to c callback
-	cdef callback_t cb_ptr = <callback_t> my_callback_c
+	# Determine callback pointer based on track_history and user callback
+	cdef callback_t cb_ptr
+	if track_history or callback is not None:
+		cb_ptr = <callback_t> my_callback_c
+	else:
+		cb_ptr = NULL
 
 	# Create solver context for this local search
 	cdef solver_ctx_t *ctx = solver_ctx_create()
@@ -296,13 +335,15 @@ cpdef run_local_search(Model mod, object callback):
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
 
-	# Set up module-level history callback state
-	global _history_list, _history_prev_best, _history_original_callback, _history_mod
-	_history_list = []
-	_history_prev_best = None
-	_history_original_callback = callback
-	_history_mod = mod
-	python_callback = _history_callback_fn
+	# Set up per-thread callback state for history tracking
+	if track_history:
+		tid = threading.get_ident()
+		mode = mod.mod[0].solver
+		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
+		python_callback = _history_callback_fn
+	elif callback is not None:
+		# Direct user callback without history wrapping
+		python_callback = callback
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -312,8 +353,11 @@ cpdef run_local_search(Model mod, object callback):
 		with nogil:
 			local_search(ctx, st, mod.mod, cb_ptr)
 
-		# Capture history before clearing module-level state
-		history = list(_history_list)
+		# Capture history from per-thread state
+		if track_history:
+			history = list(_solve_states[threading.get_ident()].history)
+		else:
+			history = []
 
 		# Store actual seed used back to model for reproducibility tracking
 		seed_used_local = ctx.seed_used
@@ -325,6 +369,9 @@ cpdef run_local_search(Model mod, object callback):
 		solve_time_ms = mod.mod[0].runtime * 1000.0
 		return cur_sol, history, preprocessing_time_ms, solve_time_ms
 	finally:
+		# Clean up per-thread state
+		if track_history:
+			_solve_states.pop(threading.get_ident(), None)
 		solver_ctx_free(ctx)
 
 cpdef run_quantum_local_search(initial: state_py,
