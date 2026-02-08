@@ -58,11 +58,11 @@ Plans:
   3. No #define true/false macros exist — stdbool.h used throughout
   4. No VLA declarations remain in any C source file (grep for variable-length array patterns returns empty)
   5. All existing tests pass after compiler flag and type changes (no behavioral regressions)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: TBD
-- [ ] 10-02: TBD
+- [ ] 10-01-PLAN.md — Migrate C headers/sources to C23-compatible patterns (stdbool.h, callback_t(void), portability macros, VLA elimination)
+- [ ] 10-02-PLAN.md — Enable strict warning flags, fix type mismatches, update CI with -Werror
 
 ### Phase 11: Callback Concurrency Rework
 **Goal**: Concurrent solve() calls on different Model instances produce independent, correct history tracking
@@ -123,7 +123,7 @@ Plans:
 | 7. API Robustness | v1.0 | 3/3 | Complete | 2026-02-06 |
 | 8. Solve Diagnostics | v1.0 | 2/2 | Complete | 2026-02-06 |
 | 9. SATISFY Mode Crash Fixes | v1.1 | 2/2 | Complete | 2026-02-06 |
-| 10. C23 Migration & VLA Elimination | v1.1 | 0/0 | Not started | - |
+| 10. C23 Migration & VLA Elimination | v1.1 | 0/2 | Planned | - |
 | 11. Callback Concurrency Rework | v1.1 | 0/0 | Not started | - |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 0/0 | Not started | - |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 0/0 | Not started | - |
