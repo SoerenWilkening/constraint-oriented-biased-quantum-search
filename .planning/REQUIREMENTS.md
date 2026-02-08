@@ -16,9 +16,9 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 
 ### BranchingStats Correctness
 
-- [ ] **BRANCH-01**: Branching bias/factors from solve() parameters propagate to solver_ctx_t in run_sampling()
-- [ ] **BRANCH-02**: Branching bias/factors propagate to solver_ctx_t in run_local_search()
-- [ ] **BRANCH-03**: Deprecated global setters emit deprecation warnings when called
+- [x] **BRANCH-01**: Branching bias/factors from solve() parameters propagate to solver_ctx_t in run_sampling()
+- [x] **BRANCH-02**: Branching bias/factors propagate to solver_ctx_t in run_local_search()
+- [x] **BRANCH-03**: Deprecated global setters emit deprecation warnings when called
 
 ### Compiler Warnings
 
@@ -31,7 +31,7 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 ### Memory Safety
 
 - [x] **MEM-01**: Remaining VLA (int64_t remainings[C]) at local_search.c:286 replaced with arena allocation
-- [ ] **MEM-02**: local_search accept_best_routine uses update_lock mutex for global_opt writes
+- [x] **MEM-02**: local_search accept_best_routine uses update_lock mutex for global_opt writes
 
 ### Callback Concurrency
 
@@ -74,16 +74,16 @@ Deferred to next cleanup release.
 | CRASH-02 | Phase 9 | Complete |
 | CRASH-03 | Phase 9 | Complete |
 | CRASH-04 | Phase 9 | Complete |
-| BRANCH-01 | Phase 12 | Pending |
-| BRANCH-02 | Phase 12 | Pending |
-| BRANCH-03 | Phase 12 | Pending |
+| BRANCH-01 | Phase 12 | Complete |
+| BRANCH-02 | Phase 12 | Complete |
+| BRANCH-03 | Phase 12 | Complete |
 | GCC-01 | Phase 10 | Complete |
 | GCC-02 | Phase 10 | Complete |
 | GCC-03 | Phase 10 | Complete |
 | GCC-04 | Phase 10 | Complete |
 | GCC-05 | Phase 10 | Complete |
 | MEM-01 | Phase 10 | Complete |
-| MEM-02 | Phase 12 | Pending |
+| MEM-02 | Phase 12 | Complete |
 | CB-01 | Phase 11 | Complete |
 | CB-02 | Phase 11 | Complete |
 | CB-03 | Phase 11 | Complete |
@@ -99,4 +99,4 @@ Deferred to next cleanup release.
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-08 after Phase 11 completion*
+*Last updated: 2026-02-08 after Phase 12 completion*

@@ -28,7 +28,7 @@
 - [x] **Phase 9: SATISFY Mode Crash Fixes** (2/2 plans) — completed 2026-02-06
 - [x] **Phase 10: C23 Migration & VLA Elimination** (2/2 plans) — completed 2026-02-08
 - [x] **Phase 11: Callback Concurrency Rework** (2/2 plans) — completed 2026-02-08
-- [ ] **Phase 12: BranchingStats & Local Search Cleanup** - Propagate branching parameters correctly and add mutex protection
+- [x] **Phase 12: BranchingStats & Local Search Cleanup** (2/2 plans) — completed 2026-02-08
 - [ ] **Phase 13: Dead Code & Documentation Cleanup** - Remove dead code, fix bare except, document local_search fields
 
 ## Phase Details
@@ -91,8 +91,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01-PLAN.md — Add set_param/get_param API, deprecation warnings, branching propagation, and mutex protection
-- [ ] 12-02-PLAN.md — Add tests for API, deprecation, and deterministic branching propagation
+- [x] 12-01-PLAN.md — Add set_param/get_param API, deprecation warnings, branching propagation, and mutex protection
+- [x] 12-02-PLAN.md — Add tests for API, deprecation, and deterministic branching propagation
 
 ### Phase 13: Dead Code & Documentation Cleanup
 **Goal**: Codebase contains no dead code, no bare except clauses, and local_search fields are documented
@@ -125,5 +125,5 @@ Plans:
 | 9. SATISFY Mode Crash Fixes | v1.1 | 2/2 | Complete | 2026-02-06 |
 | 10. C23 Migration & VLA Elimination | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
-| 12. BranchingStats & Local Search Cleanup | v1.1 | 0/0 | Not started | - |
+| 12. BranchingStats & Local Search Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 0/0 | Not started | - |
