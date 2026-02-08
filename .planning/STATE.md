@@ -9,18 +9,18 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 11 of 13 (Callback Concurrency Rework) -- COMPLETE
-Plan: 2 of 2 in current phase
-Status: Phase 11 complete
-Last activity: 2026-02-08 -- Completed 11-02-PLAN.md (concurrency test suite)
+Phase: 12 of 13 (BranchingStats & Local Search Cleanup) -- IN PROGRESS
+Plan: 1 of 2 in current phase
+Status: Plan 12-01 complete, Plan 12-02 pending
+Last activity: 2026-02-08 -- Completed 12-01-PLAN.md (branching param API + mutex protection)
 
-Progress: [v1.0 ########] [v1.1 #######...] Phase 11 complete (2/2 plans)
+Progress: [v1.0 ########] [v1.1 ########..] Phase 12 in progress (1/2 plans)
 
 ## Performance Metrics
 
 **Velocity (v1.0 baseline):**
 - Total plans completed: 35 (v1.0)
-- v1.1 plans completed: 6
+- v1.1 plans completed: 7
 - Total execution time: ~3 days (v1.0)
 
 **By Phase (v1.1):**
@@ -30,7 +30,7 @@ Progress: [v1.0 ########] [v1.1 #######...] Phase 11 complete (2/2 plans)
 | 9. SATISFY Crash Fixes | 2/2 | 11m 01s | 5m 31s |
 | 10. C23 & VLA | 2/2 | 45m 28s | 22m 44s |
 | 11. Callback Rework | 2/2 | 12m 13s | 6m 07s |
-| 12. BranchingStats | 0/TBD | - | - |
+| 12. BranchingStats | 1/2 | 9m 01s | 9m 01s |
 | 13. Dead Code Cleanup | 0/TBD | - | - |
 
 ## Accumulated Context
@@ -57,6 +57,10 @@ See PROJECT.md Key Decisions table for full log.
 - Shared solve_start_time computed before Parallel() for consistent elapsed times
 - Concurrent tests build fresh Model per thread (copy() doesn't preserve variable count)
 - History tests validate structure not count (solver may find optimal in greedy pass)
+- set_param/get_param validates against _KNOWN_PARAMS set, raises ValueError for unknowns
+- _params values take precedence over solve() kwargs over defaults for branching config
+- Deprecated branching setters remain functional but emit DeprecationWarning
+- pthread_mutex_trylock for non-blocking global_opt protection (contended lock skips update)
 
 ### Pending Todos
 
@@ -70,6 +74,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 11-02-PLAN.md (concurrency test suite)
-Resume file: .planning/phases/11-callback-concurrency-rework/11-02-SUMMARY.md
-Next action: /gsd:execute-phase for Phase 12 (BranchingStats)
+Stopped at: Completed 12-01-PLAN.md (branching param API + mutex protection)
+Resume file: .planning/phases/12-branchingstats-local-search-cleanup/12-01-SUMMARY.md
+Next action: Execute 12-02-PLAN.md (branching stats test suite)
