@@ -31,7 +31,7 @@ Progress: [v1.0 ########] [v1.1 ##########] Phase 13 complete (2/2 plans) -- v1.
 | 10. C23 & VLA | 2/2 | 45m 28s | 22m 44s |
 | 11. Callback Rework | 2/2 | 12m 13s | 6m 07s |
 | 12. BranchingStats | 2/2 | 12m 01s | 6m 01s |
-| 13. Dead Code Cleanup | 2/2 | ~26m | ~13m |
+| 13. Dead Code Cleanup | 2/2 | ~55m | ~27m |
 
 ## Accumulated Context
 
@@ -66,6 +66,9 @@ See PROJECT.md Key Decisions table for full log.
 - Removed unguarded print() from Model.solution property (debug-only, not user-facing)
 - pandas dependency kept with TODO for verification (may be used by user scripts)
 - Dead sources_circuit removed from setup.py (never used in extensions list)
+- Removed unguarded progress-bar printfs entirely (UI noise, not diagnostic data)
+- Field annotation format: Reads/Writes with mutex protection notes on major solver functions
+- Removed compare(), objective_value_improved(), print_status()/dat_t as unused dead code
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 13-02-PLAN.md (Cython/Python dead code & build config cleanup) -- Phase 13 complete, v1.1 milestone DONE
-Resume file: .planning/phases/13-dead-code-documentation-cleanup/13-02-SUMMARY.md
+Stopped at: Completed 13-01-PLAN.md (C kernel dead code removal & field annotations) -- Phase 13 fully complete, v1.1 milestone DONE
+Resume file: .planning/phases/13-dead-code-documentation-cleanup/13-01-SUMMARY.md
 Next action: v1.1 milestone complete -- all 13 phases done
