@@ -38,7 +38,6 @@ void merge_expression(expression_t *expr) {
 
 	// sum up all the constants
 	for (size_t i = 0; i < expr->expr_size; ++i) {
-	    printf("\r%f", (double) i / expr->expr_size);
 		if (lens[i] == 1) {
 			for (size_t j = i + 1; j < expr->expr_size; ++j) {
 				if (lens[j] == 1) {
@@ -50,7 +49,6 @@ void merge_expression(expression_t *expr) {
 			break;
 		}
 	}
-	printf("\r");
 }
 
 void print_expression(expression_t *expr) {

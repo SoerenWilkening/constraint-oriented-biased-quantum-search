@@ -36,7 +36,6 @@ state_t *amplitude_amplification(state_t *states, size_t numStates, size_t calls
 
 
 	amp_factor = pow(sin((2 * calls + 1) * asin(sqrt(total_prob))), 2) / total_prob;
-//	printf("%d %f %.15f\n", calls, amp_factor, 1 * total_prob);
 
 	for (size_t i = 0; i < numStates; ++i) prob[i] = states[i].prob * amp_factor;
 
@@ -52,10 +51,6 @@ state_t *amplitude_amplification(state_t *states, size_t numStates, size_t calls
 }
 
 state_t *QSearch(state_t *states, size_t numStates, size_t *iterations, size_t *rounds, size_t M, size_t *measured_index) {
-//    for (int i = 0; i < numStates; i++) {
-//        print_state(&states[i]);
-//        printf("\n");
-//    }
 	size_t m, j, m_tot;
 	m_tot = 0;
 	double c = 6. / 5;
