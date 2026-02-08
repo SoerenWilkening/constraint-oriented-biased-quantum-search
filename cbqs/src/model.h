@@ -35,7 +35,7 @@ typedef struct {
     int distance;
 } model_t;
 
-model_t *init_model();
+model_t *init_model(void);
 
 void free_model(model_t *mod);
 

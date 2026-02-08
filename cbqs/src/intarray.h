@@ -6,11 +6,7 @@
 #include <stdint.h>
 #include "definitions.h"
 
-#ifdef _WIN32
 typedef uint64_t part_length_t;
-#else
-typedef u_int64_t part_length_t;
-#endif
 
 typedef struct {
 	size_t n;

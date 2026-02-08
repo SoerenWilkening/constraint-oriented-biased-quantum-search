@@ -1,7 +1,7 @@
 #include "constraint.h"
 #include "local_search.h"
 
-int main(){
+int main(void){
 	srand(clock());
 
 	int arr[5];

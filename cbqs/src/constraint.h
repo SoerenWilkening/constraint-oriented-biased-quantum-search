@@ -75,7 +75,7 @@ typedef struct{
 // instead of creating a constraint and add it to the list of constraints,
 // an expression will be passed to the constraint data
 // an expression always refers to one constraint
-new_constraints_t init_new_constraint();
+new_constraints_t init_new_constraint(void);
 
 new_constraints_t copy_new_constraint(new_constraints_t *con);
 

@@ -1,7 +1,7 @@
 #include "constraint.h"
 
 
-new_constraints_t init_new_constraint() {
+new_constraints_t init_new_constraint(void) {
 	new_constraints_t con;
 
 	con.num_constraints = 0;
@@ -86,7 +86,7 @@ void free_constraints(new_constraints_t *con) {
 }
 
 void print_new_constraint(new_constraints_t *con) {
-	printf("constraints -> %zu\n", con->num_constraints);
+	printf("constraints -> %u\n", con->num_constraints);
 	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		size_t clause_offset = first_clause_index(con, cnstr);
 		for (int cls = 0; cls < con->num_clauses[cnstr]; ++cls) {

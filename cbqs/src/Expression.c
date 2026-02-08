@@ -67,7 +67,7 @@ void print_expression(expression_t *expr) {
 	}
 }
 
-expression_t *init_expression() {
+expression_t *init_expression(void) {
     return dyn_expr_init();
 }
 

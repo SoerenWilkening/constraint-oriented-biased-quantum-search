@@ -14,6 +14,7 @@
 #define PRNG_H
 
 #include <stdint.h>
+#include "definitions.h"
 
 /**
  * @brief xoshiro256** PRNG state (256 bits = 4 x 64 bits)
@@ -28,7 +29,7 @@ typedef struct {
  * Automatically instantiated for each thread. Use prng_seed() or
  * prng_seed_thread() to initialize before generating random numbers.
  */
-extern __thread prng_state_t g_prng_state;
+extern CBQS_THREAD_LOCAL prng_state_t g_prng_state;
 
 /**
  * @brief Thread-local initialization flag
@@ -36,7 +37,7 @@ extern __thread prng_state_t g_prng_state;
  * Set to 1 after prng_seed() or prng_seed_thread() is called.
  * Check this before generating random numbers if uncertain about init state.
  */
-extern __thread int g_prng_initialized;
+extern CBQS_THREAD_LOCAL int g_prng_initialized;
 
 /* ============================================================
  * Initialization Functions

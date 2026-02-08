@@ -21,8 +21,8 @@
  * Thread-local State
  * ============================================================ */
 
-__thread prng_state_t g_prng_state;
-__thread int g_prng_initialized = 0;
+CBQS_THREAD_LOCAL prng_state_t g_prng_state;
+CBQS_THREAD_LOCAL int g_prng_initialized = 0;
 
 /* ============================================================
  * Internal Helper Functions

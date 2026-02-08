@@ -3,11 +3,10 @@
  * @brief Solver context lifecycle implementation
  */
 
-/* Feature test macros for POSIX clock_gettime, CLOCK_MONOTONIC, and BSD types
- * This must be defined before any includes to take effect.
- * The codebase uses GNU extensions (u_int64_t in intarray.h) so we use _GNU_SOURCE.
+/* Feature test macro for POSIX clock_gettime and CLOCK_MONOTONIC.
+ * Must be defined before any includes to take effect.
  */
-#define _GNU_SOURCE
+#define _POSIX_C_SOURCE 199309L
 
 #include "solver_ctx.h"
 #include "prng.h"

@@ -12,7 +12,7 @@
 typedef dyn_expression_t expression_t;
 
 int len_literal(expression_t *expr , int clause);
-expression_t *init_expression();
+expression_t *init_expression(void);
 size_t expr_index(size_t lit, int ind);
 void free_expression(expression_t *expr);
 void copy_expression_contents(expression_t *dest, expression_t *src);

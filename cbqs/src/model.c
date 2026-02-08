@@ -4,7 +4,7 @@
 
 #include "model.h"
 
-model_t *init_model(){
+model_t *init_model(void){
     model_t *mod = malloc(sizeof(model_t));
     mod->bias_factor = 1.;
     mod->manual_bias_factor = 0.;
