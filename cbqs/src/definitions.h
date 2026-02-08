@@ -1,6 +1,7 @@
 #ifndef TYPEDEFS_H
 #define TYPEDEFS_H
 
+#include <stdbool.h>
 
 // define constants
 //#define UNDEFINED -2
@@ -28,7 +29,7 @@
 #define STOPATFIRST 1
 
 // define callback functionality
-typedef void (*callback_t)();
+typedef void (*callback_t)(void);
 
 typedef int solver_t;
 
@@ -42,7 +43,21 @@ typedef int solver_t;
 
 
 #define MIN(a,b)                ((a) < (b) ? (a) : (b))
-#define false 0
-#define true 1
+
+/* Portability macro: mark parameters as intentionally unused */
+#if defined(__GNUC__) || defined(__clang__)
+  #define CBQS_UNUSED __attribute__((unused))
+#else
+  #define CBQS_UNUSED
+#endif
+
+/* Portability macro: thread-local storage */
+#if defined(_MSC_VER)
+  #define CBQS_THREAD_LOCAL __declspec(thread)
+#elif defined(__GNUC__) || defined(__clang__)
+  #define CBQS_THREAD_LOCAL __thread
+#else
+  #define CBQS_THREAD_LOCAL _Thread_local
+#endif
 
 #endif
