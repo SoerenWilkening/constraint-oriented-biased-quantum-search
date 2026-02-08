@@ -1,4 +1,5 @@
 #include "constraint.h"
+#include <inttypes.h>
 
 
 new_constraints_t init_new_constraint(void) {
@@ -87,44 +88,20 @@ void free_constraints(new_constraints_t *con) {
 
 void print_new_constraint(new_constraints_t *con) {
 	printf("constraints -> %u\n", con->num_constraints);
-	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		size_t clause_offset = first_clause_index(con, cnstr);
-		for (int cls = 0; cls < con->num_clauses[cnstr]; ++cls) {
+		for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; ++cls) {
 			size_t clause_index = clause_offset + cls;
-			printf("%zu: [%lld ", clause_index, con->factors[clause_index]);
-			for (int k = 0; k < con->clause_length[clause_index]; ++k) {
-				printf("%zu ", con->variables[variable_index(cls, k, clause_offset)]);
+			printf("%zu: [%" PRId64 " ", clause_index, con->factors[clause_index]);
+			for (uint32_t k = 0; k < con->clause_length[clause_index]; ++k) {
+				printf("%u ", con->variables[variable_index(cls, k, clause_offset)]);
 			}
 			printf("]\n");
 		}
 		if (con->sense[cnstr] == LOWER) printf("< ");
-		printf("%lld\n", con->rhs[cnstr]);
+		printf("%" PRId64 "\n", con->rhs[cnstr]);
 	}
 
-	size_t n = 0;
-	size_t C = con->num_constraints;
-	for (int i = 0; i < con->allocated_variables; ++i) if (con->variables[i] + 1 > n) n = con->variables[i] + 1;
-
-//	printf("negative coefficients\n");
-//	for (int item = 0; item < n; item++) {
-//		for (int cnstr = 0; cnstr < C; cnstr++) {
-//			printf("%d: %d-> ", item, cnstr);
-//			for (int cls = 0; cls < con->num_negative_indices[item * C + cnstr]; cls++) {
-//				printf("%u ", con->negative_indices[con->negative_offsets[item * C + cnstr] + cls]);
-//			}
-//			printf("\n");
-//		}
-//	}
-//	printf("positive coefficients\n");
-//	for (int item = 0; item < n; item++) {
-//		for (int cnstr = 0; cnstr < C; cnstr++) {
-//			printf("%d: %d-> ", item, cnstr);
-//			for (int cls = 0; cls < con->num_positive_indices[item * C + cnstr]; cls++) {
-//				printf("%u ", con->positive_indices[con->positive_offsets[item * C + cnstr] + cls]);
-//			}
-//			printf("\n");
-//		}
-//	}
 }
 
 void preprocessing(
@@ -169,18 +146,18 @@ void preprocessing(
 	for (int item = 0; item < n; item++) {
 	    printf("\r %f %%", (double) item / n * 100);
 
-		for (int cnstr = 0; cnstr < C; cnstr++) {
+		for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
 			size_t clause_offset = first_clause_index(con, cnstr);
 			unsigned int npi = 0;
 			unsigned int nni = 0;
-			for (int cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+			for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
 				size_t clause_index = clause_offset + cls;
 				int64_t factor = con->factors[clause_index];
-				size_t prev_var = -1;
-				for (int k = 0; k < con->clause_length[clause_index]; k++) {
+				size_t prev_var = SIZE_MAX;
+				for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
 					size_t var = con->variables[variable_index(cls, k, clause_offset)];
 
-					if (item == var && var != prev_var) {
+					if ((size_t)item == var && var != prev_var) {
 						if (factor < 0) {
 							// add index to "negative_indices"
 							if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
@@ -230,11 +207,11 @@ void preprocessing(
 }
 
 
-int64_t get_index(uint32_t *columns, uint32_t *rows, int item, int cnstr, size_t nnz, int C){
-    
+int64_t get_index(const uint32_t *columns, const uint32_t *rows, int item, size_t cnstr, size_t nnz, size_t C){
+
     size_t left = 0;
     size_t right = nnz;
-    uint32_t target = item * C + cnstr;
+    uint32_t target = (uint32_t)(item * C + cnstr);
     
     while (left < right) {
         size_t mid = left + (right - left) / 2;
@@ -301,19 +278,19 @@ void preprocessing_sparse(
     size_t counter_negative = 0;
     for (int item = 0; item < n; item++) {
 //	    printf("\r %f %%", (double) item / n * 100);
-        
-        for (int cnstr = 0; cnstr < C; cnstr++) {
+
+        for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
             size_t clause_offset = first_clause_index(con, cnstr);
             unsigned int npi = 0;
             unsigned int nni = 0;
-            for (int cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+            for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
                 size_t clause_index = clause_offset + cls;
                 int64_t factor = con->factors[clause_index];
-                size_t prev_var = -1;
-                for (int k = 0; k < con->clause_length[clause_index]; k++) {
+                size_t prev_var = SIZE_MAX;
+                for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
                     size_t var = con->variables[variable_index(cls, k, clause_offset)];
-                    
-                    if (item == var && var != prev_var) {
+
+                    if ((size_t)item == var && var != prev_var) {
                         if (factor < 0) {
                             // add index to "negative_indices"
                             if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
@@ -438,16 +415,17 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 }
 
 int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t cnstr) {
+	size_t s_max_item = (size_t)max_item;
 	int64_t total = 0;
 	size_t clause_offset = first_clause_index(con, cnstr);
-	for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
+	for (uint32_t cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
 		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
-		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
+		for (uint32_t k = 0; k < con->clause_length[clause_index]; ++k) {
 			size_t var = con->variables[variable_index(cl, k, clause_offset)];
-			if (var > max_item) {
+			if (var > s_max_item) {
 				// variable product is not closed -> clause doesn't contribute to satifyability,
 				// since remaining assignments can always set clause to 0
 				assigned = 2;
@@ -463,14 +441,14 @@ int eval_constraint(new_constraints_t *con, state_t *sol, int max_item, size_t c
 	}
 	if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
 	if (con->sense[cnstr] == EQUAL) {
-		if (max_item == sol->vector.bits && total != con->rhs[cnstr]) return 0;
+		if (s_max_item == sol->vector.bits && total != con->rhs[cnstr]) return 0;
 		if (con->sense[cnstr] == LOWER && total > con->rhs[cnstr]) return 0;
 	}
 	return 1;
 }
 
 int eval_constraints(new_constraints_t *con, state_t *sol, int max_item) {
-	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		if (!eval_constraint(con, sol, max_item, cnstr)) return 0;
 	}
 	return 1;
@@ -478,7 +456,7 @@ int eval_constraints(new_constraints_t *con, state_t *sol, int max_item) {
 
 int num_satisfied_constrains(new_constraints_t *con, state_t *sol) {
 	int count = 0;
-	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		if (eval_constraint(con, sol, sol->vector.bits, cnstr)) count++;
 	}
 	return count;
@@ -487,14 +465,14 @@ int num_satisfied_constrains(new_constraints_t *con, state_t *sol) {
 int64_t objective_value(new_constraints_t *obj, state_t *sol) {
 	// compute objective value of given solution
 	int64_t total = 0;
-	int cnstr = 0;
+	uint32_t cnstr = 0;
 	size_t clause_offset = first_clause_index(obj, cnstr);
-	for (int cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
+	for (uint32_t cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
 		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
-		for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
+		for (uint32_t k = 0; k < obj->clause_length[clause_index]; ++k) {
 			size_t var = obj->variables[variable_index(cl, k, clause_offset)];
 			assigned &= sw_tstbit(sol->vector, var);
 		}
@@ -506,14 +484,14 @@ int64_t objective_value(new_constraints_t *obj, state_t *sol) {
 int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful) {
 	// compute objective value of given solution
 	int64_t total = 0;
-	int cnstr = 0;
+	uint32_t cnstr = 0;
 	size_t clause_offset = first_clause_index(obj, cnstr);
-	for (int cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
+	for (uint32_t cl = 0; cl < obj->num_clauses[cnstr]; ++cl) {
 		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
-		for (int k = 0; k < obj->clause_length[clause_index]; ++k) {
+		for (uint32_t k = 0; k < obj->clause_length[clause_index]; ++k) {
 			size_t var = obj->variables[variable_index(cl, k, clause_offset)];
 			assigned &= sw_tstbit(sol->vector, var);
 		}
@@ -528,12 +506,12 @@ int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful) {
 int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
 	int64_t total = 0;
 	size_t clause_offset = first_clause_index(con, cnstr);
-	for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
+	for (uint32_t cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
 		size_t clause_index = clause_offset + cl;
 
 		// check, if every item of a clause is assigned
 		int assigned = 1;
-		for (int k = 0; k < con->clause_length[clause_index]; ++k) {
+		for (uint32_t k = 0; k < con->clause_length[clause_index]; ++k) {
 			size_t var = con->variables[variable_index(cl, k, clause_offset)];
 			assigned &= sw_tstbit(sol->vector, var);
 		}
@@ -548,14 +526,14 @@ int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
 
 //int prepare_constraints(new_constraints_t *con, state_t *sol, int *fulfilled) {
 int prepare_constraints(new_constraints_t *con, state_t *sol, array_t *ful) {
-	for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		size_t clause_offset = first_clause_index(con, cnstr);
-		for (int cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
+		for (uint32_t cl = 0; cl < con->num_clauses[cnstr]; ++cl) {
 			size_t clause_index = clause_offset + cl;
 
 			// check, if every item of a clause is assigned
 			int assigned = 1;
-			for (int k = 0; k < con->clause_length[clause_index]; ++k) {
+			for (uint32_t k = 0; k < con->clause_length[clause_index]; ++k) {
 				size_t var = con->variables[variable_index(cl, k, clause_offset)];
 				assigned &= sw_tstbit(sol->vector, var);
 			}
@@ -587,10 +565,10 @@ int adjusted_constraint_violation(
 	int count = *num_changes;
 	size_t C = con->num_constraints;
 	// check, if assignment does not exceed potentials
-	for (int cnstr = 0; cnstr < C; cnstr++) {
+	for (size_t cnstr = 0; cnstr < C; cnstr++) {
 		int64_t total = 0;
 		size_t clause_offset = first_clause_index(con, cnstr);
-		int ind = item * C + cnstr;
+		int64_t ind = (int64_t)(item * C + cnstr);
 //        printf("%d %d\n", con->sparsity, SPARSE);
         if (con->sparsity == SPARSE) {
             if (negative == NEGATIVE){
@@ -600,14 +578,14 @@ int adjusted_constraint_violation(
             }
         }
         if (ind != -1){
-		    for (int cls = 0; cls < num_indices[ind]; cls++) {
-		    	int index = indices[offsets[ind] + cls]; // index of the clause of constraint cnstr
+		    for (uint32_t cls = 0; cls < num_indices[ind]; cls++) {
+		    	uint32_t index = indices[offsets[ind] + cls]; // index of the clause of constraint cnstr
 
 		    	size_t clause_index = clause_offset + index;
 
 		    	if (!sw_tstbit(*inv, clause_index)) {
 		    		int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
-		    		for (int i = 0; i < con->clause_length[clause_index]; i++) {
+		    		for (uint32_t i = 0; i < con->clause_length[clause_index]; i++) {
 		    			size_t var = con->variables[variable_index(index, i, clause_offset)];
 		    			assigned &= sw_tstbit(cur_sol->vector, var);
 		    		}
@@ -663,7 +641,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 	// go trough negative coefficients
 	for (int i = 0; i < NumChanges; i++) { // go through all changes
 		int item = ChangedBits[i]; // changed item
-		for (int cls = 0; cls < obj->num_negative_indices[item]; cls++) {
+		for (uint32_t cls = 0; cls < obj->num_negative_indices[item]; cls++) {
 			int assigned = 1;
 			int clause_index = obj->negative_indices[obj->negative_offsets[item] + cls];
 			if (!sw_tstbit(inv, clause_index)) {
@@ -674,7 +652,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 					if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
 					(*changes)[count++] = clause_index;
 				} else {
-					for (int j = 0; j < obj->clause_length[clause_index]; j++) {
+					for (uint32_t j = 0; j < obj->clause_length[clause_index]; j++) {
 						size_t var = obj->variables[variable_index(clause_index, j, 0)];
 						assigned &= sw_tstbit(new->vector, var);
 					}
@@ -690,7 +668,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 	}
 	// go trough positive coefficients
 	for (int item = 0; item < n; item++) {
-		for (int cls = 0; cls < obj->num_positive_indices[item]; cls++) {
+		for (uint32_t cls = 0; cls < obj->num_positive_indices[item]; cls++) {
 			int assigned = 1;
 			int clause_index = obj->positive_indices[obj->positive_offsets[item] + cls];
 			if (!sw_tstbit(inv, clause_index)) {
@@ -700,7 +678,7 @@ int64_t objective_value_improved(new_constraints_t *obj, // objective function
 					total -= obj->factors[clause_index];
 					(*changes)[count++] = clause_index;
 				} else {
-					for (int j = 0; j < obj->clause_length[clause_index]; j++) {
+					for (uint32_t j = 0; j < obj->clause_length[clause_index]; j++) {
 						size_t var = obj->variables[variable_index(clause_index, j, 0)];
 						assigned &= sw_tstbit(new->vector, var);
 					}

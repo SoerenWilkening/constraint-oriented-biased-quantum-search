@@ -99,8 +99,6 @@ void set_constraint_dependence(double *dependence, int n){
 double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold){
     state->prob = 1.;
 //    printf("%f\n", ctx->branching_stats.bias);
-    int count0 = 0;
-    int count1 = 0;
     for (size_t j = 0; j < state->vector.bits; ++j) {
         if (sw_tstbit(state->branch, j) == 1) {
 

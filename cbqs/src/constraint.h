@@ -102,7 +102,7 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr);
 
 void preprocessing(int n, new_constraints_t *con);
 
-int64_t get_index(uint32_t *columns, uint32_t *rows, int item, int cnstr, size_t nnz, int C);
+int64_t get_index(const uint32_t *columns, const uint32_t *rows, int item, size_t cnstr, size_t nnz, size_t C);
 
 void preprocessing_sparse( int n, new_constraints_t *con);
 

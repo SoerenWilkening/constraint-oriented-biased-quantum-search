@@ -68,7 +68,6 @@ int bfs(
 		callback_t callback) {
 	state_t *new_sol = copy_state(cur_sol);
 	int64_t initial_value = cur_sol->tot_profit;
-	int n = cur_sol->vector.bits;
 	size_t C = con->num_constraints;
 
 	int count[2] = {0, 0};
@@ -87,7 +86,7 @@ int bfs(
 
 
 int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
-	int m_tot = 0;
+	size_t m_tot = 0;
 //    state_t *cur_sol = copy_state(mod->initial_state);
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
@@ -191,7 +190,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 			rounds = 0;
 
 			m_tot = 0;
-			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || feasible && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1)) {
+			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || (feasible && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1))) {
 				break;
 			}
 		}

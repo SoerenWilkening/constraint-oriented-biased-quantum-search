@@ -79,7 +79,7 @@ static void test_initial_state_preparation(void **state) {
 
     model_t *mod = build_small_model();
 
-    int result = initial_state_preparation(mod);
+    int result CBQS_UNUSED = initial_state_preparation(mod);
 
     /* The state should still have 3 bits */
     assert_int_equal(mod->initial_state->vector.bits, 3);

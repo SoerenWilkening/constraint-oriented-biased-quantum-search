@@ -175,7 +175,7 @@ void *explore_neighbourhood(void *args) {
 		prng_seed_thread(&dat->ctx->master_prng, dat->id);
 	}
 
-	int C = dat->con->num_constraints;
+	uint32_t C = dat->con->num_constraints;
 //	int64_t steps[C];
 //	memset(steps, 0, C * sizeof(int64_t));
 
@@ -223,9 +223,8 @@ void *explore_neighbourhood(void *args) {
 			inv = sw_init(C * dat->size_ful);
 			changed_con = calloc(MINSIZE, sizeof(int));
 		}
-		int num_con_changes = 0;
 
-        for (int i = 0; i < C; ++i){
+        for (uint32_t i = 0; i < C; ++i){
             totals[i] = constraint_violation(dat->con, new_sol, i);
         }
 //		for (int i = 0; i < k; ++i) {
@@ -247,7 +246,7 @@ void *explore_neighbourhood(void *args) {
 		// is the new solution feasible ?
 		int64_t total_violation = 0;
 
-		for (int cnstr = 0; cnstr < C; ++cnstr) {
+		for (uint32_t cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
 //			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
 			total_violation += totals[cnstr] < 0 ? totals[cnstr] : 0;
@@ -281,7 +280,6 @@ void *explore_neighbourhood(void *args) {
 			} else {
 				changes = calloc(MINSIZE, sizeof(int));
 			}
-			int num_cahnges = 0;
 //			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, &dat->ful, &changes, &num_cahnges);
             int64_t objective = objective_value(dat->obj, new_sol);
 
@@ -319,7 +317,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
                         int *accept_worse_counter, int max_worse_acceptances,
                         int stopping_criterion, int *neighbourhood_counter) {
 
-	int C = con->num_constraints;
+	uint32_t C = con->num_constraints;
 
 	state_t *cur_best = copy_state(new_sol);
 	state_t *cur_best_tabu = copy_state(new_sol);
@@ -343,7 +341,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		sw_clear(ful_con);
 		return -1;  /* Allocation failure */
 	}
-	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
+	for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
 	prepare_constraints(con, new_sol, &ful_con);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
@@ -497,11 +495,11 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 
 	int n = cur_sol->vector.bits;
-	int C = mod->con->num_constraints;
+	uint32_t C = mod->con->num_constraints;
 
 	array_t ful = sw_init(mod->obj->num_clauses[0]);
-	int max_constraint_clauses = 0;
-	for (int i = 0; i < C; ++i) {
+	uint32_t max_constraint_clauses = 0;
+	for (uint32_t i = 0; i < C; ++i) {
 		if (mod->con->num_clauses[i] > max_constraint_clauses) {
 			max_constraint_clauses = mod->con->num_clauses[i];
 		}
@@ -558,7 +556,7 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		if (callback) callback();
 //		printf("%d %d %lld %lld %f %d,\n", worse_acceptance_counter, break_condition,
 //               cur_sol->tot_profit, mod->global_opt->tot_profit, time, neighbourhood_counter);
-		if (time > mod->stopping_time || (cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)) break;
+		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
 		counter++;
 	}
 
@@ -582,7 +580,7 @@ state_t *quantum_local_search_states(
 		size_t *mapping) {
 
 	array_t ful_con = sw_init(con->total_clauses);
-	int C = con->num_constraints;
+	uint32_t C = con->num_constraints;
 
 	/* Heap-allocated arrays instead of VLAs */
 	int64_t *remainings = malloc(C * sizeof(int64_t));
@@ -590,17 +588,17 @@ state_t *quantum_local_search_states(
 		sw_clear(ful_con);
 		return NULL;  /* Allocation failure */
 	}
-	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
+	for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(con, cur_sol, i);
 	prepare_constraints(con, cur_sol, &ful_con);
 
 
 	array_t ful = sw_init(obj->num_clauses[0]);
 	prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
-	int64_t init_val = objective_value(obj, cur_sol);
+	(void)objective_value(obj, cur_sol); /* init_val used only in commented-out code below */
 
 	size_t feasible_state_counter = 0;
 	state_t *st = malloc(num_moves * sizeof(state_t));
-	for (int i = 0; i < num_moves; ++i) {
+	for (size_t i = 0; i < num_moves; ++i) {
 		st[feasible_state_counter].tot_profit = 0LL;
 		st[feasible_state_counter].prob = 1. / ((double) num_moves);
 		st[feasible_state_counter].vector = sw_init(cur_sol->vector.bits);
@@ -644,7 +642,7 @@ state_t *quantum_local_search_states(
 			}
 			free(changed_con);
 			sw_clear(inv);
-			for (int cnstr = 0; cnstr < C; ++cnstr) {
+			for (uint32_t cnstr = 0; cnstr < C; ++cnstr) {
 				// only sum up violations
 				total_violation -= remainings[cnstr] - totals[cnstr] < 0 ? remainings[cnstr] - totals[cnstr] : 0;
 			}
@@ -660,7 +658,6 @@ state_t *quantum_local_search_states(
 //			} else { objective = objective_value(obj, &st[feasible_state_counter]); }
 			} else {
 				int *changes = calloc(MINSIZE, sizeof(int));
-				int num_cahnges = 0;
 				objective = objective_value(obj, cur_sol);
 //				objective = init_val + objective_value_improved(
 //						obj,
@@ -676,8 +673,8 @@ state_t *quantum_local_search_states(
 		}
 
 		include_state &= (feasible && !cur_sol->feasible) |
-		                 (((!feasible) && !cur_sol->feasible) | (feasible && cur_sol->feasible)) &
-		                 (objective < cur_sol->tot_profit);
+		                 ((((!feasible) && !cur_sol->feasible) | (feasible && cur_sol->feasible)) &
+		                 (objective < cur_sol->tot_profit));
 
 		if (include_state) {
 			st[feasible_state_counter].feasible = feasible;
@@ -706,8 +703,8 @@ state_t *updated_local(state_t *bnb, size_t number_states,
 		int include_state = 1;
 		if (move_is_tabu(tabu_list, i)) include_state = 0;
 		include_state &= (bnb[i].feasible && !cur_sol->feasible) |
-		                 (((!bnb[i].feasible) && !cur_sol->feasible) | (bnb[i].feasible && cur_sol->feasible)) &
-		                 (bnb[i].tot_profit < cur_sol->tot_profit);
+		                 ((((!bnb[i].feasible) && !cur_sol->feasible) | (bnb[i].feasible && cur_sol->feasible)) &
+		                 (bnb[i].tot_profit < cur_sol->tot_profit));
 
 		if (include_state) {
 			mapping[a] = i;
@@ -806,8 +803,8 @@ int quantum_local_search(new_constraints_t *obj,
 				*qs = temp;
 				free_state(qs, 1);
 				// check, if new found solution is better than current solution, as we can then stop
-				int accept = ((start->feasible && cur_sol->feasible) || (!start->feasible && !cur_sol->feasible)) &&
-				             (start->tot_profit < cur_sol->tot_profit) ||
+				int accept = (((start->feasible && cur_sol->feasible) || (!start->feasible && !cur_sol->feasible)) &&
+				             (start->tot_profit < cur_sol->tot_profit)) ||
 				             (start->feasible && !cur_sol->feasible);
 				if (accept) {
 					temp = *cur_sol;
@@ -823,8 +820,8 @@ int quantum_local_search(new_constraints_t *obj,
 
 		// if found cur sol is better than global opt: adjust
 		int accept_global =
-				((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&
-				(cur_sol->tot_profit < global_opt->tot_profit) ||
+				(((cur_sol->feasible && global_opt->feasible) || (!cur_sol->feasible && !global_opt->feasible)) &&
+				(cur_sol->tot_profit < global_opt->tot_profit)) ||
 				(cur_sol->feasible && !global_opt->feasible);
 		if (accept_global) {
 			free_state(global_opt, 1);

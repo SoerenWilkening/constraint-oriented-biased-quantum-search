@@ -1,5 +1,6 @@
 #include "state.h"
 #include <math.h>
+#include <inttypes.h>
 
 int min(int a, int b){
     return (a < b) ? a : b;
@@ -79,7 +80,7 @@ void copy_state_inplace(state_t *dest, state_t *src){
 }
 
 void print_state(state_t *state){
-    printf("%lld %f %d %zu ", state->tot_profit, state->prob, state->feasible, state->vector.bits);
+    printf("%" PRId64 " %f %d %zu ", state->tot_profit, state->prob, state->feasible, state->vector.bits);
     sw_print(state->vector);
     printf(" ");
     sw_print(state->branch);
@@ -143,7 +144,7 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
     }
 //    printf("count %d\n", count);
     *NumberStatesFinal = count;
-    for (int i = count; i < estimate; i++){
+    for (size_t i = count; i < estimate; i++){
         sw_clear(parent[i].vector);
         sw_clear(parent[i].branch);
     }
