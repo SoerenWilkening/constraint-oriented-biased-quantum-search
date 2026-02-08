@@ -187,41 +187,45 @@ class TestHistoryAccumulation:
     """Tests for improvement history in OptimizeResult."""
 
     def test_history_entries_are_tuples(self):
-        """Each entry in result.history has 4 elements."""
+        """Each entry in result.history has 2 elements (value, elapsed_seconds)."""
         m = _build_knapsack_model()
         result = m.solve(stopping_time=5, num_workers=1)
         for entry in result.history:
-            assert len(entry) == 4, f"History entry should have 4 elements, got {len(entry)}"
+            assert len(entry) == 2, f"History entry should have 2 elements, got {len(entry)}"
 
     def test_history_objectives_monotonic(self):
-        """For maximization, objectives in history should be non-decreasing (if any entries exist)."""
+        """For maximization, values in history should be non-decreasing (if any entries exist)."""
         m = _build_knapsack_model(sense=MAXIMIZE)
         result = m.solve(stopping_time=5, num_workers=1)
         if len(result.history) > 1:
-            objectives = [entry[1] for entry in result.history]
+            objectives = [entry[0] for entry in result.history]
             for i in range(1, len(objectives)):
                 assert objectives[i] >= objectives[i - 1], \
                     f"History should be non-decreasing for MAXIMIZE: {objectives}"
 
     def test_history_entries_have_correct_types(self):
-        """History entries contain (int, number, float, bool)."""
+        """History entries contain (value, elapsed_seconds)."""
         m = _build_knapsack_model()
         result = m.solve(stopping_time=5, num_workers=1)
         for entry in result.history:
-            iteration, obj_val, elapsed_ms, is_feasible = entry
-            assert isinstance(iteration, (int, float))
-            assert isinstance(obj_val, (int, float))
-            assert isinstance(elapsed_ms, (int, float))
-            assert isinstance(is_feasible, (bool, int))
+            value, elapsed_seconds = entry
+            assert isinstance(value, (int, float))
+            assert isinstance(elapsed_seconds, float)
 
     def test_multi_worker_history_merged(self):
         """History from multiple workers is merged into single list."""
         m = _build_knapsack_model()
         result = m.solve(stopping_time=5, num_workers=2)
-        # History should be a flat list (not nested), sorted by elapsed_ms
+        # History should be a flat list (not nested), sorted by elapsed_seconds
         assert isinstance(result.history, list)
         if len(result.history) > 1:
-            times = [entry[2] for entry in result.history]
+            times = [entry[1] for entry in result.history]
             for i in range(1, len(times)):
                 assert times[i] >= times[i - 1], \
-                    f"Merged history should be sorted by elapsed_ms: {times}"
+                    f"Merged history should be sorted by elapsed_seconds: {times}"
+
+    def test_track_history_false_returns_empty(self):
+        """track_history=False produces empty history."""
+        m = _build_knapsack_model()
+        result = m.solve(stopping_time=5, num_workers=1, track_history=False)
+        assert result.history == []

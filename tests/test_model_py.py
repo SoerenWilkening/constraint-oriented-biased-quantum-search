@@ -297,8 +297,8 @@ class TestSatisfyMode:
         # For a trivially satisfiable problem the solver should find a feasible solution
         assert result.feasible is True
 
-    def test_satisfy_history_has_none_objective(self):
-        """History entries in SATISFY mode have None for objective_value (CRASH-04)."""
+    def test_satisfy_history_has_satisfaction_count(self):
+        """History entries in SATISFY mode have satisfaction count >= 0 (CB-03)."""
         m = Model()
         xs = m.add_variables(4)
         x = [xs[i] for i in range(4)]
@@ -306,9 +306,11 @@ class TestSatisfyMode:
         m.add_constraint((x[2] + x[3]) <= 1)
         m.close()
         result = m.solve(stopping_time=10, num_workers=1)
-        # SATISFY history may have 0 or 1 entries (C callback fires only on first feasible)
+        # SATISFY history entries are (satisfaction_count, elapsed_seconds)
         for entry in result.history:
-            assert entry[1] is None, f"Expected None objective in SATISFY history, got {entry[1]}"
+            value, elapsed = entry
+            assert isinstance(value, (int, float)), f"Expected numeric satisfaction count, got {value}"
+            assert value >= 0, f"Satisfaction count should be >= 0, got {value}"
 
     def test_satisfy_verify_does_not_crash(self):
         """verify=True on a SATISFY solve does not raise TypeError (CRASH-04)."""
