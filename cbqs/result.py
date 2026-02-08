@@ -32,8 +32,9 @@ class OptimizeResult:
     oracle_calls : int
         Number of oracle (QTG) calls.
     history : list of tuple
-        Improvement history. Each entry is
-        ``(iteration, objective_value, elapsed_ms, is_feasible)``.
+        Improvement history. Each entry is ``(value, elapsed_seconds)``
+        where value is the objective for OPTIMIZE mode or the constraint
+        satisfaction count for SATISFY mode.
     verified : bool or None
         Post-solve verification result. ``None`` if verification was not run.
     violations : list of str or None
@@ -159,10 +160,10 @@ class OptimizeResult:
         if self.history:
             lines.append(f"  improvements: {len(self.history)}")
             first = self.history[0]
-            lines.append(f"  first: iter={first[0]}, obj={first[1]}, t={first[2]}ms, feasible={first[3]}")
+            lines.append(f"  first: value={first[0]}, t={first[1]:.3f}s")
             if len(self.history) > 1:
                 last = self.history[-1]
-                lines.append(f"  last:  iter={last[0]}, obj={last[1]}, t={last[2]}ms, feasible={last[3]}")
+                lines.append(f"  last:  value={last[0]}, t={last[1]:.3f}s")
         else:
             lines.append("  improvements: 0 (no improvement history)")
 

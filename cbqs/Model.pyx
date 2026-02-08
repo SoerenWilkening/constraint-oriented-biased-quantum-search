@@ -1,5 +1,6 @@
 from copy import copy
 from time import time
+import time as time_mod
 import warnings
 from warnings import warn
 
@@ -283,7 +284,8 @@ or {self.runtime}s sampling
 	          manual_bias_factor = 0.,
 	          look_ahead_factor = 0.,
 	          monte_calor_estimate = False,
-	          verify = False
+	          verify = False,
+	          track_history = True
 	          ):
 		"""Solve the optimization or satisfiability problem.
 
@@ -321,19 +323,23 @@ or {self.runtime}s sampling
 		self.mod.max_delta = max_delta
 		self.mod.reset_delta = reset_delta
 
+		solve_start_time = time_mod.monotonic()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(self, callback, not_stop) for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time) for _ in range(num_workers)
 		)
 
 		reset_c_flags()
 		# res[i] = (cur_sol, qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
 		self.final_state = self.global_opt
 
-		# Merge histories from all workers, sorted by elapsed_ms
-		merged_history = []
-		for r in res:
-			merged_history.extend(r[6])
-		merged_history.sort(key=lambda entry: entry[2])
+		# Merge histories from all workers, sorted by elapsed_seconds
+		if track_history:
+			merged_history = []
+			for r in res:
+				merged_history.extend(r[6])
+			merged_history.sort(key=lambda entry: entry[1])
+		else:
+			merged_history = []
 
 		# Extract solution array from global_opt
 		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
@@ -380,7 +386,7 @@ or {self.runtime}s sampling
 		return result
 
 	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
-	                 stopping_condition: int = STOPATFIRST, verify = False):
+	                 stopping_condition: int = STOPATFIRST, verify = False, track_history = True):
 		assert stopping_condition in [STOPATFIRST, STOPATBEST]
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 
@@ -391,7 +397,8 @@ or {self.runtime}s sampling
 		self.mod[0].stop_val = -1
 
 		# run_local_search returns (cur_sol, history, preprocessing_time_ms, solve_time_ms)
-		cur_sol, history, preprocessing_time_ms, solve_time_ms = run_local_search(self, callback)
+		solve_start_time = time_mod.monotonic()
+		cur_sol, history, preprocessing_time_ms, solve_time_ms = run_local_search(self, callback, track_history, solve_start_time)
 		self.final_state = cur_sol
 
 		# Extract solution array from global_opt
