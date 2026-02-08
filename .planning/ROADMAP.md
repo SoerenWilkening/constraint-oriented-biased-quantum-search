@@ -73,11 +73,11 @@ Plans:
   2. History callback uses per-thread state (not module-level cdef variables)
   3. SATISFY-mode history reports feasibility progress (constraint satisfaction count), not objective value
   4. ThreadSanitizer reports zero data races during concurrent solve with num_workers>=4
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: TBD
-- [ ] 11-02: TBD
+- [ ] 11-01-PLAN.md — Replace module-level callback state with per-thread _SolveState, add track_history param, update history format to 2-tuple
+- [ ] 11-02-PLAN.md — Update all history tests for 2-tuple format, add concurrent solve independence tests
 
 ### Phase 12: BranchingStats & Local Search Cleanup
 **Goal**: Branching parameters set via Python API actually reach the solver, and local_search writes to shared state safely
