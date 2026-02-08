@@ -104,11 +104,11 @@ Plans:
   3. No bare except clause exists in Model.pyx (all except clauses specify exception types)
   4. local_search() C function has read/write field annotations documenting which model_t fields are read vs written
   5. Full test suite passes after all removals (no behavioral changes from cleanup)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 13-01: TBD
-- [ ] 13-02: TBD
+- [ ] 13-01-PLAN.md -- C kernel dead code removal, unguarded printf cleanup, unused function removal, and field annotations
+- [ ] 13-02-PLAN.md -- Cython/Python dead code removal, unguarded print cleanup, bare except verification, and build config cleanup
 
 ## Progress
 
@@ -126,4 +126,4 @@ Plans:
 | 10. C23 Migration & VLA Elimination | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
-| 13. Dead Code & Documentation Cleanup | v1.1 | 0/0 | Not started | - |
+| 13. Dead Code & Documentation Cleanup | v1.1 | 0/2 | Planned | - |
