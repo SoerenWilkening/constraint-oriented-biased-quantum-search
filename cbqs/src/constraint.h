@@ -115,15 +115,6 @@ int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful);
 
 #define MINSIZE 2048
 
-int64_t objective_value_improved(new_constraints_t *obj, // objective function
-                                 state_t *new,    // new state
-                                 int NumChanges,  // how many bits were flipped
-                                 int *ChangedBits,// which bits were flipped
-                                 array_t *ful,  // are terms of objective fulfilled
-                                 int **changes,
-                                 int *num_changes
-);
-
 int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr);
 int prepare_constraints(new_constraints_t *con, state_t *sol, array_t *ful);
 int adjusted_constraint_violation(
@@ -134,11 +125,9 @@ int adjusted_constraint_violation(
 		int negative,
 		int64_t *ret_total,
 		const array_t *ful,
-//		int * fulfill,
 		int **changes,
 		int *num_changes,
 		array_t *inv
-//		int *investigated
 );
 
 #endif

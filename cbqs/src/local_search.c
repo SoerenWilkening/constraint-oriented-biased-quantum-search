@@ -47,26 +47,10 @@ update_state(state_t *cur_best, state_t *cur_best_tabu, state_t *state2, int64_t
 		cur_best->feasible = feasible;
 		return;
 	}
-//	printf("move is tabu\n");
 	sw_set_inplace(cur_best_tabu->vector, state2->vector); // copy assignment to current best
 	cur_best_tabu->tot_profit = objective;
 	cur_best_tabu->feasible = feasible;
 }
-
-//static inline int aspiration(state_t *new_sol, state_t *global_opt) {
-//	// for tabu moves: if better than global opt: accept
-////	int accepted = 0;
-////	int greater_objective = new_sol->tot_profit < global_opt->tot_profit;
-////	if (new_sol->feasible && !global_opt->feasible) accepted = 1;
-////	if (new_sol->feasible && global_opt->feasible && greater_objective) accepted = 1;
-////	if (!new_sol->feasible && !global_opt->feasible && greater_objective) accepted = 1;
-////	if (!accepted) return 0;
-////
-////	sw_set_inplace(global_opt->vector, new_sol->vector); // copy assignment to current best
-////	global_opt->tot_profit = new_sol->tot_profit;
-////	global_opt->feasible = new_sol->feasible;
-//	return 0;
-//}
 
 static inline int accept_move(state_t *new_sol, state_t *cur_sol, state_t *global_opt) {
 	int accepted = 0;
@@ -152,24 +136,6 @@ void free_move_list(move_t *move_list, int num_moves) {
 	free(move_list);
 }
 
-typedef struct {
-	double *progress;  /* Dynamically allocated based on num_threads */
-	int num_threads;   /* Number of threads for progress display */
-	int stat;
-} dat_t;
-
-void *print_status(void *args) {
-	dat_t *progress = (dat_t *) args;
-	while (!progress->stat) {
-		printf("\r");
-		for (int i = 0; i < progress->num_threads; i++) {
-			printf("| %6.1f%% |", progress->progress[i] * 100);
-		}
-		usleep(1000000);
-	}
-	return NULL;
-}
-
 void *explore_neighbourhood(void *args) {
 	local_search_data_t *dat = (local_search_data_t *) args;
 
@@ -179,8 +145,6 @@ void *explore_neighbourhood(void *args) {
 	}
 
 	uint32_t C = dat->con->num_constraints;
-//	int64_t steps[C];
-//	memset(steps, 0, C * sizeof(int64_t));
 
 	/* Use pre-allocated per-thread scratch buffers instead of VLAs */
 	int *bits = dat->thread_bits;
@@ -230,14 +194,6 @@ void *explore_neighbourhood(void *args) {
         for (uint32_t i = 0; i < C; ++i){
             totals[i] = constraint_violation(dat->con, new_sol, i);
         }
-//		for (int i = 0; i < k; ++i) {
-//			adjusted_constraint_violation(dat->con, comb[i], dat->con->positive_indices, dat->con->num_positive_indices,
-//			                              dat->con->positive_offsets, new_sol,
-//			                              POSITIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
-//			adjusted_constraint_violation(dat->con, comb[i], dat->con->negative_indices, dat->con->num_negative_indices,
-//			                              dat->con->negative_offsets, new_sol,
-//			                              NEGATIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
-//		}
 		/* Free only if not using arena */
 		if (!use_arena) {
 			free(changed_con);
@@ -251,11 +207,9 @@ void *explore_neighbourhood(void *args) {
 
 		for (uint32_t cnstr = 0; cnstr < C; ++cnstr) {
 			// only sum up violations
-//			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
 			total_violation += totals[cnstr] < 0 ? totals[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
-//        printf("%d %d %d\n", feasible, dat->initial_feasible, eval_constraints(dat->con, new_sol, new_sol->vector.bits));
 
 		// first try to find a feasible solution, by minimizing the constraints violation
 		if (!(dat->initial_feasible)) {
@@ -263,16 +217,13 @@ void *explore_neighbourhood(void *args) {
 				update_state(cur_best, cur_best_tabu, new_sol, total_violation, 0, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
-//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 			if (feasible) {
 				dat->initial_feasible = feasible;
-//                printf("obj = %lld\n", objective_value(dat->obj, new_sol));
 				update_state(cur_best, cur_best_tabu, new_sol, objective_value(dat->obj, new_sol),
 				             1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
-//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 		} else {
 			/* Arena-based allocation for changes array */
@@ -283,14 +234,12 @@ void *explore_neighbourhood(void *args) {
 			} else {
 				changes = calloc(MINSIZE, sizeof(int));
 			}
-//			int64_t objective = objective_value_improved(dat->obj, new_sol, k, comb, &dat->ful, &changes, &num_cahnges);
             int64_t objective = objective_value(dat->obj, new_sol);
 
 			if (objective < cur_best->tot_profit && feasible) {
 				update_state(cur_best, cur_best_tabu, new_sol, objective, 1, dat->tabu_list, mov);
 				if (move_is_tabu(dat->tabu_list, mov)) dat->tabu_move_index = mov;
 				else dat->move_index = mov;
-//				*dat->stopping_criterion = 1; // stop every thread, as new solution is found
 			}
 			/* Free only if not using arena */
 			if (!use_arena) {
@@ -306,7 +255,6 @@ void *explore_neighbourhood(void *args) {
 			if (bits[i]) sw_setbit(new_sol->vector, comb[i]);
 			else sw_clrbit(new_sol->vector, comb[i]);
 		}
-		// dat->progress[dat->id] += 1. / (dat->end_move - dat->start_move);
 	}
 	free_state(new_sol, 1);
 	dat->cur_best = cur_best;
@@ -351,13 +299,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	/* Get thread count from solver context (default to 4 if no ctx) */
 	int num_threads = (ctx != NULL) ? ctx->num_threads_used : 4;
 
-	dat_t prog_data;
-	prog_data.progress = malloc(num_threads * sizeof(double));
-	prog_data.num_threads = num_threads;
-	memset(prog_data.progress, 0, num_threads * sizeof(double));
-	prog_data.stat = 0;
-	// pthread_t progress_thread;
-	// pthread_create(&progress_thread, NULL, print_status, (void *)&prog_data);
+	double *progress_arr = calloc(num_threads, sizeof(double));
 
 	/* Dynamically allocate thread data arrays */
 	local_search_data_t *data = malloc(num_threads * sizeof(local_search_data_t));
@@ -380,7 +322,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		data[i].d = d;
 		data[i].start_move = i * num_moves / num_threads;
 		data[i].end_move = (i + 1) * num_moves / num_threads;
-		data[i].progress = prog_data.progress;
+		data[i].progress = progress_arr;
 		data[i].id = i;
 		data[i].stopping_criterion = &stop_at_first;
 		data[i].stopping_condition = stopping_criterion;
@@ -403,7 +345,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 			}
 			free(data);
 			free(threads);
-			free(prog_data.progress);
+			free(progress_arr);
 			if (!use_arena_for_remainings) free(remainings);
 			free_state(cur_best, 1);
 			free_state(cur_best_tabu, 1);
@@ -447,19 +389,12 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 			free_state(data[i].cur_best, 1);
 		}
 		if (data[i].cur_best_tabu != NULL) {
-			// tabu aspiration:
-			// - gives feasible solution if others dont
-			// - gives best ever found solution
-//			acc_tab = aspiration(data[i].cur_best_tabu, global_opt);
 			if (acc_tab) acc = accept_move(cur_best, data[i].cur_best_tabu, global_opt);
 			free_state(data[i].cur_best_tabu, 1);
 		}
 		if (acc || acc_tab) accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
 		*neighbourhood_counter += data[i].count_states;
 	}
-	//prog_data.stat = 1;
-	//pthread_join(progress_thread, NULL);
-
 	/* Reset arena for next iteration - reclaims all arena allocations */
 	if (ctx != NULL) {
 		solver_ctx_arena_reset(ctx);
@@ -468,7 +403,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	/* Free dynamic allocations */
 	free(data);
 	free(threads);
-	free(prog_data.progress);
+	free(progress_arr);
 
 	/* MEM-02: Protect global_opt writes with trylock (non-blocking) */
 	int accepted;
@@ -485,9 +420,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 			accepted = 1;
 		}
 	}
-//	int accepted_tabu = aspiration(cur_best_tabu, global_opt);
-//	if (accepted_tabu) accept_move(new_sol, global_opt, global_opt);
-
 	if (!accepted) {
 		if (*accept_worse_counter == max_worse_acceptances) {
 			/* MEM-01 FIX: Clean up before early return */
@@ -537,23 +469,10 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 
 	array_t ful_con = sw_init(C * max_constraint_clauses);
 
-//	int64_t remainings[C];
-//	for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
-//	prepare_constraints(mod->con, cur_sol, &ful_con);
-
 	int initial_feasible = cur_sol->feasible;
-//	printf("init = %d\n", initial_feasible);
-//	state_t *global_opt = copy_state(cur_sol);
 
 	int num_moves = 0;
 	move_t *moves = move_list(mod->distance, n, &num_moves, true);
-//	for (int i = 0; i < num_moves; ++i) {
-//		printf("%d: ", moves[i].num_flips);
-//		for (int j = 0; j < moves[i].num_flips; ++j) {
-//			printf("%d ", moves[i].flips[j]);
-//		}
-//		printf("\n");
-//	}
 
 	tabu_list_t tabu_list;
 	tabu_list.max_moves = 10;
@@ -563,8 +482,6 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		tabu_list.moves[i] = -1;
 	}
 
-//	clock_gettime(CLOCK_MONOTONIC, &t2);
-//	double preprocessing_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
 	int counter = 0;
@@ -580,12 +497,7 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
         mod->runtime = time;
-//		printf("%p\n", callback);
-//        print_state(cur_sol);
-//		printf("\n");
 		if (callback) callback();
-//		printf("%d %d %lld %lld %f %d,\n", worse_acceptance_counter, break_condition,
-//               cur_sol->tot_profit, mod->global_opt->tot_profit, time, neighbourhood_counter);
 		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
 		counter++;
 	}
@@ -772,7 +684,6 @@ int quantum_local_search(new_constraints_t *obj,
 	for (int i = 0; i < tabu_list.max_moves; ++i) tabu_list.moves[i] = -1;
 
 	size_t M = (size_t) (22.5 * sqrt((double) num_moves));
-//	printf("M = %zu\n", M);
 
 	int worse_acceptances = 0;
 	// outer loop does the iterative searching until break condition is met
@@ -795,23 +706,13 @@ int quantum_local_search(new_constraints_t *obj,
 		state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, start, &tabu_list, &num_states,
 		                                             NULL);
 
-//	for (int i = 0; i < num_states; ++i) {
-//		print_state(&qlsqs[i]);
-//		printf("\n");
-//	}
-
-//	    clock_gettime(CLOCK_MONOTONIC, &t2);
-//	    printf("gen time = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 		while (m_tot < M) {
 			// recompute states, since, the neighbourhood changes after every accepted state
 			size_t *mapping = malloc(
 					num_moves * sizeof(size_t)); // map the indices of the superposition ot the indices of the moves
 			size_t new_number = 0;
 
-//			clock_gettime(CLOCK_MONOTONIC, &t1);
 			state_t *new_states = updated_local(qlsqs, num_states, &new_number, start, &tabu_list, mapping);
-//			clock_gettime(CLOCK_MONOTONIC, &t2);
-//			printf("update = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 
 			size_t iterations = 0;
 			size_t rounds = 0;
@@ -857,10 +758,8 @@ int quantum_local_search(new_constraints_t *obj,
 			free_state(global_opt, 1);
 			global_opt = copy_state(cur_sol);
 			if (callback) callback();
-//			printf("%zu %lld\n", *total_oracle_applications, global_opt->tot_profit);
 		}
 		clock_gettime(CLOCK_MONOTONIC, &t2);
-//		printf("total = %f\n", (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9);
 
 		if (start != NULL) {
 			// if start did not provide a better solution, still accept it as worse solution
@@ -880,19 +779,7 @@ int quantum_local_search(new_constraints_t *obj,
 	free_move_list(moves, num_moves);
 	free(tabu_list.moves);
 
-//	state_t temp = *cur_sol;
-//	*cur_sol = *global_opt;
-//	*global_opt = temp;
 	free_state(global_opt, 1);
 
 	return 0;
 }
-
-//-32 0.066667 1 10000
-//-16 0.066667 1 01000
-//-8 0.066667 1 00100
-//-24 0.066667 1 01100
-//-20 0.066667 1 01010
-//-18 0.066667 1 01001
-//-12 0.066667 1 00110
-//-10 0.066667 1 00101

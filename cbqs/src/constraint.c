@@ -144,8 +144,6 @@ void preprocessing(
 	size_t counter_positive = 0;
 	size_t counter_negative = 0;
 	for (int item = 0; item < n; item++) {
-	    printf("\r %f %%", (double) item / n * 100);
-
 		for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
 			size_t clause_offset = first_clause_index(con, cnstr);
 			unsigned int npi = 0;
@@ -183,7 +181,6 @@ void preprocessing(
 			con->positive_offsets[item * C + cnstr] = counter_positive - npi;
 		}
 	}
-	printf("\r");
 	if (con->positive_array_length == 0) {
 		free(con->positive_indices);
 		con->positive_indices = NULL;
@@ -277,8 +274,6 @@ void preprocessing_sparse(
     size_t counter_positive = 0;
     size_t counter_negative = 0;
     for (int item = 0; item < n; item++) {
-//	    printf("\r %f %%", (double) item / n * 100);
-
         for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
             size_t clause_offset = first_clause_index(con, cnstr);
             unsigned int npi = 0;
@@ -339,7 +334,6 @@ void preprocessing_sparse(
             }
         }
     }
-//    printf("\r");
     if (con->positive_array_length == 0) {
         free(con->positive_indices);
         con->positive_indices = NULL;
@@ -380,7 +374,6 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
 	for (size_t cls = 0; cls < expr->expr_size; ++cls) {
-	    printf("\r%f", (double) cls / expr->expr_size);
 		int lenght = expr->len_literal[cls];
 		if (lenght != 0) {
 			for (int i = 1; i < lenght; ++i) {
@@ -405,7 +398,6 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 			con->total_clauses++;
 		}
 	}
-	printf("\r");
 	if (C > 0) con->clause_offset[C] = con->clause_offset[C - 1] + clause_counter;
 	else con->clause_offset[C] = clause_counter;
 	con->num_clauses[C] = clause_counter;
@@ -524,7 +516,6 @@ int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
 	return con->rhs[cnstr] - total;
 }
 
-//int prepare_constraints(new_constraints_t *con, state_t *sol, int *fulfilled) {
 int prepare_constraints(new_constraints_t *con, state_t *sol, array_t *ful) {
 	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
 		size_t clause_offset = first_clause_index(con, cnstr);
@@ -569,7 +560,6 @@ int adjusted_constraint_violation(
 		int64_t total = 0;
 		size_t clause_offset = first_clause_index(con, cnstr);
 		int64_t ind = (int64_t)(item * C + cnstr);
-//        printf("%d %d\n", con->sparsity, SPARSE);
         if (con->sparsity == SPARSE) {
             if (negative == NEGATIVE){
                 ind = get_index(con->neg_cols, con->neg_rows, item, cnstr, con->nnz_neg, C);
@@ -592,25 +582,17 @@ int adjusted_constraint_violation(
 		    		if (negative == POSITIVE) {
 		    			if (assigned == 1 && sw_tstbit(*ful, clause_index) == 0) {
 		    				total += labs(con->factors[clause_index]);
-//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-//		    				(*changes)[count++] = clause_index;
 		    			}
 		    			if (assigned == 0 && sw_tstbit(*ful, clause_index) == 1) {
 		    				total -= labs(con->factors[clause_index]);
-//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-//		    				(*changes)[count++] = clause_index;
 		    			}
 		    		}
 		    		if (negative == NEGATIVE) {
 		    			if ((1 - assigned) == 1 && sw_tstbit(*ful, clause_index) == 0) {
 		    				total += labs(con->factors[clause_index]);
-//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-//		    				(*changes)[count++] = clause_index;
 		    			}
 		    			if ((1 - assigned) == 0 && sw_tstbit(*ful, clause_index) == 1) {
 		    				total -= labs(con->factors[clause_index]);
-//		    				if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-//		    				(*changes)[count++] = clause_index;
 		    			}
 		    		}
 		    	}
@@ -621,78 +603,4 @@ int adjusted_constraint_violation(
 	}
 	*num_changes = count;
 	return 1;
-}
-
-
-int64_t objective_value_improved(new_constraints_t *obj, // objective function
-                                 state_t *new,    // new state
-                                 int NumChanges,  // how many bits were flipped
-                                 int *ChangedBits,// which bits were flipped
-                                 array_t *ful,  // are terms of objective fulfilled
-                                 int **changes,
-                                 int *num_changes
-) {
-	int NTerms = obj->num_clauses[0]; // number terms
-	array_t inv = sw_init(NTerms);
-	int n = new->vector.bits;
-	int64_t total = 0;
-	int count = 0;
-
-	// go trough negative coefficients
-	for (int i = 0; i < NumChanges; i++) { // go through all changes
-		int item = ChangedBits[i]; // changed item
-		for (uint32_t cls = 0; cls < obj->num_negative_indices[item]; cls++) {
-			int assigned = 1;
-			int clause_index = obj->negative_indices[obj->negative_offsets[item] + cls];
-			if (!sw_tstbit(inv, clause_index)) {
-				// if term was fulfilled: has to be unfulfilled
-//				if (Fulfilled[clause_index]) {
-				if (sw_tstbit(*ful, clause_index)) {
-					total -= obj->factors[clause_index];
-					if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-					(*changes)[count++] = clause_index;
-				} else {
-					for (uint32_t j = 0; j < obj->clause_length[clause_index]; j++) {
-						size_t var = obj->variables[variable_index(clause_index, j, 0)];
-						assigned &= sw_tstbit(new->vector, var);
-					}
-					if (assigned) {
-						total += obj->factors[clause_index];
-						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-						(*changes)[count++] = clause_index;
-					}
-				}
-			}
-			sw_setbit(inv, clause_index);
-		}
-	}
-	// go trough positive coefficients
-	for (int item = 0; item < n; item++) {
-		for (uint32_t cls = 0; cls < obj->num_positive_indices[item]; cls++) {
-			int assigned = 1;
-			int clause_index = obj->positive_indices[obj->positive_offsets[item] + cls];
-			if (!sw_tstbit(inv, clause_index)) {
-				// if term was fulfilled: has to be unfulfilled
-				if (sw_tstbit(*ful, clause_index)) {
-					if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-					total -= obj->factors[clause_index];
-					(*changes)[count++] = clause_index;
-				} else {
-					for (uint32_t j = 0; j < obj->clause_length[clause_index]; j++) {
-						size_t var = obj->variables[variable_index(clause_index, j, 0)];
-						assigned &= sw_tstbit(new->vector, var);
-					}
-					total += obj->factors[clause_index] * assigned;
-					if (assigned) {
-						if ((count & (MINSIZE - 1)) == 0 && count > 0) *changes = realloc(*changes, (count + MINSIZE) * sizeof(int));
-						(*changes)[count++] = clause_index;
-					}
-				}
-			}
-			sw_setbit(inv, clause_index);
-		}
-	}
-	sw_clear(inv);
-	*num_changes = count;
-	return new->tot_profit + total;
 }

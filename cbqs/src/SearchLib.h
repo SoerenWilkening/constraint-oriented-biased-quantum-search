@@ -29,8 +29,6 @@ void print_incumbents(incumbents_t *incumbents);
 
 void free_incumbents(incumbents_t *incumbents);
 
-int compare(int64_t obj, int64_t thr, int sense);
-
 int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents);
 
 int bfs(   state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,

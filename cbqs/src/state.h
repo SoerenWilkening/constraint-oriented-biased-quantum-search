@@ -12,7 +12,6 @@ typedef struct {
 } state_t;
 
 int min(int a, int b);
-int compare(int64_t obj, int64_t thr, int sense);
 
 void free_state(state_t *state, size_t numStates);
 state_t *init_state(int64_t ObjVal, const int *array, int n);

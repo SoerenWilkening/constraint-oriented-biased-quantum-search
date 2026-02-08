@@ -6,10 +6,6 @@ int min(int a, int b){
     return (a < b) ? a : b;
 }
 
-int compare(int64_t obj, int64_t thr, int sense) {
-    return obj * sense < thr *sense;
-}
-
 void free_state(state_t *state, size_t numStates) {
 	if (state == NULL) return;
     for (size_t i = 0; i < numStates; i++){
@@ -91,7 +87,6 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
 
     double placeholder;
     size_t estimate = 500000;
-//    parent = calloc(estimate, sizeof(state_t));
     parent = init_large_state(n, estimate);
     if (parent == NULL) {
         printf("failed allocation\n");
@@ -102,7 +97,6 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
     size_t count = 0;
 
     for (int x = 0; x < num_files; x++){
-//        printf("file = %s\n", name[x]);
         fflush(stdout);
         FILE *file = fopen(name[x], "r");
         if (file == NULL){
@@ -120,11 +114,7 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
                 fclose(file);
                 break;
             }
-//            if (fabs(placeholder) < 0.1) printf("file = %s\n", name[x]);
-//            printf("%d\n", placeholder);
             parent[i].tot_profit = (int64_t) placeholder;
-//            parent[i].vector = sw_init(n);
-//            parent[i].branch = sw_init(n);
             for (int j = 0; j < n; ++j) {
                 int assignment = 0, branching = 0;
                 fscanf(file, "%d %d ", &assignment, &branching);
@@ -137,12 +127,10 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
                 // increase the size of parent, if necessary
                 increse_large_state(parent, estimate, 2 * estimate);
                 estimate *= 2;
-//                parent = realloc(parent, estimate * sizeof(state_t));
             }
             count++;
         }
     }
-//    printf("count %d\n", count);
     *NumberStatesFinal = count;
     for (size_t i = count; i < estimate; i++){
         sw_clear(parent[i].vector);
@@ -151,29 +139,3 @@ state_t *read_states(char **name, int num_files, size_t *NumberStatesFinal, int 
     parent = realloc(parent, count * sizeof(state_t));
     return parent;
 }
-
-//state_t *updated(state_t *bnb, size_t number_states,
-//                size_t *new_number, state_t *threshold, int sense) {
-//    state_t *up = calloc(number_states, sizeof(state_t));
-//    size_t a = 0;
-//    double total = 0;
-//
-//    for (size_t i = 0; i < number_states; ++i) {
-//        if (bnb[i].tot_profit < threshold->tot_profit) {
-//            up[a].tot_profit = bnb[i].tot_profit;
-//            up[a].vector = sw_set(bnb[i].vector);
-//            up[a].branch = sw_set(bnb[i].branch);
-//            StateProbability(&up[a], threshold);
-//
-//            total += up[a].prob;
-//            a++;
-//        }
-//    }
-//    *new_number = a;
-//    if (a == 0) {
-//        free_state(up, number_states);
-//        return NULL;
-//    }
-//    up = realloc(up, a * sizeof(state_t));
-//    return up;
-//}

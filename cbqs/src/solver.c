@@ -37,7 +37,6 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
                     total += labs(con->factors[clause_index]) * assigned;
             }
         }
-//        printf("%d %d %d %lld\n", con->sparsity, item, cnstr, potentials[cnstr]);
         ret_total[cnstr] = total;
         if (potentials[cnstr] < total) feasible = 0;
     }
@@ -59,21 +58,14 @@ int update_potentials(new_constraints_t *con, int64_t *potentials, int direction
 	return 1;
 }
 
-// look ahead to evaluate all possible solutions from certain position up to certain depth
-//int look_ahead_correct( int index, int next_assignment, int depth, int *count_solutions, int64_t *potentials,
-//                int **S_plus, int64_t **S_plus_value, int *num_plus,
-//                int **S_minus, int64_t **S_minus_value, int *num_minus){
 int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total) {
 	// check, if assignment does not exceed potentials
-//    if (next_assignment) sw_setbit(cur_sol->vector, index); // set assignment to 1
-//    else sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
-
-	int bool_;
 	if (next_assignment) sw_setbit(cur_sol->vector, index); // set assignment to 1
 	else sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
 
+	int bool_;
 	if (next_assignment) {
         bool_ = evaluation(con, potentials, index,
                            con->positive_indices,
@@ -94,9 +86,7 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
                            con->negative_offsets, cur_sol,
                            NEGATIVE, ret_total);
     }
-    
-//    printf("\n");
-    
+
 	if (bool_) {
 		if (index == depth) (*count_solutions)++;
 		else {
@@ -114,7 +104,6 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 			(void)look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, cur_sol, sub_ret2);
 			free(sub_ret1);
             free(sub_ret2);
-//            if (!b1 && !b2) (*count_solutions)++;
 			// reset potentials for proper use in sampling algorithm
 			
             update_potentials(con, potentials, INVERSE, ret_total);
@@ -122,7 +111,6 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 		}
 	}
 	sw_clrbit(cur_sol->vector, index); // reset assignment to 0
-//    if (bool_) return 1;
 	return 0;
 }
 
@@ -172,8 +160,6 @@ int initial_state_preparation(model_t *mod) {
     memset(ret_total2, 0, C * sizeof(int64_t));
     int updated = 1;
 	for (i = 0; i < n; i++) {
-	    printf("\r%f %%", (double) i / n * 100.);
-//        int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 
 		// Initialize new bit to be 0
 
@@ -189,7 +175,6 @@ int initial_state_preparation(model_t *mod) {
 		// look ahead to the right side
         look_ahead_correct(i, 0, min(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1);
 
-//        printf("%d %d\n", count[0], count[1]);
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
 			sw_setbit(mod->initial_state->vector, i);
@@ -266,7 +251,6 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
     memset(ret_total1, 0, C * sizeof(int64_t));
     memset(ret_total2, 0, C * sizeof(int64_t));
     int l;
-//    printf("%d\n", 4 * j * j + 1);
 	for (l = 0; l < 4 * j * j + 1; l++) {
         state_t *new_sol = copy_state(cur_sol);
         sw_set_ui_0(new_sol->vector);
@@ -285,7 +269,6 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
 		int i;
 		for (i = 0; i < n; i++) {
-//		    printf("\r%f %%", (double)i / n * 100);
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = prng_next_double();
 
@@ -340,15 +323,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    else as1 &= potentials[k] >= 0;
 		}
 
-//		int *ChangedTerms = calloc(MINSIZE, sizeof(int));
 		int64_t val = cur_sol->tot_profit;
 		if (as1) val = objective_value(obj, new_sol);
-//        printf("|%d %lld\n", as1, val);
-//		if (as1) val = objective_value_improved(obj, new_sol, NumChanges, ChangedBits, ful,&ChangedTerms, &NumChangedTerms);
 		if (as1 && cur_sol->tot_profit > val) {
-			// If solution is updated, change the array of fulfilled terms
-//            for (int term = 0; term < NumChangedTerms; term++) Fulfilled[ChangedTerms[term]] = 1 - Fulfilled[ChangedTerms[term]];
-//            for (int term = 0; term < NumChangedTerms; term++) sw_flpbit(*ful, ChangedTerms[term]);
 			cur_sol->tot_profit = val;
 			sw_clear(cur_sol->vector);
 			sw_clear(cur_sol->branch);
@@ -356,7 +333,6 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			cur_sol->branch = sw_set(new_sol->branch);
 			cur_sol->feasible = as1;
 
-//			free(ChangedTerms);
 			free(ChangedBits);
             free_state(new_sol, 1);
             *samples += l;
@@ -365,7 +341,6 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			free(ret_total2);
 			return 1;
 		}
-//		free(ChangedTerms);
 		free(ChangedBits);
         free_state(new_sol, 1);
 	}
@@ -651,7 +626,6 @@ double CSearch_opt_monte_carlo_sampler(
     double estimate = 1. / initial_samples;
     double prev = estimate;
     int samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
-//    printf("%d %d\n", initial_samples, samples);
     for (int l = initial_samples; l < samples; l++) {
         state_t *new_sol = init_state(0, NULL, cur_sol->vector.bits);
         
@@ -726,7 +700,6 @@ double CSearch_opt_monte_carlo_sampler(
         estimate = ((double) counter) / (l + 1);
         if (estimate > 0) samples = (int) ((1. - estimate) / (estimate * pow(error, 2)));
         if ((l > 10000) && (fabs(prev - estimate) < estimate * 0.01)) break;
-//        printf("%f %d %d %f %f\n", estimate, samples, l, fabs(prev - estimate), estimate * 0.05);
         prev = estimate;
     }
 
