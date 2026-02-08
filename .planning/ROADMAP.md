@@ -26,7 +26,7 @@
 **Milestone Goal:** Fix all known bugs, eliminate tech debt, and clean up code quality issues from v1.0. Zero breaking changes.
 
 - [x] **Phase 9: SATISFY Mode Crash Fixes** (2/2 plans) — completed 2026-02-06
-- [ ] **Phase 10: C23 Migration & VLA Elimination** - Clean GCC 15 compilation and replace remaining VLA with heap allocation
+- [x] **Phase 10: C23 Migration & VLA Elimination** (2/2 plans) — completed 2026-02-08
 - [ ] **Phase 11: Callback Concurrency Rework** - Thread-safe history tracking for concurrent solves
 - [ ] **Phase 12: BranchingStats & Local Search Cleanup** - Propagate branching parameters correctly and add mutex protection
 - [ ] **Phase 13: Dead Code & Documentation Cleanup** - Remove dead code, fix bare except, document local_search fields
@@ -61,8 +61,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — Migrate C headers/sources to C23-compatible patterns (stdbool.h, callback_t(void), portability macros, VLA elimination)
-- [ ] 10-02-PLAN.md — Enable strict warning flags, fix type mismatches, update CI with -Werror
+- [x] 10-01-PLAN.md — Migrate C headers/sources to C23-compatible patterns (stdbool.h, callback_t(void), portability macros, VLA elimination)
+- [x] 10-02-PLAN.md — Enable strict warning flags, fix type mismatches, update CI with -Werror
 
 ### Phase 11: Callback Concurrency Rework
 **Goal**: Concurrent solve() calls on different Model instances produce independent, correct history tracking
@@ -123,7 +123,7 @@ Plans:
 | 7. API Robustness | v1.0 | 3/3 | Complete | 2026-02-06 |
 | 8. Solve Diagnostics | v1.0 | 2/2 | Complete | 2026-02-06 |
 | 9. SATISFY Mode Crash Fixes | v1.1 | 2/2 | Complete | 2026-02-06 |
-| 10. C23 Migration & VLA Elimination | v1.1 | 0/2 | Planned | - |
+| 10. C23 Migration & VLA Elimination | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 11. Callback Concurrency Rework | v1.1 | 0/0 | Not started | - |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 0/0 | Not started | - |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 0/0 | Not started | - |

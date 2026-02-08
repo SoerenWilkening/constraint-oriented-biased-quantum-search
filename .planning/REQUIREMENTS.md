@@ -22,15 +22,15 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 
 ### Compiler Warnings
 
-- [ ] **GCC-01**: callback_t typedef uses explicit (void) parameter list for C23 compatibility
-- [ ] **GCC-02**: true/false macros replaced with stdbool.h or guarded against conflict
-- [ ] **GCC-03**: All implicit function declaration warnings resolved
-- [ ] **GCC-04**: All type mismatch warnings between int/size_t/uint32_t/int64_t resolved
-- [ ] **GCC-05**: Clean compilation with GCC 15 -Wall -Wextra (zero warnings)
+- [x] **GCC-01**: callback_t typedef uses explicit (void) parameter list for C23 compatibility
+- [x] **GCC-02**: true/false macros replaced with stdbool.h or guarded against conflict
+- [x] **GCC-03**: All implicit function declaration warnings resolved
+- [x] **GCC-04**: All type mismatch warnings between int/size_t/uint32_t/int64_t resolved
+- [x] **GCC-05**: Clean compilation with GCC 15 -Wall -Wextra (zero warnings)
 
 ### Memory Safety
 
-- [ ] **MEM-01**: Remaining VLA (int64_t remainings[C]) at local_search.c:286 replaced with arena allocation
+- [x] **MEM-01**: Remaining VLA (int64_t remainings[C]) at local_search.c:286 replaced with arena allocation
 - [ ] **MEM-02**: local_search accept_best_routine uses update_lock mutex for global_opt writes
 
 ### Callback Concurrency
@@ -77,12 +77,12 @@ Deferred to next cleanup release.
 | BRANCH-01 | Phase 12 | Pending |
 | BRANCH-02 | Phase 12 | Pending |
 | BRANCH-03 | Phase 12 | Pending |
-| GCC-01 | Phase 10 | Pending |
-| GCC-02 | Phase 10 | Pending |
-| GCC-03 | Phase 10 | Pending |
-| GCC-04 | Phase 10 | Pending |
-| GCC-05 | Phase 10 | Pending |
-| MEM-01 | Phase 10 | Pending |
+| GCC-01 | Phase 10 | Complete |
+| GCC-02 | Phase 10 | Complete |
+| GCC-03 | Phase 10 | Complete |
+| GCC-04 | Phase 10 | Complete |
+| GCC-05 | Phase 10 | Complete |
+| MEM-01 | Phase 10 | Complete |
 | MEM-02 | Phase 12 | Pending |
 | CB-01 | Phase 11 | Pending |
 | CB-02 | Phase 11 | Pending |
@@ -99,4 +99,4 @@ Deferred to next cleanup release.
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-06 after Phase 9 completion*
+*Last updated: 2026-02-08 after Phase 10 completion*
