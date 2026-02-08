@@ -451,6 +451,24 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	return accepted;
 }
 
+/*
+ * local_search(ctx, cur_sol, mod, callback)
+ *
+ * Reads:  cur_sol->vector.bits,
+ *         mod->con->num_constraints, mod->con->num_clauses[],
+ *         mod->obj->num_clauses[],
+ *         mod->distance, mod->stopping_time, mod->stop_val,
+ *         mod->max_worse_acceptances, mod->stopping_condition,
+ *         mod->global_opt (passed to accept_best_routine)
+ *
+ * Writes: mod->runtime (unprotected -- written each iteration),
+ *         mod->global_opt->tot_profit (mutex-protected via update_lock trylock),
+ *         mod->global_opt->vector (mutex-protected via update_lock trylock),
+ *         mod->global_opt->feasible (mutex-protected via update_lock trylock),
+ *         cur_sol->vector (unprotected -- single-thread ownership),
+ *         cur_sol->tot_profit (unprotected),
+ *         cur_sol->feasible (unprotected)
+ */
 int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) {
 
 	struct timespec t1, t2;

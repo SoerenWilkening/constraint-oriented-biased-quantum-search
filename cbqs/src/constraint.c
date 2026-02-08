@@ -104,6 +104,19 @@ void print_new_constraint(new_constraints_t *con) {
 
 }
 
+/*
+ * preprocessing(n, con)
+ *
+ * Reads:  con->num_constraints, con->num_clauses[], con->clause_length[],
+ *         con->variables[], con->factors[]
+ *
+ * Writes: con->sparsity, con->positive_indices, con->negative_indices,
+ *         con->positive_offsets, con->negative_offsets,
+ *         con->num_positive_indices, con->num_negative_indices,
+ *         con->positive_array_length, con->negative_array_length,
+ *         con->array_length
+ *         (All unprotected -- called during single-threaded model setup)
+ */
 void preprocessing(
 		int n,
 		new_constraints_t *con

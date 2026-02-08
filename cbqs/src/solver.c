@@ -131,9 +131,24 @@ int64_t max_value(const int64_t *arr, size_t n) {
 }
 
 
+/*
+ * initial_state_preparation(mod)
+ *
+ * Reads:  mod->initial_state->vector.bits, mod->con->num_constraints,
+ *         mod->con->rhs[], mod->depth_look_ahead,
+ *         mod->obj (for objective_value)
+ *
+ * Writes: mod->initial_state->tot_profit (unprotected),
+ *         mod->initial_state->vector (unprotected),
+ *         mod->initial_state->branch (unprotected),
+ *         mod->initial_state->feasible (unprotected),
+ *         mod->break_item (unprotected),
+ *         mod->global_opt->tot_profit (unprotected),
+ *         mod->global_opt->vector (unprotected),
+ *         mod->global_opt->feasible (unprotected)
+ *         (All unprotected -- called during single-threaded setup before solve)
+ */
 int initial_state_preparation(model_t *mod) {
-
-    // cur_sol is not necessary anymore
 
 	int n = mod->initial_state->vector.bits;
 	size_t C = mod->con->num_constraints;

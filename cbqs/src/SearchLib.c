@@ -84,6 +84,27 @@ int bfs(
 }
 
 
+/*
+ * ctg(ctx, mod, cur_sol, callback, incumbents)
+ *
+ * Reads:  mod->obj->num_clauses[], mod->con->num_constraints,
+ *         mod->solver, mod->M, mod->depth_look_ahead,
+ *         mod->stopping_time, mod->stop_val,
+ *         mod->ignore_constraint_search, mod->con->sense[],
+ *         cur_sol->vector.bits, cur_sol->tot_profit, cur_sol->feasible
+ *
+ * Writes: mod->qtg_applications (unprotected -- single-thread per ctx),
+ *         mod->runtime (unprotected),
+ *         mod->global_opt->tot_profit (mutex-protected via update_lock),
+ *         mod->global_opt->vector (mutex-protected via update_lock),
+ *         mod->global_opt->feasible (mutex-protected via update_lock),
+ *         cur_sol->tot_profit (unprotected -- thread-local),
+ *         cur_sol->vector (unprotected),
+ *         cur_sol->branch (unprotected),
+ *         cur_sol->feasible (unprotected),
+ *         incumbents->states[], incumbents->head, incumbents->search_stage[],
+ *         incumbents->initial_samples[]
+ */
 int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
 	size_t m_tot = 0;
 	int n = cur_sol->vector.bits;
