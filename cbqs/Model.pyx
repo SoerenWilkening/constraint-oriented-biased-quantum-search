@@ -96,8 +96,6 @@ cdef class Model:
 		self.global_opt = None
 		self.gpu_imported: bool = False
 
-		# self.gpu_executor: Executor | None = None
-
 		self.calls = 0
 		self.met = None
 		self.objective: new_constraint = new_constraint()
@@ -115,11 +113,9 @@ cdef class Model:
 
 		self.mod.solver = SATISFY
 
-		# self.runtime: float = 0
 		self.feasible = 0
 		self.grover_iterations: list[int] | int = 0
 		self.quantum_cycles: list[int] | int = 0
-		# self.objective_value: list[int] | int = 0
 		self.final_state: list[state_py] | state_py | list | None = None
 		self.improved: bool = False
 
@@ -182,9 +178,7 @@ or {self.runtime}s sampling
 		"""
 
 	def reset(self):
-		# self.runtime: float = 0
 		self.quantum_cycles: int = 0
-		# self.objective_value: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 		self.global_opt = None
@@ -194,9 +188,7 @@ or {self.runtime}s sampling
 			number = int(np.floor(np.log2(bound))) + 1
 			x = self.add_variables(number, name = name)
 			expr = sum(2 ** i * x[list(x.keys())[i]] for i in range(number))
-			# print(expr <= bound)
 			self.add_constraint(expr <= bound)
-			# print(expr)
 			return expr
 
 		x = Variable(max(index, self.n), f"{name}{max(index, self.n)})")
@@ -210,7 +202,6 @@ or {self.runtime}s sampling
 		x = {}
 		if bound > 1:
 			for i in range(n):
-				# print(i)
 				x[i] = self.add_variable(self.n, name = name, bound = bound)
 			return x
 		for i in range(n):
@@ -276,14 +267,9 @@ or {self.runtime}s sampling
 		self.mod.initial_state = init_state(P, ptr, arr.shape[0])
 		self.mod.global_opt = init_state(P, ptr, arr.shape[0])
 		free(<void *> ptr)
-	# self.initial_state = state_py(P, assignment)
 
 	def compile(self):
 		self.gpu_compiled = True
-
-	# self.gpu_executor = Executor(self.n, self.n / 4, int(time()), self.linear_con_form, self.linear_obj_form,
-	#                              len(self.constraint.liste()), self.constraint.liste(), self.objective.liste(),
-	#                              self.solver)
 
 	def __del__(self):
 		free_model(self.mod)
@@ -303,8 +289,6 @@ or {self.runtime}s sampling
 			self.objective.process(self.n)
 			process_constraints(self.mod.obj, self.n, enforce_density)
 			process_constraints(self.mod.con, self.n, enforce_density)
-			# self.sparsity = self.constraint.process(self.n, enforce_density)
-			# print_model(self.mod)
 			# Set default branching bias if not explicitly configured via set_param
 			if 'branching_bias' not in self._params:
 				self._params['branching_bias'] = self.n / 4
@@ -495,7 +479,6 @@ or {self.runtime}s sampling
 		while True:
 			state = approximate_state(self.n, self.n / 4)
 			state.opt_sampler(self.objective, self.constraint, threshold, samples)
-			print(state)
 
 			r, it, rounds = state.QSearch(M)
 			total_iterations += 2 * it + 1
@@ -536,10 +519,6 @@ or {self.runtime}s sampling
 
 	@property
 	def solution(self):
-		print("profit ", self.mod[0].initial_state[0].tot_profit)
-		print("feasible ", self.mod[0].initial_state[0].feasible)
-		print_state(self.mod[0].initial_state)
-		print()
 		return 0
 
 	# ============================================================

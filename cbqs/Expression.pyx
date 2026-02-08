@@ -179,8 +179,6 @@ cdef class Expression:
 		add_expression(<expression_t *> self.expr, <expression_t *> other.expr)
 
 	cdef mul_expr(self, Expression other, Expression ne):
-		# print_expression(self.expr)
-		# print_expression(other.expr)
 		new = multiply_expressions(<expression_t *> self.expr, <expression_t *> other.expr)
 		add_expression(ne.expr, new)
 		free_expression(new)
@@ -194,7 +192,6 @@ cdef class Expression:
 			[self.expr[0].literals[MAXCLAUSESIZE * j + i] for i in range(self.expr[0].len_literal[j])]
 			for j in range(self.expr[0].expr_size) if self.expr[0].len_literal[j] != 0
 		]
-		# print("l = ", l)
 		if self.sense != -2:
 			l += [self.sense, self.rhs]
 		return l
@@ -353,7 +350,6 @@ cdef class Expression:
 			potential = 0
 
 			multiply_constant(self.expr, -1)
-			# negate_expression(self.expr)
 			for i in range(self.expr[0].expr_size):
 				if self.expr[0].literals[MAXCLAUSESIZE * i] < 0:
 					potential -= self.expr[0].literals[MAXCLAUSESIZE * i]
@@ -367,14 +363,8 @@ cdef class Expression:
 	def __eq__(self, other):
 		_validate_numeric(other)
 		if isinstance(other, int):
-			# potential = 0
-			# for i in range(self.expr[0].expr_size):
-			# 	if self.expr[0].literals[5 * i] < 0:
-			# 		potential -= self.expr[0].literals[5 * i]
-
 			add_sense_to_expression(self.expr, EQUAL)
 			add_rhs_to_expression(self.expr, other)
 			self.sense = EQUAL
-			# self.rhs = other + potential
 			self.rhs = other
 			return self

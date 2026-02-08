@@ -1,15 +1,10 @@
 from .Constants import *
 
 
-# def add_expression_to_constraints_py(new_constraints_t *con, expression_t *expr):
-# 	add_expression_to_constraints(con, expr)
-
 cdef process_constraints(new_constraints_t *con, int n, int enforce_density):
 	tot = 0
 	for i in range(con[0].num_constraints):
 		tot += con[0].num_clauses[i]
-
-	# print(tot, n * self.con.num_constraints)
 
 	if 10 * tot > n * con[0].num_constraints or enforce_density:
 		preprocessing(n, con)
@@ -50,8 +45,6 @@ cdef class new_constraint:
 		tot = 0
 		for i in range(self.con.num_constraints):
 			tot += self.con.num_clauses[i]
-
-		# print(tot, n * self.con.num_constraints)
 
 		if 10 * tot > n * self.con.num_constraints or enforce_density:
 			preprocessing(n, &self.con)

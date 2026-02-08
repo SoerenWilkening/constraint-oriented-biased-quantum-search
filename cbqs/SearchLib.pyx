@@ -50,7 +50,6 @@ cdef class incumbents:
 			calls += 2 * j + 1
 
 			amplified = np.sin((2 * j + 1) * np.arcsin(np.sqrt(ampl))) ** 2
-			# print(m, j, amplified, np.arcsin(np.sqrt(ampl)))
 			if amplified >= random.random():
 				return calls
 
@@ -317,9 +316,6 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 			arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
 		incumb = []
-		# if mod.mod[0].monte_carlo_estimate:
-		# 	if (mod.mod[0].solver == OPTIMIZE):
-		# 		incumb = inc.estimate_grover_iterations(<new_constraints_t *> mod.mod[0].con, <new_constraints_t *> mod.mod[0].obj, 0.1, mod.mod[0].solver)
 
 		del inc
 

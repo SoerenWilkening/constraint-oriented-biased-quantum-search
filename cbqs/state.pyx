@@ -36,7 +36,6 @@ cdef class state_py:
 
 	def __str__(self) -> str:
 		if self.state is NULL: return "NULL state"
-		# print_state(&self.state[])
 		for i in range(self.num_states):
 			print_state(&self.state[i])
 			print()
@@ -46,16 +45,12 @@ cdef class state_py:
 		if self.state is not NULL:
 			free_state(self.state, self.num_states)
 
-	# def __del__(self):
-	# 	del self.arr
-
 	@property
 	def objective_value(self):
 		return self.state[0].tot_profit
 
 	def __iter__(self):
 		return [sw_tstbit(self.state[0].vector, i) for i in range(self.state[0].vector.bits)].__iter__()
-	# return [self.state[0].vector.part[i] for i in range(self.state[0].vector.n)].__iter__()
 
 	def integer_liste(self):
 		step = [[
@@ -87,23 +82,14 @@ cdef class state_py:
 		return up
 
 	def read(self, str name, int n) -> None:
-		# print(name)
 		directoy = os.path.dirname(name)
-		# print(directoy)
 		value = str(name).split("states_")[0].replace(directoy + "/", "")
-		# print(value, directoy)
 		files = [f"{directoy}/{i}".encode() for i in os.listdir(directoy) if
 		         value in i and "test" not in i and "states" in i]
-		# print(files)
-		# sys.stdout.flush()
 
 		num_files = len(files)
-		# print(num_files)
-		sys.stdout.flush()
 		cdef char** f = <char **> calloc(num_files, sizeof(char *))
 		for i in range(num_files):
-			# print(i)
-			sys.stdout.flush()
 			file_bytes = files[i]
 			f[i] = <char *> calloc(len(file_bytes) + 1, sizeof(char))
 			for j in range(len(file_bytes)):

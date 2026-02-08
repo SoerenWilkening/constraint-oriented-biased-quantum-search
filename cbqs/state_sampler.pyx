@@ -1,6 +1,5 @@
 from copy import copy
 from .SearchLib import QSearch_wrapper
-# from .branching import set_bias_wrapper
 
 cdef class approximate_state:
 
@@ -31,13 +30,10 @@ cdef class approximate_state:
 
 
 	def opt_sampler(self, obj: new_constraint, con: new_constraint, state_py cur_sol, samples):
-		# print(samples)
-		# self.c_opt_sampler(obj, con, cur_sol, samples)
 		cdef state_t * st = <state_t *> cur_sol.state;
 		cdef new_constraints_t *ob = <new_constraints_t *> &obj.con;
 		cdef new_constraints_t *co = <new_constraints_t *> &con.con;
 		CSearch_opt_sampler(self.ctx, self.state, st, samples, co, ob, 1)
-		# print("number good = ", self.state.num_good)
 
 	# cdef c_opt_sampler(self, new_constraint obj , new_constraint con, state_py cur_sol, int samples):
 
@@ -72,7 +68,6 @@ cdef class approximate_state:
 			rounds = 0
 			index = 0
 			st, it, round = QSearch_wrapper(up, M)
-			# print(st.objective_value, 2 * it + rounds)
 			total_iterations += 2 * it + rounds
 
 			if st is None:
