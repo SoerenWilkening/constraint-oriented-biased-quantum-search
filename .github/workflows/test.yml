@@ -17,7 +17,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
 
       - name: Configure
-        run: mkdir build-tests && cd build-tests && cmake ../tests
+        run: mkdir build-tests && cd build-tests && cmake ../tests -DWERROR=ON
 
       - name: Build
         run: cd build-tests && make -j$(nproc)
@@ -38,7 +38,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
 
       - name: Configure with ASan
-        run: mkdir build-tests-asan && cd build-tests-asan && cmake ../tests -DASAN=ON
+        run: mkdir build-tests-asan && cd build-tests-asan && cmake ../tests -DASAN=ON -DWERROR=ON
 
       - name: Build
         run: cd build-tests-asan && make -j$(nproc)
@@ -56,7 +56,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential valgrind
 
       - name: Configure
-        run: mkdir build-tests-valgrind && cd build-tests-valgrind && cmake ../tests
+        run: mkdir build-tests-valgrind && cd build-tests-valgrind && cmake ../tests -DWERROR=ON
 
       - name: Build
         run: cd build-tests-valgrind && make -j$(nproc)
