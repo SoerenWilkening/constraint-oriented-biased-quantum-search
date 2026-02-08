@@ -41,10 +41,10 @@ Requirements for v1.1 cleanup milestone. Each maps to roadmap phases.
 
 ### Code Cleanup
 
-- [ ] **CLEAN-01**: Commented-out VLA code removed from local_search.c (lines 158, 445)
-- [ ] **CLEAN-02**: Commented-out debug printf/print statements removed from Model.pyx, Expression.pyx, local_search.c
-- [ ] **CLEAN-03**: Bare except clause in Model.pyx replaced with except Exception (if still present)
-- [ ] **CLEAN-04**: local_search() C function has documented read/write field annotations
+- [x] **CLEAN-01**: Commented-out VLA code removed from local_search.c (lines 158, 445)
+- [x] **CLEAN-02**: Commented-out debug printf/print statements removed from Model.pyx, Expression.pyx, local_search.c
+- [x] **CLEAN-03**: Bare except clause in Model.pyx replaced with except Exception (if still present)
+- [x] **CLEAN-04**: local_search() C function has documented read/write field annotations
 
 ## v1.2 Requirements
 
@@ -87,10 +87,10 @@ Deferred to next cleanup release.
 | CB-01 | Phase 11 | Complete |
 | CB-02 | Phase 11 | Complete |
 | CB-03 | Phase 11 | Complete |
-| CLEAN-01 | Phase 13 | Pending |
-| CLEAN-02 | Phase 13 | Pending |
-| CLEAN-03 | Phase 13 | Pending |
-| CLEAN-04 | Phase 13 | Pending |
+| CLEAN-01 | Phase 13 | Complete |
+| CLEAN-02 | Phase 13 | Complete |
+| CLEAN-03 | Phase 13 | Complete |
+| CLEAN-04 | Phase 13 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 21 total
@@ -99,4 +99,4 @@ Deferred to next cleanup release.
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-08 after Phase 12 completion*
+*Last updated: 2026-02-08 after Phase 13 completion — all v1.1 requirements complete*

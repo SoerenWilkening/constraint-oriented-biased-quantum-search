@@ -3,7 +3,7 @@
 ## Milestones
 
 - SHIPPED **v1.0 Stabilization & Optimization** — Phases 1-8 (shipped 2026-02-06) — [archive](milestones/v1.0-ROADMAP.md)
-- IN PROGRESS **v1.1 Bug Fixes & Polish** — Phases 9-13
+- COMPLETE **v1.1 Bug Fixes & Polish** — Phases 9-13 (completed 2026-02-08)
 
 ## Phases
 
@@ -29,7 +29,7 @@
 - [x] **Phase 10: C23 Migration & VLA Elimination** (2/2 plans) — completed 2026-02-08
 - [x] **Phase 11: Callback Concurrency Rework** (2/2 plans) — completed 2026-02-08
 - [x] **Phase 12: BranchingStats & Local Search Cleanup** (2/2 plans) — completed 2026-02-08
-- [ ] **Phase 13: Dead Code & Documentation Cleanup** - Remove dead code, fix bare except, document local_search fields
+- [x] **Phase 13: Dead Code & Documentation Cleanup** (2/2 plans) — completed 2026-02-08
 
 ## Phase Details
 
@@ -107,8 +107,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 13-01-PLAN.md -- C kernel dead code removal, unguarded printf cleanup, unused function removal, and field annotations
-- [ ] 13-02-PLAN.md -- Cython/Python dead code removal, unguarded print cleanup, bare except verification, and build config cleanup
+- [x] 13-01-PLAN.md -- C kernel dead code removal, unguarded printf cleanup, unused function removal, and field annotations
+- [x] 13-02-PLAN.md -- Cython/Python dead code removal, unguarded print cleanup, bare except verification, and build config cleanup
 
 ## Progress
 
@@ -126,4 +126,4 @@ Plans:
 | 10. C23 Migration & VLA Elimination | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
-| 13. Dead Code & Documentation Cleanup | v1.1 | 0/2 | Planned | - |
+| 13. Dead Code & Documentation Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
