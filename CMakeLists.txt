@@ -3,8 +3,6 @@ project(constraint-oriented-biased-quantum-search C)
 
 set(CMAKE_C_STANDARD 17)
 
-include_directories(iqs/src)
-
 add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/Expression.c
         cbqs/src/Expression.h
