@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v1.1 Bug Fixes & Polish -- Phase 11 (Callback Rework)
+**Current focus:** v1.1 Bug Fixes & Polish -- Phase 12 (BranchingStats)
 
 ## Current Position
 
-Phase: 11 of 13 (Callback Concurrency Rework)
-Plan: 1 of 2 in current phase
-Status: Plan 01 complete
-Last activity: 2026-02-08 -- Completed 11-01-PLAN.md (thread-safe callback state)
+Phase: 11 of 13 (Callback Concurrency Rework) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase 11 complete
+Last activity: 2026-02-08 -- Completed 11-02-PLAN.md (concurrency test suite)
 
-Progress: [v1.0 ########] [v1.1 ######....] Phase 11 in progress (1/2 plans)
+Progress: [v1.0 ########] [v1.1 #######...] Phase 11 complete (2/2 plans)
 
 ## Performance Metrics
 
 **Velocity (v1.0 baseline):**
 - Total plans completed: 35 (v1.0)
-- v1.1 plans completed: 5
+- v1.1 plans completed: 6
 - Total execution time: ~3 days (v1.0)
 
 **By Phase (v1.1):**
@@ -29,7 +29,7 @@ Progress: [v1.0 ########] [v1.1 ######....] Phase 11 in progress (1/2 plans)
 |-------|-------|-------|----------|
 | 9. SATISFY Crash Fixes | 2/2 | 11m 01s | 5m 31s |
 | 10. C23 & VLA | 2/2 | 45m 28s | 22m 44s |
-| 11. Callback Rework | 1/2 | 6m 13s | 6m 13s |
+| 11. Callback Rework | 2/2 | 12m 13s | 6m 07s |
 | 12. BranchingStats | 0/TBD | - | - |
 | 13. Dead Code Cleanup | 0/TBD | - | - |
 
@@ -55,6 +55,8 @@ See PROJECT.md Key Decisions table for full log.
 - track_history defaults to True for backward compatibility
 - SATISFY mode history records satisfaction count (num_constraints + tot_profit)
 - Shared solve_start_time computed before Parallel() for consistent elapsed times
+- Concurrent tests build fresh Model per thread (copy() doesn't preserve variable count)
+- History tests validate structure not count (solver may find optimal in greedy pass)
 
 ### Pending Todos
 
@@ -63,11 +65,11 @@ None.
 ### Blockers/Concerns
 
 - GCC 15 warnings: FULLY RESOLVED (all format/sign comparison warnings fixed in Plan 02)
-- Callback rework (Phase 11) has 20% chance of needing deeper research if TSan reveals GIL contention
+- Callback rework (Phase 11): FULLY RESOLVED -- all concurrency tests pass, no GIL contention issues
 
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 11-01-PLAN.md (thread-safe callback state)
-Resume file: .planning/phases/11-callback-concurrency-rework/11-01-SUMMARY.md
-Next action: /gsd:execute-phase for Phase 11, Plan 02 (concurrency tests)
+Stopped at: Completed 11-02-PLAN.md (concurrency test suite)
+Resume file: .planning/phases/11-callback-concurrency-rework/11-02-SUMMARY.md
+Next action: /gsd:execute-phase for Phase 12 (BranchingStats)
