@@ -88,11 +88,11 @@ Plans:
   2. Branching bias/factors passed to solve() are used by the local search solver (verifiable via fixed-seed deterministic run)
   3. Calling deprecated global branching setters emits a DeprecationWarning
   4. local_search accept_best_routine uses a mutex when writing to global_opt (verifiable via ThreadSanitizer clean run)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 12-01: TBD
-- [ ] 12-02: TBD
+- [ ] 12-01-PLAN.md — Add set_param/get_param API, deprecation warnings, branching propagation, and mutex protection
+- [ ] 12-02-PLAN.md — Add tests for API, deprecation, and deterministic branching propagation
 
 ### Phase 13: Dead Code & Documentation Cleanup
 **Goal**: Codebase contains no dead code, no bare except clauses, and local_search fields are documented
