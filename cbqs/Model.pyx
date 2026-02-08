@@ -20,7 +20,7 @@ from .state cimport init_state
 from .Constraint import new_constraint
 from .Constraint cimport add_expression_to_constraints, process_constraints
 from .Expression cimport expression_t
-from .branching import set_seed, set_bias_wrapper, set_factors_wrapper, set_obj_dependence_wrapper
+from .branching import set_seed
 from .SearchLib import (run_local_search, run_quantum_local_search, reset_c_flags)
 from .SearchLib import run_sampling
 from .StateGenerator import exact_simulator
@@ -71,6 +71,18 @@ def _merge_duplicate_variable_terms(Expression expr):
 			UserWarning,
 			stacklevel=3
 		)
+
+_KNOWN_PARAMS = {
+	"branching_bias",
+	"branching_factors",
+	"num_workers",
+	"timeout",
+	"track_history",
+	"manual_bias",
+	"bias_factor",
+	"manual_bias_factor",
+	"look_ahead_factor",
+}
 
 cdef class Model:
 	def __cinit__(self):
@@ -125,6 +137,31 @@ cdef class Model:
 		self._num_threads = None  # None = auto-detect
 		self._seed_used = None  # Populated after solve() by SearchLib
 
+		# Generic parameter storage (Phase 12)
+		self._params = {}
+
+	def set_param(self, str name, value):
+		"""Set a solver parameter by name.
+
+		Parameters persist across multiple solve() calls until changed.
+		set_param values take precedence over solve() keyword arguments.
+
+		Raises ValueError for unknown parameter names.
+		"""
+		if name not in _KNOWN_PARAMS:
+			raise ValueError(f"Unknown parameter: '{name}'")
+		self._params[name] = value
+
+	def get_param(self, str name):
+		"""Get a solver parameter by name.
+
+		Returns None if the parameter has not been set via set_param.
+		Raises ValueError for unknown parameter names.
+		"""
+		if name not in _KNOWN_PARAMS:
+			raise ValueError(f"Unknown parameter: '{name}'")
+		return self._params.get(name)
+
 	def __copy__(self):
 		new_m = Model()
 		new_m.objective = copy(self.objective)
@@ -132,6 +169,7 @@ cdef class Model:
 		new_m.initial_state = copy(self.initial_state)
 		new_m.mod.solver = self.mod.solver
 		new_m.sense = self.sense
+		new_m._params = dict(self._params)
 		return new_m
 
 	def __str__(self):
@@ -267,7 +305,9 @@ or {self.runtime}s sampling
 			process_constraints(self.mod.con, self.n, enforce_density)
 			# self.sparsity = self.constraint.process(self.n, enforce_density)
 			# print_model(self.mod)
-			set_bias_wrapper(self.n / 4)
+			# Set default branching bias if not explicitly configured via set_param
+			if 'branching_bias' not in self._params:
+				self._params['branching_bias'] = self.n / 4
 			self.constraints_compiled = True
 
 	def general_greedy(self):
@@ -308,9 +348,6 @@ or {self.runtime}s sampling
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		if M == -1: M = self.n ** 2 // 16
 		if bias == -1: bias = self.n / 4
-		set_bias_wrapper(bias)
-		set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
-		if manual_bias is not None: set_obj_dependence_wrapper(manual_bias)
 
 		not_stop = [1]
 
@@ -325,7 +362,9 @@ or {self.runtime}s sampling
 
 		solve_start_time = time_mod.monotonic()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time) for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time,
+			                      bias, manual_bias_factor, bias_factor, look_ahead_factor,
+			                      manual_bias) for _ in range(num_workers)
 		)
 
 		reset_c_flags()
@@ -473,7 +512,7 @@ or {self.runtime}s sampling
 		return total_iterations, deltas, incumbents
 
 	def exact_benchmark(self, M):
-		set_bias_wrapper(self.n / 4)
+		self._params.setdefault('branching_bias', self.n / 4)
 		if self.stgen is None:
 			self.stgen = exact_simulator(self)
 			self.stgen.generate_gurobi_model()

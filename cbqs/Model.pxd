@@ -74,3 +74,6 @@ cdef class Model:
 	cdef public object _seed
 	cdef public object _num_threads
 	cdef public object _seed_used
+
+	# Generic parameter storage (Phase 12)
+	cdef public object _params

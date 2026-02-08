@@ -183,7 +183,11 @@ def _history_callback_fn():
 		except Exception:
 			logging.warning("History callback: error in user callback", exc_info=True)
 
-cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_history=True, double solve_start_time=0.0):
+cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_history=True,
+                   double solve_start_time=0.0,
+                   double bias_kwarg=-1, double manual_bias_factor_kwarg=0.,
+                   double bias_factor_kwarg=1., double look_ahead_factor_kwarg=0.,
+                   object manual_bias_kwarg=None):
 	preprocess_start = time_mod.monotonic()
 	t_start: float = time.time()
 	t_total: float = 0
@@ -198,6 +202,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		cb_ptr = NULL
 
 	cdef unsigned long long seed_used_val = 0
+	cdef double *dep_ptr_sampling = NULL
 
 	n = mod.mod[0].initial_state[0].vector.bits
 
@@ -223,6 +228,36 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
+
+	# Propagate branching parameters to solver context (Phase 12)
+	# Precedence: _params > solve() kwargs > defaults
+	param_bias = mod._params.get('branching_bias') if hasattr(mod, '_params') else None
+	if param_bias is not None:
+		solver_ctx_set_bias(ctx, param_bias)
+	elif bias_kwarg != -1:
+		solver_ctx_set_bias(ctx, bias_kwarg)
+	else:
+		solver_ctx_set_bias(ctx, n / 4)
+
+	# Branching factors
+	param_factors = mod._params.get('branching_factors') if hasattr(mod, '_params') else None
+	if param_factors is not None:
+		solver_ctx_set_factors(ctx, param_factors[0], param_factors[1],
+		                       param_factors[2], param_factors[3])
+	else:
+		solver_ctx_set_factors(ctx, manual_bias_factor_kwarg, 0, bias_factor_kwarg, look_ahead_factor_kwarg)
+
+	# Manual bias (objective dependence)
+	param_manual_bias = mod._params.get('manual_bias') if hasattr(mod, '_params') else None
+	effective_manual_bias = param_manual_bias if param_manual_bias is not None else manual_bias_kwarg
+	if effective_manual_bias is not None:
+		arr_mb = np.array(effective_manual_bias, dtype=np.double)
+		dep_ptr_sampling = <double *> calloc(arr_mb.shape[0], sizeof(double))
+		for i in range(arr_mb.shape[0]):
+			dep_ptr_sampling[i] = <double> arr_mb[i]
+		solver_ctx_set_obj_dependence(ctx, dep_ptr_sampling, len(effective_manual_bias))
+		free(dep_ptr_sampling)
+		dep_ptr_sampling = NULL
 
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)
@@ -312,6 +347,7 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 
 	cdef state_t *st = cur_sol.state
 	cdef unsigned long long seed_used_local = 0
+	cdef double *dep_ptr_ls = NULL
 	global python_callback
 
 	# Determine callback pointer based on track_history and user callback
@@ -334,6 +370,34 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
+
+	# Propagate branching parameters to solver context (Phase 12)
+	# Precedence: _params > defaults
+	n_ls = mod.mod[0].initial_state[0].vector.bits
+
+	# Branching bias
+	param_bias_ls = mod._params.get('branching_bias') if hasattr(mod, '_params') else None
+	if param_bias_ls is not None:
+		solver_ctx_set_bias(ctx, param_bias_ls)
+	else:
+		solver_ctx_set_bias(ctx, n_ls / 4)  # Default
+
+	# Branching factors
+	param_factors_ls = mod._params.get('branching_factors') if hasattr(mod, '_params') else None
+	if param_factors_ls is not None:
+		solver_ctx_set_factors(ctx, param_factors_ls[0], param_factors_ls[1],
+		                       param_factors_ls[2], param_factors_ls[3])
+
+	# Manual bias (objective dependence)
+	param_manual_bias_ls = mod._params.get('manual_bias') if hasattr(mod, '_params') else None
+	if param_manual_bias_ls is not None:
+		arr_mb_ls = np.array(param_manual_bias_ls, dtype=np.double)
+		dep_ptr_ls = <double *> calloc(arr_mb_ls.shape[0], sizeof(double))
+		for i in range(arr_mb_ls.shape[0]):
+			dep_ptr_ls[i] = <double> arr_mb_ls[i]
+		solver_ctx_set_obj_dependence(ctx, dep_ptr_ls, len(param_manual_bias_ls))
+		free(dep_ptr_ls)
+		dep_ptr_ls = NULL
 
 	# Set up per-thread callback state for history tracking
 	if track_history:
