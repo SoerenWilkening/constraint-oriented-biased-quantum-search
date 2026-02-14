@@ -39,6 +39,25 @@ class TestBranchingMemory:
         gc.collect()
         # If this leaks, Valgrind will report leaked branching_weights arrays
 
+    def test_branching_weights_realloc_no_leak(self):
+        """Repeated set_param with different-sized weights across solves should not leak."""
+        from cbqs.Model import Model
+        from cbqs.Constants import MAXIMIZE
+
+        for size in [5, 10, 20, 10, 5, 15, 3]:
+            m = Model()
+            x = m.add_variables(size)
+            m.set_objective(sum(x[i] for i in range(size)), sense=MAXIMIZE)
+            m.add_constraint(sum(x[i] for i in range(size)) <= size // 2)
+            m.close()
+            m.set_param("branching_weights", [float(i + 1) for i in range(size)])
+            m.set_param("stopping_time", 1)
+            m.set_param("num_workers", 1)
+            m.solve()
+            del m
+
+        gc.collect()
+
 
 class TestStateMemory:
     """Test state.pyx memory management."""
