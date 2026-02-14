@@ -40,7 +40,7 @@
 - [x] **Phase 14: Unified Branching Model** — Replace dual-array branching struct with single unified array and 3-term formula at the C layer — completed 2026-02-14
 - [x] **Phase 15: Solve API Migration** — Remove all solve() keyword arguments and expand set_param()/get_param() to cover every former solve() parameter — completed 2026-02-14
 - [x] **Phase 16: Global State Removal** — Delete global BranchingStats variable, deprecated C setters, branching.pyx module, and stale .pxd declarations — completed 2026-02-14
-- [ ] **Phase 17: Test Suite Finalization** — Update all existing tests for new API, add branching_weights coverage, and verify memory safety
+- [x] **Phase 17: Test Suite Finalization** — Update all existing tests for new API, add branching_weights coverage, and verify memory safety — completed 2026-02-14
 
 ## Phase Details
 
@@ -102,8 +102,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 17-01-PLAN.md -- Test audit, branching_weights coverage tests (Python + C), cross-lifecycle determinism tests
-- [ ] 17-02-PLAN.md -- Valgrind memory verification for branching_weights lifecycle (C + Python), final full-suite verification
+- [x] 17-01-PLAN.md -- Test audit, branching_weights coverage tests (Python + C), cross-lifecycle determinism tests
+- [x] 17-02-PLAN.md -- Valgrind memory verification for branching_weights lifecycle (C + Python), final full-suite verification
 
 ## Progress
 
@@ -128,4 +128,4 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 | 14. Unified Branching Model | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 15. Solve API Migration | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 16. Global State Removal | v2.0 | 2/2 | Complete | 2026-02-14 |
-| 17. Test Suite Finalization | v2.0 | 0/2 | Not started | - |
+| 17. Test Suite Finalization | v2.0 | 2/2 | Complete | 2026-02-14 |
