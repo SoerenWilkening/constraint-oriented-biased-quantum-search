@@ -103,11 +103,11 @@ class TestSetParamValidation:
         with pytest.raises(ValueError, match="Unknown parameter"):
             m.get_param("nonexistent")
 
-    def test_get_param_unset_returns_none(self):
-        """get_param('branching_bias') returns None before any set_param on fresh Model."""
+    def test_get_param_unset_returns_default(self):
+        """get_param returns documented default for unset params (never None for params with defaults)."""
         m = Model()
-        # Note: close() sets a default for branching_bias, so test on unclosed model
-        assert m.get_param("num_workers") is None
+        # num_workers has default 12 in _PARAM_DEFS
+        assert m.get_param("num_workers") == 12
 
     def test_get_param_unset_branching_bias_before_close(self):
         """get_param('branching_bias') returns None on a Model before close()."""
@@ -323,6 +323,299 @@ class TestSetParamPrecedence:
         result = m.solve(stopping_time=1, num_workers=2)
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
+
+
+# =============================================================================
+# 9. Former solve() params basic set/get
+# =============================================================================
+
+
+class TestSetParamSolveParamsBasic:
+    """Verify set_param/get_param works for all former solve() parameters."""
+
+    @pytest.mark.parametrize("name,value", [
+        ("M", 200),
+        ("stopping_time", 60),
+        ("stop_val", 10),
+        ("max_delta", 3),
+        ("reset_delta", False),
+        ("depth_look_ahead", 2),
+        ("num_workers", 4),
+        ("results", "average"),
+        ("bfs", True),
+        ("ignore_constraint_search", True),
+        ("monte_carlo_estimate", True),
+        ("verify", True),
+        ("track_history", False),
+    ])
+    def test_set_param_solve_params_basic(self, name, value):
+        """set_param(name, value) -> get_param(name) returns value for all former solve() params."""
+        m = Model()
+        m.set_param(name, value)
+        assert m.get_param(name) == value
+
+
+# =============================================================================
+# 10. Type coercion
+# =============================================================================
+
+
+class TestSetParamCoercion:
+    """Verify type coercion works correctly in set_param."""
+
+    def test_coerce_M_str_to_int(self):
+        """set_param('M', '100') coerces string to int 100."""
+        m = Model()
+        m.set_param("M", "100")
+        assert m.get_param("M") == 100
+        assert isinstance(m.get_param("M"), int)
+
+    def test_coerce_M_float_to_int(self):
+        """set_param('M', 100.0) coerces float to int 100."""
+        m = Model()
+        m.set_param("M", 100.0)
+        assert m.get_param("M") == 100
+        assert isinstance(m.get_param("M"), int)
+
+    def test_coerce_stopping_time_str_to_int(self):
+        """set_param('stopping_time', '5') coerces to int 5."""
+        m = Model()
+        m.set_param("stopping_time", "5")
+        assert m.get_param("stopping_time") == 5
+
+    def test_coerce_num_workers_float_to_int(self):
+        """set_param('num_workers', 2.0) coerces to int 2."""
+        m = Model()
+        m.set_param("num_workers", 2.0)
+        assert m.get_param("num_workers") == 2
+
+    def test_coerce_results_int_to_str_fails_validation(self):
+        """set_param('results', 42) coerces to '42' but fails validation (not 'min'/'average')."""
+        m = Model()
+        with pytest.raises(ValueError, match="results must be"):
+            m.set_param("results", 42)
+
+
+# =============================================================================
+# 11. Set-time validation
+# =============================================================================
+
+
+class TestSetParamSetTimeValidation:
+    """Verify validation is performed at set-time."""
+
+    def test_stopping_time_zero_raises(self):
+        """set_param('stopping_time', 0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="stopping_time must be positive"):
+            m.set_param("stopping_time", 0)
+
+    def test_stopping_time_negative_raises(self):
+        """set_param('stopping_time', -1) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="stopping_time must be positive"):
+            m.set_param("stopping_time", -1)
+
+    def test_num_workers_zero_raises(self):
+        """set_param('num_workers', 0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="num_workers must be >= 1"):
+            m.set_param("num_workers", 0)
+
+    def test_max_delta_negative_raises(self):
+        """set_param('max_delta', -1) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="max_delta must be non-negative"):
+            m.set_param("max_delta", -1)
+
+    def test_depth_look_ahead_negative_raises(self):
+        """set_param('depth_look_ahead', -1) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="depth_look_ahead must be non-negative"):
+            m.set_param("depth_look_ahead", -1)
+
+    def test_results_invalid_raises(self):
+        """set_param('results', 'max') raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="results must be"):
+            m.set_param("results", "max")
+
+    def test_callback_not_callable_raises(self):
+        """set_param('callback', 'not_a_function') raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="callback must be callable"):
+            m.set_param("callback", "not_a_function")
+
+    def test_M_non_numeric_raises(self):
+        """set_param('M', 'abc') raises ValueError (coercion failure)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Cannot coerce"):
+            m.set_param("M", "abc")
+
+
+# =============================================================================
+# 12. Reset to default via None
+# =============================================================================
+
+
+class TestSetParamResetToDefault:
+    """Verify set_param(name, None) resets param to its documented default."""
+
+    @pytest.mark.parametrize("name,set_val,default_val", [
+        ("M", 500, -1),
+        ("stopping_time", 60, 300),
+        ("num_workers", 4, 12),
+        ("results", "average", "min"),
+        ("track_history", False, True),
+        ("callback", lambda: None, None),
+    ])
+    def test_reset_to_default(self, name, set_val, default_val):
+        """set_param(name, value) then set_param(name, None) returns documented default."""
+        m = Model()
+        m.set_param(name, set_val)
+        m.set_param(name, None)
+        assert m.get_param(name) == default_val
+
+
+# =============================================================================
+# 13. get_param defaults for all former solve() params
+# =============================================================================
+
+
+class TestGetParamDefaults:
+    """Verify get_param returns correct defaults for all former solve() params without any set_param."""
+
+    @pytest.mark.parametrize("name,expected", [
+        ("M", -1),
+        ("stopping_time", 300),
+        ("stop_val", -1),
+        ("callback", None),
+        ("max_delta", 7),
+        ("reset_delta", True),
+        ("depth_look_ahead", 0),
+        ("num_workers", 12),
+        ("results", "min"),
+        ("bfs", False),
+        ("ignore_constraint_search", False),
+        ("monte_carlo_estimate", False),
+        ("verify", False),
+        ("track_history", True),
+    ])
+    def test_get_param_default(self, name, expected):
+        """get_param(name) returns documented default on a fresh Model."""
+        m = Model()
+        assert m.get_param(name) == expected
+
+
+# =============================================================================
+# 14. Unknown/removed params rejected
+# =============================================================================
+
+
+class TestUnknownParamRejected:
+    """Verify dropped and misspelled params raise ValueError."""
+
+    def test_bias_rejected(self):
+        """set_param('bias', 1.0) raises ValueError (bias was dropped)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("bias", 1.0)
+
+    def test_manual_bias_rejected(self):
+        """set_param('manual_bias', 1.0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("manual_bias", 1.0)
+
+    def test_monte_calor_estimate_typo_rejected(self):
+        """set_param('monte_calor_estimate', True) raises ValueError (old typo name rejected)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("monte_calor_estimate", True)
+
+    def test_bias_factor_is_valid(self):
+        """set_param('bias_factor', 1.0) does NOT raise -- Phase 14 branching bias_factor is valid."""
+        m = Model()
+        m.set_param("bias_factor", 1.0)
+        assert m.get_param("bias_factor") == 1.0
+
+
+# =============================================================================
+# 15. Bool coercion strictness
+# =============================================================================
+
+
+class TestBoolCoercionStrict:
+    """Verify bool coercion rejects strings, accepts bool and int."""
+
+    def test_bfs_string_raises(self):
+        """set_param('bfs', 'true') raises ValueError (string not accepted as bool)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Cannot coerce"):
+            m.set_param("bfs", "true")
+
+    def test_bfs_int_coerced(self):
+        """set_param('bfs', 1) coerces int to True."""
+        m = Model()
+        m.set_param("bfs", 1)
+        assert m.get_param("bfs") is True
+
+    def test_bfs_int_zero_coerced(self):
+        """set_param('bfs', 0) coerces int 0 to False."""
+        m = Model()
+        m.set_param("bfs", 0)
+        assert m.get_param("bfs") is False
+
+    def test_bfs_bool_true_works(self):
+        """set_param('bfs', True) works directly."""
+        m = Model()
+        m.set_param("bfs", True)
+        assert m.get_param("bfs") is True
+
+    def test_reset_delta_string_raises(self):
+        """set_param('reset_delta', 'False') raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="Cannot coerce"):
+            m.set_param("reset_delta", "False")
+
+
+# =============================================================================
+# 16. Callback validation
+# =============================================================================
+
+
+class TestCallbackValidation:
+    """Verify callback param accepts callable/None and rejects non-callable."""
+
+    def test_callback_lambda_works(self):
+        """set_param('callback', lambda: None) works."""
+        m = Model()
+        fn = lambda: None
+        m.set_param("callback", fn)
+        assert m.get_param("callback") is fn
+
+    def test_callback_none_resets(self):
+        """set_param('callback', None) resets to default (None)."""
+        m = Model()
+        m.set_param("callback", lambda: None)
+        m.set_param("callback", None)
+        assert m.get_param("callback") is None
+
+    def test_callback_int_raises(self):
+        """set_param('callback', 42) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="callback must be callable"):
+            m.set_param("callback", 42)
+
+    def test_callback_function_works(self):
+        """set_param('callback', function) works for regular functions."""
+        m = Model()
+
+        def my_callback():
+            pass
+
+        m.set_param("callback", my_callback)
+        assert m.get_param("callback") is my_callback
 
 
 if __name__ == "__main__":
