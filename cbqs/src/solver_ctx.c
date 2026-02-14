@@ -27,7 +27,7 @@ solver_ctx_t *solver_ctx_create(void) {
         return NULL;
     }
 
-    /* Initialize branching_stats with same defaults as global BranchingStats */
+    /* Initialize branching_stats with default values */
     ctx->branching_stats.branching_weights = NULL;
     ctx->branching_stats.num_weights = 0;
     ctx->branching_stats.branching_factor = 1.0;

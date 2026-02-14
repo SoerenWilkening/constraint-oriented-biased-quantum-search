@@ -24,7 +24,7 @@ typedef struct {
     double look_factor;         /* Factor for look-ahead term (default 0.0) */
 } BranchingStats_t;
 
-extern BranchingStats_t BranchingStats; // branching stats as global variable
+/* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */
 
 static inline double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats){
     double total_bias;

@@ -3,14 +3,7 @@
 #include "Branching.h"
 #include "solver_ctx.h"
 
-BranchingStats_t BranchingStats = {
-    .branching_weights = NULL,
-    .num_weights = 0,
-    .branching_factor = 1.0,
-    .bias_factor = 1,
-    .bias = 5,
-    .look_factor = 0.0
-};
+/* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t */
 
 double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold){
     state->prob = 1.;

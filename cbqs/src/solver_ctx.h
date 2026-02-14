@@ -3,7 +3,7 @@
  * @brief Solver context struct and lifecycle functions
  *
  * This module provides the solver_ctx_t type which encapsulates all per-solve
- * mutable state, replacing global variables like BranchingStats and stop_flag.
+ * mutable state, encapsulating all per-solve mutable state (replaces former global variables).
  * The context enables thread-safe parallel solves and clean resource management.
  */
 
@@ -72,7 +72,7 @@ typedef struct solver_ctx solver_ctx_t;
  * @brief Create and initialize a new solver context
  *
  * Allocates a solver_ctx_t and initializes all fields:
- * - branching_stats with default values (matching global BranchingStats)
+ * - branching_stats with default values
  * - stop = false
  * - timeout_ms = 0 (no timeout)
  * - start_time = current time
