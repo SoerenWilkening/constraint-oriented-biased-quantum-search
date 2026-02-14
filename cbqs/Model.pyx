@@ -103,6 +103,14 @@ _PARAM_DEFS = {
 	'verify':                   {'default': False, 'coerce': _coerce_bool, 'validate': None},
 	'track_history':            {'default': True,  'coerce': _coerce_bool, 'validate': None},
 
+	# --- Former local_search() params ---
+	'distance':                 {'default': 2,     'coerce': int,          'validate': lambda v: v >= 1,
+	                             'validate_msg': 'distance must be >= 1'},
+	'max_worse_acceptances':    {'default': 10,    'coerce': int,          'validate': lambda v: v >= 0,
+	                             'validate_msg': 'max_worse_acceptances must be non-negative'},
+	'stopping_condition':       {'default': 1,     'coerce': int,          'validate': lambda v: v in (0, 1),
+	                             'validate_msg': 'stopping_condition must be STOPATBEST (0) or STOPATFIRST (1)'},
+
 	# --- Existing params (from Phase 12/14) ---
 	'branching_bias':           {'default': None,  'coerce': float,        'validate': None},
 	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special'},
@@ -499,15 +507,30 @@ or {self.runtime}s sampling
 
 		return result
 
-	def local_search(self, distance = 2, callback = None, stop_time = 1 << 20, max_worse_acceptances: int = 10,
-	                 stopping_condition: int = STOPATFIRST, verify = False, track_history = True):
-		assert stopping_condition in [STOPATFIRST, STOPATBEST]
+	def local_search(self):
+		"""Execute the local search solver.
+
+		All solver parameters are configured via set_param() before calling local_search().
+		local_search() accepts zero arguments.
+
+		Returns an OptimizeResult object containing solution, objective,
+		timing, history, and verification data.
+		"""
+		# Read all params from _params (with defaults from _PARAM_DEFS)
+		distance = self._get_effective('distance')
+		callback = self._get_effective('callback')
+		stopping_time = self._get_effective('stopping_time')
+		max_worse_acceptances = self._get_effective('max_worse_acceptances')
+		stopping_condition = self._get_effective('stopping_condition')
+		verify = self._get_effective('verify')
+		track_history = self._get_effective('track_history')
+
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 
 		self.mod[0].max_worse_acceptances = max_worse_acceptances
 		self.mod[0].stopping_condition = stopping_condition
 		self.mod[0].distance = distance
-		self.mod[0].stopping_time = stop_time
+		self.mod[0].stopping_time = stopping_time
 		self.mod[0].stop_val = -1
 
 		# run_local_search returns (cur_sol, history, preprocessing_time_ms, solve_time_ms)
@@ -548,8 +571,18 @@ or {self.runtime}s sampling
 
 		return result
 
-	def quantum_local_search(self, distance, callback = None, num_workers = 1):
-		Parallel(n_jobs = num_workers, backend = "threading")(
+	def quantum_local_search(self):
+		"""Execute the quantum local search solver.
+
+		All solver parameters are configured via set_param() before calling
+		quantum_local_search(). quantum_local_search() accepts zero arguments.
+		"""
+		# Read all params from _params (with defaults from _PARAM_DEFS)
+		distance = self._get_effective('distance')
+		callback = self._get_effective('callback')
+		num_workers = self._get_effective('num_workers')
+
+		Parallel(n_jobs=num_workers, backend="threading")(
 			delayed(run_quantum_local_search)(
 				self.initial_state,
 				self.constraint,

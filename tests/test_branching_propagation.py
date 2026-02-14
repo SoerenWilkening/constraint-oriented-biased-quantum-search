@@ -107,7 +107,8 @@ class TestBranchingBiasLocalSearch:
         m = _make_knapsack_model(20)
         m.seed = 42
         m.set_param("branching_bias", 50.0)
-        result = m.local_search(stop_time=2)
+        m.set_param("stopping_time", 2)
+        result = m.local_search()
 
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
@@ -117,7 +118,7 @@ class TestBranchingBiasLocalSearch:
     def test_branching_bias_deterministic_local_search(self):
         """Same seed + same branching_bias -> consistent objective (local search).
 
-        Note: local_search with a time bound (stop_time) is inherently
+        Note: local_search with a time bound (stopping_time) is inherently
         timing-dependent -- the number of iterations varies with system load.
         We compare objectives only (not solutions) since multiple optimal
         solutions with equal objective may be found depending on iteration count.
@@ -128,7 +129,9 @@ class TestBranchingBiasLocalSearch:
             m = _make_knapsack_model(20)
             m.seed = 42
             m.set_param("branching_bias", 10.0)
-            result = m.local_search(stop_time=2, track_history=False)
+            m.set_param("stopping_time", 2)
+            m.set_param("track_history", False)
+            result = m.local_search()
             objectives.append(result.objective)
             del m
 
@@ -168,7 +171,8 @@ class TestBranchingFactorsPropagation:
         m.set_param("branching_factor", 0.5)
         m.set_param("bias_factor", 2.0)
         m.set_param("look_ahead_factor", 0.0)
-        result = m.local_search(stop_time=2)
+        m.set_param("stopping_time", 2)
+        result = m.local_search()
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
@@ -220,7 +224,8 @@ class TestBranchingWeightsPropagation:
         m.seed = 42
         weights = [float(i % 5 + 1) for i in range(n)]
         m.set_param("branching_weights", weights)
-        result = m.local_search(stop_time=2)
+        m.set_param("stopping_time", 2)
+        result = m.local_search()
 
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None

@@ -150,13 +150,15 @@ class TestLocalSearchDiagnostics:
     def test_local_search_returns_optimize_result(self):
         """local_search() returns an OptimizeResult instance."""
         m = _build_knapsack_model()
-        result = m.local_search(stop_time=3)
+        m.set_param("stopping_time", 3)
+        result = m.local_search()
         assert isinstance(result, OptimizeResult)
 
     def test_local_search_result_has_timing(self):
         """Timing fields populated in local_search result."""
         m = _build_knapsack_model()
-        result = m.local_search(stop_time=3)
+        m.set_param("stopping_time", 3)
+        result = m.local_search()
         assert result.solve_time >= 0
         assert result.preprocessing_time >= 0
         assert result.time > 0
@@ -164,7 +166,8 @@ class TestLocalSearchDiagnostics:
     def test_local_search_result_has_solution(self):
         """Solution array present in local_search result."""
         m = _build_knapsack_model(n_vars=5)
-        result = m.local_search(stop_time=3)
+        m.set_param("stopping_time", 3)
+        result = m.local_search()
         assert result.solution is not None
         assert isinstance(result.solution, np.ndarray)
         assert len(result.solution) == 5
@@ -191,16 +194,20 @@ class TestVerifyIntegration:
         assert result.violations is None
 
     def test_local_search_verify_true(self):
-        """local_search(verify=True) populates verified and violations."""
+        """local_search with verify=True populates verified and violations."""
         m = _build_knapsack_model()
-        result = m.local_search(stop_time=3, verify=True)
+        m.set_param("stopping_time", 3)
+        m.set_param("verify", True)
+        result = m.local_search()
         assert result.verified is True
         assert isinstance(result.violations, list)
 
     def test_local_search_verify_false(self):
-        """local_search(verify=False) leaves verified as None."""
+        """local_search with verify=False leaves verified as None."""
         m = _build_knapsack_model()
-        result = m.local_search(stop_time=3, verify=False)
+        m.set_param("stopping_time", 3)
+        m.set_param("verify", False)
+        result = m.local_search()
         assert result.verified is None
         assert result.violations is None
 
