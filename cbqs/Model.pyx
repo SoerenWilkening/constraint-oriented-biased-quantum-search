@@ -72,16 +72,51 @@ def _merge_duplicate_variable_terms(Expression expr):
 			stacklevel=3
 		)
 
-_KNOWN_PARAMS = {
-	"branching_bias",
-	"branching_weights",
-	"branching_factor",
-	"bias_factor",
-	"look_ahead_factor",
-	"num_workers",
-	"timeout",
-	"track_history",
+def _coerce_bool(value):
+	"""Coerce value to bool. Accepts bool and int only (not strings)."""
+	if isinstance(value, bool):
+		return value
+	if isinstance(value, int):
+		return bool(value)
+	raise ValueError(f"Cannot coerce {type(value).__name__} to bool")
+
+_PARAM_DEFS = {
+	# --- Former solve() params (new in Phase 15) ---
+	'M':                        {'default': -1,    'coerce': int,          'validate': None},
+	'stopping_time':            {'default': 300,   'coerce': int,          'validate': lambda v: v > 0,
+	                             'validate_msg': 'stopping_time must be positive'},
+	'stop_val':                 {'default': -1,    'coerce': int,          'validate': None},
+	'callback':                 {'default': None,  'coerce': None,         'validate': lambda v: v is None or callable(v),
+	                             'validate_msg': 'callback must be callable or None'},
+	'max_delta':                {'default': 7,     'coerce': int,          'validate': lambda v: v >= 0,
+	                             'validate_msg': 'max_delta must be non-negative'},
+	'reset_delta':              {'default': True,  'coerce': _coerce_bool, 'validate': None},
+	'depth_look_ahead':         {'default': 0,     'coerce': int,          'validate': lambda v: v >= 0,
+	                             'validate_msg': 'depth_look_ahead must be non-negative'},
+	'num_workers':              {'default': 12,    'coerce': int,          'validate': lambda v: v >= 1,
+	                             'validate_msg': 'num_workers must be >= 1'},
+	'results':                  {'default': 'min', 'coerce': str,          'validate': lambda v: v in ('min', 'average'),
+	                             'validate_msg': "results must be 'min' or 'average'"},
+	'bfs':                      {'default': False, 'coerce': _coerce_bool, 'validate': None},
+	'ignore_constraint_search': {'default': False, 'coerce': _coerce_bool, 'validate': None},
+	'monte_carlo_estimate':     {'default': False, 'coerce': _coerce_bool, 'validate': None},
+	'verify':                   {'default': False, 'coerce': _coerce_bool, 'validate': None},
+	'track_history':            {'default': True,  'coerce': _coerce_bool, 'validate': None},
+
+	# --- Existing params (from Phase 12/14) ---
+	'branching_bias':           {'default': None,  'coerce': float,        'validate': None},
+	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special'},
+	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
+	                             'validate_msg': 'branching_factor must be non-negative'},
+	'bias_factor':              {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
+	                             'validate_msg': 'bias_factor must be non-negative'},
+	'look_ahead_factor':        {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
+	                             'validate_msg': 'look_ahead_factor must be non-negative'},
+	'timeout':                  {'default': None,  'coerce': int,          'validate': lambda v: v > 0,
+	                             'validate_msg': 'timeout must be positive'},
 }
+
+_KNOWN_PARAMS = set(_PARAM_DEFS.keys())
 
 cdef class Model:
 	def __cinit__(self):
@@ -140,43 +175,78 @@ cdef class Model:
 
 		Parameters persist across multiple solve() calls until changed.
 		set_param values take precedence over solve() keyword arguments.
+		set_param(name, None) resets the parameter to its default value.
 
-		Raises ValueError for unknown parameter names.
+		Type coercion is applied automatically (e.g. set_param('M', '100')
+		stores int 100). Validation is performed at set-time.
+
+		Raises ValueError for unknown parameter names or invalid values.
 		"""
 		if name not in _KNOWN_PARAMS:
 			raise ValueError(f"Unknown parameter: '{name}'")
 
-		if name == 'branching_weights':
-			if value is not None:
-				arr = np.asarray(value, dtype=np.float64)
-				if arr.ndim != 1:
-					raise ValueError("branching_weights must be a 1D array")
-				if self.n > 0 and len(arr) != self.n:
-					raise ValueError(
-						f"Expected array of length {self.n}, got {len(arr)}"
-					)
-				if np.any(arr < 0):
-					raise ValueError("branching_weights must be non-negative")
-				if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
-					raise ValueError(
-						"branching_weights must not contain NaN or Inf"
-					)
+		# Reset to default: remove from _params so get_param returns default
+		if value is None:
+			self._params.pop(name, None)
+			return
 
-		if name in ('branching_factor', 'bias_factor', 'look_ahead_factor'):
-			if value is not None and value < 0:
-				raise ValueError(f"{name} must be non-negative")
+		pdef = _PARAM_DEFS[name]
+
+		# Special case: branching_weights has numpy-specific validation
+		if name == 'branching_weights':
+			arr = np.asarray(value, dtype=np.float64)
+			if arr.ndim != 1:
+				raise ValueError("branching_weights must be a 1D array")
+			if self.n > 0 and len(arr) != self.n:
+				raise ValueError(
+					f"Expected array of length {self.n}, got {len(arr)}"
+				)
+			if np.any(arr < 0):
+				raise ValueError("branching_weights must be non-negative")
+			if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+				raise ValueError(
+					"branching_weights must not contain NaN or Inf"
+				)
+			self._params[name] = value
+			return
+
+		# Type coercion
+		if pdef['coerce'] is not None:
+			try:
+				value = pdef['coerce'](value)
+			except (ValueError, TypeError) as e:
+				raise ValueError(
+					f"Cannot coerce value for '{name}': {e}"
+				) from None
+
+		# Validation
+		if pdef['validate'] is not None and pdef['validate'] != 'special':
+			if not pdef['validate'](value):
+				msg = pdef.get('validate_msg', f"Invalid value for {name}: {value}")
+				raise ValueError(msg)
 
 		self._params[name] = value
 
 	def get_param(self, str name):
 		"""Get a solver parameter by name.
 
-		Returns None if the parameter has not been set via set_param.
+		Returns the stored value if set, or the documented default.
+		Never returns None for parameters that have defaults.
+
 		Raises ValueError for unknown parameter names.
 		"""
 		if name not in _KNOWN_PARAMS:
 			raise ValueError(f"Unknown parameter: '{name}'")
-		return self._params.get(name)
+		if name in self._params:
+			return self._params[name]
+		return _PARAM_DEFS[name]['default']
+
+	def _get_effective(self, str name):
+		"""Get effective param value: stored value if set, else default from _PARAM_DEFS."""
+		val = self._params.get(name)
+		if val is not None:
+			return val
+		return _PARAM_DEFS[name]['default']
 
 	def __copy__(self):
 		new_m = Model()
