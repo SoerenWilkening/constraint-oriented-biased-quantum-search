@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 Phase: All complete (17 phases across 3 milestones)
 Status: v2.0 shipped
-Last activity: 2026-02-14 — v2.0 API Cleanup milestone completed
+Last activity: 2026-02-14 - Completed quick task 1: Refactor local_search and quantum_local_search to use set_param pattern like solve
 
 Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########]
 
@@ -36,6 +36,12 @@ None.
 ### Blockers/Concerns
 
 None.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
 
 ## Session Continuity
 
