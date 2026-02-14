@@ -1,7 +1,7 @@
 """Deterministic tests proving branching parameters reach both solver paths.
 
-Covers requirements BRANCH-01 (sampling solver propagation) and
-BRANCH-02 (local search solver propagation).
+Covers branching_bias, individual factor params, and branching_weights
+propagation through Cython to the C solver context.
 
 Test approach: fixed seed + known problem, verify valid results with
 non-default branching parameters. Determinism verified by running the
@@ -35,7 +35,7 @@ def _make_knapsack_model(n=20):
 
 
 # =============================================================================
-# 1. Branching bias affects sampling solver (BRANCH-01)
+# 1. Branching bias affects sampling solver
 # =============================================================================
 
 
@@ -87,7 +87,7 @@ class TestBranchingBiasSamplingSolver:
 
 
 # =============================================================================
-# 2. Branching bias affects local search solver (BRANCH-02)
+# 2. Branching bias affects local search solver
 # =============================================================================
 
 
@@ -129,43 +129,110 @@ class TestBranchingBiasLocalSearch:
 
 
 # =============================================================================
-# 3. Branching factors propagation
+# 3. Individual branching factor propagation
 # =============================================================================
 
 
 class TestBranchingFactorsPropagation:
-    """Verify branching_factors set via set_param are propagated correctly."""
+    """Verify individual factor params are propagated correctly."""
 
     def test_branching_factors_propagation_sampling(self):
-        """Non-default branching_factors via set_param completes without error (sampling)."""
+        """Non-default individual factor params complete without error (sampling)."""
         m = _make_knapsack_model(20)
         m.seed = 42
-        m.set_param("branching_factors", (0.5, 0.0, 2.0, 0.0))
+        m.set_param("branching_factor", 0.5)
+        m.set_param("bias_factor", 2.0)
+        m.set_param("look_ahead_factor", 0.0)
         result = m.solve(stopping_time=2, num_workers=2)
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
 
     def test_branching_factors_propagation_local_search(self):
-        """Non-default branching_factors via set_param completes without error (local search)."""
+        """Non-default individual factor params complete without error (local search)."""
         m = _make_knapsack_model(20)
         m.seed = 42
-        m.set_param("branching_factors", (0.5, 0.0, 2.0, 0.0))
+        m.set_param("branching_factor", 0.5)
+        m.set_param("bias_factor", 2.0)
+        m.set_param("look_ahead_factor", 0.0)
         result = m.local_search(stop_time=2)
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
 
     def test_branching_factors_combined_with_bias(self):
-        """Both branching_bias and branching_factors set together work correctly."""
+        """Both branching_bias and individual factor params set together work correctly."""
         m = _make_knapsack_model(20)
         m.seed = 42
         m.set_param("branching_bias", 15.0)
-        m.set_param("branching_factors", (0.3, 0.1, 1.5, 0.1))
+        m.set_param("branching_factor", 0.3)
+        m.set_param("bias_factor", 1.5)
+        m.set_param("look_ahead_factor", 0.1)
         result = m.solve(stopping_time=2, num_workers=2)
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
+
+
+# =============================================================================
+# 4. Branching weights propagation
+# =============================================================================
+
+
+class TestBranchingWeightsPropagation:
+    """Verify branching_weights flow through Cython to solver_ctx_set_branching_weights."""
+
+    def test_branching_weights_sampling(self):
+        """branching_weights propagated through sampling solver produces valid result."""
+        n = 20
+        m = _make_knapsack_model(n)
+        m.seed = 42
+        weights = [float(i % 5 + 1) for i in range(n)]
+        m.set_param("branching_weights", weights)
+        result = m.solve(stopping_time=2, num_workers=2)
+
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert len(result.solution) == n
+        assert result.objective >= 0
+
+    def test_branching_weights_local_search(self):
+        """branching_weights propagated through local search solver produces valid result."""
+        n = 20
+        m = _make_knapsack_model(n)
+        m.seed = 42
+        weights = [float(i % 5 + 1) for i in range(n)]
+        m.set_param("branching_weights", weights)
+        result = m.local_search(stop_time=2)
+
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert len(result.solution) == n
+        assert result.objective >= 0
+
+    def test_branching_weights_deterministic(self):
+        """Same seed + same weights -> same result."""
+        n = 20
+        weights = [float(i % 5 + 1) for i in range(n)]
+
+        m1 = _make_knapsack_model(n)
+        m1.seed = 42
+        m1.set_param("branching_weights", weights)
+        result1 = m1.solve(stopping_time=2, num_workers=1)
+
+        m2 = _make_knapsack_model(n)
+        m2.seed = 42
+        m2.set_param("branching_weights", weights)
+        result2 = m2.solve(stopping_time=2, num_workers=1)
+
+        assert result1.objective == result2.objective, (
+            f"Determinism: same seed+weights should give same objective: "
+            f"{result1.objective} vs {result2.objective}"
+        )
+        np.testing.assert_array_equal(
+            result1.solution, result2.solution,
+            err_msg="Determinism: same seed+weights should give same solution"
+        )
 
 
 if __name__ == "__main__":

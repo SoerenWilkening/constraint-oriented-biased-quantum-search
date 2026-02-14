@@ -1,9 +1,10 @@
-"""Tests for set_param/get_param API, validation, persistence, copy, and deprecation warnings.
+"""Tests for set_param/get_param API, validation, persistence, copy, and old API removal.
 
-Covers requirements BRANCH-01 (API), BRANCH-03 (deprecation), and parameter precedence.
+Covers branching_weights validation, factor validation, and parameter precedence.
 """
 import warnings
 
+import numpy as np
 import pytest
 
 pytest.importorskip("cbqs")
@@ -38,12 +39,18 @@ class TestSetParamBasics:
         m.set_param("branching_bias", 10.0)
         assert m.get_param("branching_bias") == 10.0
 
-    def test_set_param_branching_factors(self):
-        """set_param('branching_factors', tuple) -> get_param returns same tuple."""
-        m = _make_small_model()
-        factors = (0.5, 0.0, 1.0, 0.0)
-        m.set_param("branching_factors", factors)
-        assert m.get_param("branching_factors") == factors
+    def test_set_param_branching_weights(self):
+        """set_param('branching_weights', list) -> get_param returns same list."""
+        m = Model()
+        weights = [1.0, 2.0]
+        m.set_param("branching_weights", weights)
+        assert m.get_param("branching_weights") == weights
+
+    def test_set_param_branching_factor(self):
+        """set_param('branching_factor', 2.0) -> get_param returns 2.0."""
+        m = Model()
+        m.set_param("branching_factor", 2.0)
+        assert m.get_param("branching_factor") == 2.0
 
     def test_set_param_num_workers(self):
         """set_param('num_workers', 4) -> get_param returns 4."""
@@ -63,24 +70,11 @@ class TestSetParamBasics:
         m.set_param("track_history", False)
         assert m.get_param("track_history") is False
 
-    def test_set_param_manual_bias(self):
-        """set_param('manual_bias', list) -> get_param returns same list."""
-        m = Model()
-        bias_list = [1.0, 2.0]
-        m.set_param("manual_bias", bias_list)
-        assert m.get_param("manual_bias") == bias_list
-
     def test_set_param_bias_factor(self):
         """set_param('bias_factor', 2.5) -> get_param returns 2.5."""
         m = Model()
         m.set_param("bias_factor", 2.5)
         assert m.get_param("bias_factor") == 2.5
-
-    def test_set_param_manual_bias_factor(self):
-        """set_param('manual_bias_factor', 0.5) -> get_param returns 0.5."""
-        m = Model()
-        m.set_param("manual_bias_factor", 0.5)
-        assert m.get_param("manual_bias_factor") == 0.5
 
     def test_set_param_look_ahead_factor(self):
         """set_param('look_ahead_factor', 0.3) -> get_param returns 0.3."""
@@ -120,9 +114,113 @@ class TestSetParamValidation:
         m = Model()
         assert m.get_param("branching_bias") is None
 
+    def test_old_param_manual_bias_raises(self):
+        """set_param('manual_bias', ...) raises ValueError (removed param)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("manual_bias", [1.0, 2.0])
+
+    def test_old_param_manual_bias_factor_raises(self):
+        """set_param('manual_bias_factor', ...) raises ValueError (removed param)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("manual_bias_factor", 0.5)
+
+    def test_old_param_branching_factors_raises(self):
+        """set_param('branching_factors', ...) raises ValueError (removed param)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("branching_factors", (0.5, 0.0, 1.0, 0.0))
+
 
 # =============================================================================
-# 3. Persistence
+# 3. Branching weights validation
+# =============================================================================
+
+
+class TestBranchingWeightsValidation:
+    """Verify branching_weights validation in set_param."""
+
+    def test_branching_weights_wrong_length(self):
+        """Wrong-length array raises ValueError when model has variables."""
+        m = _make_small_model()
+        with pytest.raises(ValueError, match="Expected array of length 5, got 2"):
+            m.set_param("branching_weights", [1.0, 2.0])
+
+    def test_branching_weights_negative(self):
+        """Negative weight raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="non-negative"):
+            m.set_param("branching_weights", [1.0, -1.0])
+
+    def test_branching_weights_nan(self):
+        """NaN weight raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            m.set_param("branching_weights", [1.0, float("nan")])
+
+    def test_branching_weights_inf(self):
+        """Inf weight raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            m.set_param("branching_weights", [1.0, float("inf")])
+
+    def test_branching_weights_none_clears(self):
+        """Setting branching_weights to None clears the value."""
+        m = Model()
+        m.set_param("branching_weights", [1.0])
+        m.set_param("branching_weights", None)
+        assert m.get_param("branching_weights") is None
+
+    def test_branching_weights_before_variables(self):
+        """On model with no variables (n=0), any array length accepted (deferred validation)."""
+        m = Model()
+        # n=0, so no length check -- should not raise
+        m.set_param("branching_weights", [1.0, 2.0])
+        assert m.get_param("branching_weights") == [1.0, 2.0]
+
+    def test_branching_weights_not_1d(self):
+        """2D array raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="1D array"):
+            m.set_param("branching_weights", [[1.0, 2.0]])
+
+
+# =============================================================================
+# 4. Factor validation
+# =============================================================================
+
+
+class TestFactorValidation:
+    """Verify factor params reject negative values."""
+
+    def test_branching_factor_negative(self):
+        """set_param('branching_factor', -1.0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="non-negative"):
+            m.set_param("branching_factor", -1.0)
+
+    def test_bias_factor_negative(self):
+        """set_param('bias_factor', -1.0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="non-negative"):
+            m.set_param("bias_factor", -1.0)
+
+    def test_look_ahead_factor_negative(self):
+        """set_param('look_ahead_factor', -1.0) raises ValueError."""
+        m = Model()
+        with pytest.raises(ValueError, match="non-negative"):
+            m.set_param("look_ahead_factor", -1.0)
+
+    def test_branching_factor_zero_ok(self):
+        """set_param('branching_factor', 0.0) does NOT raise."""
+        m = Model()
+        m.set_param("branching_factor", 0.0)
+        assert m.get_param("branching_factor") == 0.0
+
+
+# =============================================================================
+# 5. Persistence
 # =============================================================================
 
 
@@ -148,7 +246,7 @@ class TestSetParamPersistence:
 
 
 # =============================================================================
-# 4. Copy behavior
+# 6. Copy behavior
 # =============================================================================
 
 
@@ -175,54 +273,31 @@ class TestSetParamCopy:
 
 
 # =============================================================================
-# 5. Deprecation warnings (BRANCH-03)
+# 7. Old API removed
 # =============================================================================
 
 
-class TestDeprecationWarnings:
-    """Verify deprecated branching setters emit DeprecationWarning."""
+class TestOldAPIRemoved:
+    """Verify deprecated wrapper functions no longer exist."""
 
-    def test_set_bias_wrapper_deprecation(self):
-        """set_bias_wrapper emits DeprecationWarning."""
-        from cbqs.branching import set_bias_wrapper
-        with pytest.warns(DeprecationWarning):
-            set_bias_wrapper(5.0)
+    def test_set_factors_wrapper_removed(self):
+        """set_factors_wrapper is no longer importable."""
+        with pytest.raises(ImportError):
+            from cbqs.branching import set_factors_wrapper
 
-    def test_set_factors_wrapper_deprecation(self):
-        """set_factors_wrapper emits DeprecationWarning."""
-        from cbqs.branching import set_factors_wrapper
-        with pytest.warns(DeprecationWarning):
-            set_factors_wrapper(0, 0, 1, 0)
+    def test_set_obj_dependence_wrapper_removed(self):
+        """set_obj_dependence_wrapper is no longer importable."""
+        with pytest.raises(ImportError):
+            from cbqs.branching import set_obj_dependence_wrapper
 
-    def test_set_obj_dependence_wrapper_deprecation(self):
-        """set_obj_dependence_wrapper emits DeprecationWarning."""
-        from cbqs.branching import set_obj_dependence_wrapper
-        with pytest.warns(DeprecationWarning):
-            set_obj_dependence_wrapper([1.0, 2.0])
-
-    def test_set_constraint_dependence_wrapper_deprecation(self):
-        """set_constraint_dependence_wrapper emits DeprecationWarning."""
-        from cbqs.branching import set_constraint_dependence_wrapper
-        with pytest.warns(DeprecationWarning):
-            set_constraint_dependence_wrapper([1.0, 2.0])
-
-    def test_solve_no_deprecation(self):
-        """solve() does not emit DeprecationWarning (internal calls removed)."""
-        m = _make_small_model()
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            m.solve(stopping_time=1, num_workers=2)
-        deprecation_warnings = [
-            w for w in caught if issubclass(w.category, DeprecationWarning)
-        ]
-        assert len(deprecation_warnings) == 0, (
-            f"solve() should not emit DeprecationWarning, got: "
-            f"{[str(w.message) for w in deprecation_warnings]}"
-        )
+    def test_set_constraint_dependence_wrapper_removed(self):
+        """set_constraint_dependence_wrapper is no longer importable."""
+        with pytest.raises(ImportError):
+            from cbqs.branching import set_constraint_dependence_wrapper
 
 
 # =============================================================================
-# 6. Precedence
+# 8. Precedence
 # =============================================================================
 
 

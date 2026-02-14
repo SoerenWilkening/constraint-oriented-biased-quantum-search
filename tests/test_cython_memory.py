@@ -16,27 +16,26 @@ import gc
 
 
 class TestBranchingMemory:
-    """Test branching.pyx memory management."""
+    """Test branching weights memory management via solver context."""
 
-    def test_set_obj_dependence_no_leak(self):
-        """set_obj_dependence_wrapper should not leak the internal array."""
-        from cbqs.branching import set_obj_dependence_wrapper
+    def test_branching_weights_no_leak(self):
+        """branching_weights propagation through solve should not leak."""
+        from cbqs.Model import Model
+        from cbqs.Constants import MAXIMIZE
 
-        # Call multiple times to amplify any leak
-        for _ in range(100):
-            set_obj_dependence_wrapper([0.1, 0.2, 0.3, 0.4, 0.5])
-
-        gc.collect()
-        # If this leaks, Valgrind will report 100 * 5 * sizeof(double) lost
-
-    def test_set_constraint_dependence_no_leak(self):
-        """set_constraint_dependence_wrapper should not leak the internal array."""
-        from cbqs.branching import set_constraint_dependence_wrapper
-
-        for _ in range(100):
-            set_constraint_dependence_wrapper([1.0, 2.0, 3.0])
+        # Create and solve multiple times to amplify any leak
+        for _ in range(20):
+            m = Model()
+            x = m.add_variables(5)
+            m.set_objective(x[0] + x[1] + x[2] + x[3] + x[4], sense=MAXIMIZE)
+            m.add_constraint(x[0] + x[1] + x[2] + x[3] + x[4] <= 3)
+            m.close()
+            m.set_param("branching_weights", [0.1, 0.2, 0.3, 0.2, 0.2])
+            m.solve(stopping_time=1, num_workers=1)
+            del m
 
         gc.collect()
+        # If this leaks, Valgrind will report leaked branching_weights arrays
 
 
 class TestStateMemory:
