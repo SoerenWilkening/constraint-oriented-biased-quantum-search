@@ -31,17 +31,19 @@ static void test_independent_contexts(void **state) {
     assert_non_null(ctx2);
 
     /* Set different branching parameters on each */
-    solver_ctx_set_factors(ctx1, 1.0, 0.0, 0.5, 0.0);
+    solver_ctx_set_branching_factor(ctx1, 1.0);
+    solver_ctx_set_bias_factor(ctx1, 0.5);
     solver_ctx_set_bias(ctx1, 3.0);
 
-    solver_ctx_set_factors(ctx2, 0.0, 1.0, 0.5, 0.0);
+    solver_ctx_set_branching_factor(ctx2, 0.5);
+    solver_ctx_set_bias_factor(ctx2, 1.0);
     solver_ctx_set_bias(ctx2, 7.0);
 
     /* Verify they're independent */
-    assert_true(ctx1->branching_stats.objective_factor == 1.0);
-    assert_true(ctx2->branching_stats.objective_factor == 0.0);
-    assert_true(ctx1->branching_stats.constraint_factor == 0.0);
-    assert_true(ctx2->branching_stats.constraint_factor == 1.0);
+    assert_true(ctx1->branching_stats.branching_factor == 1.0);
+    assert_true(ctx2->branching_stats.branching_factor == 0.5);
+    assert_true(ctx1->branching_stats.bias_factor == 0.5);
+    assert_true(ctx2->branching_stats.bias_factor == 1.0);
     assert_true(ctx1->branching_stats.bias == 3.0);
     assert_true(ctx2->branching_stats.bias == 7.0);
 
@@ -206,7 +208,9 @@ static void test_debug_output(void **state) {
     assert_true(ctx->debug_enabled == 1);
 
     /* Set some branching stats */
-    solver_ctx_set_factors(ctx, 1.0, 2.0, 3.0, 4.0);
+    solver_ctx_set_branching_factor(ctx, 1.0);
+    solver_ctx_set_bias_factor(ctx, 3.0);
+    solver_ctx_set_look_factor(ctx, 4.0);
     solver_ctx_set_bias(ctx, 5.0);
 
     /* Call debug_stats - this writes to stderr

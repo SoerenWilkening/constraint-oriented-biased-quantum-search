@@ -16,10 +16,9 @@
  */
 static model_t *build_small_model(void) {
     /* Reset global BranchingStats to avoid pollution */
-    BranchingStats.objective_factor = 0;
-    BranchingStats.obj_dependent = NULL;
-    BranchingStats.constraint_factor = 0;
-    BranchingStats.constraint_dependent = NULL;
+    BranchingStats.branching_weights = NULL;
+    BranchingStats.num_weights = 0;
+    BranchingStats.branching_factor = 1.0;
     BranchingStats.bias_factor = 1;
     BranchingStats.bias = 5;
     BranchingStats.look_factor = 0;

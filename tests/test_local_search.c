@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <cmocka.h>
+#include <pthread.h>
 
 #include "local_search.h"
 #include "model.h"
@@ -11,6 +12,9 @@
 #include "definitions.h"
 #include "solver_ctx.h"
 #include "arena.h"
+
+/* Provide the update_lock symbol required by local_search.c (defined in SearchLib.c) */
+pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * Regression test for use-after-free bug in accept_best_routine (02-01).
@@ -30,10 +34,9 @@
  * Helper: reset BranchingStats global to default values.
  */
 static void reset_branching_stats(void) {
-    BranchingStats.objective_factor = 0;
-    BranchingStats.obj_dependent = NULL;
-    BranchingStats.constraint_factor = 0;
-    BranchingStats.constraint_dependent = NULL;
+    BranchingStats.branching_weights = NULL;
+    BranchingStats.num_weights = 0;
+    BranchingStats.branching_factor = 1.0;
     BranchingStats.bias_factor = 1;
     BranchingStats.bias = 5;
     BranchingStats.look_factor = 0;
