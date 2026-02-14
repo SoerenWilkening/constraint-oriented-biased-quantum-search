@@ -10,24 +10,25 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 15 of 17 (Solve API Migration)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-02-14 — Phase 14 complete (verified ✓)
+Plan: 1 of 2 complete
+Status: Executing
+Last activity: 2026-02-14 — Plan 15-01 complete (param infrastructure)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ###░░░░░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ####░░░░░░]
 
 ## Performance Metrics
 
 **Cumulative:**
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
-- v2.0: 1 phase, 2 plans
-- Total: 14 phases, 47 plans
+- v2.0: 1 phase, 3 plans
+- Total: 14 phases, 48 plans
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 14-01 | C kernel unified branching | 6min | 3 | 9 |
 | 14-02 | Cython/Python unified branching | 12min | 3 | 8 |
+| 15-01 | Param infrastructure (_PARAM_DEFS) | 5min | 2 | 2 |
 
 ## Accumulated Context
 
@@ -45,6 +46,11 @@ See PROJECT.md Key Decisions table for full log.
 - v2.0 14-02: Old _KNOWN_PARAMS (manual_bias, manual_bias_factor, branching_factors) removed immediately
 - v2.0 14-02: branching_weights length validation deferred when n=0
 - v2.0 14-02: Factor setters only propagated when explicitly set via set_param
+- v2.0 15-01: _PARAM_DEFS registry replaces flat _KNOWN_PARAMS set
+- v2.0 15-01: Strict bool coercion via _coerce_bool (bool/int only, no strings)
+- v2.0 15-01: get_param returns documented defaults for unset params (never None for params with defaults)
+- v2.0 15-01: bias and manual_bias excluded from _PARAM_DEFS (raise ValueError as unknown)
+- v2.0 15-01: monte_carlo_estimate is canonical name (typo monte_calor_estimate rejected)
 
 ### Pending Todos
 
@@ -57,5 +63,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Phase 14 complete — verified ✓
-Next action: Plan Phase 15 (Solve API Migration)
+Stopped at: Completed 15-01-PLAN.md (param infrastructure)
+Next action: Execute 15-02-PLAN.md (strip solve() kwargs, read from _params)
