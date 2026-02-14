@@ -47,7 +47,9 @@ class TestBranchingBiasSamplingSolver:
         m = _make_knapsack_model(20)
         m.seed = 42
         m.set_param("branching_bias", 50.0)
-        result = m.solve(stopping_time=2, num_workers=2)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 2)
+        result = m.solve()
 
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
@@ -59,7 +61,9 @@ class TestBranchingBiasSamplingSolver:
         """Default branching_bias (set by close()) also produces valid result."""
         m = _make_knapsack_model(20)
         m.seed = 42
-        result = m.solve(stopping_time=2, num_workers=2)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 2)
+        result = m.solve()
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
@@ -69,12 +73,16 @@ class TestBranchingBiasSamplingSolver:
         m1 = _make_knapsack_model(20)
         m1.seed = 42
         m1.set_param("branching_bias", 10.0)
-        result1 = m1.solve(stopping_time=2, num_workers=1)
+        m1.set_param("stopping_time", 2)
+        m1.set_param("num_workers", 1)
+        result1 = m1.solve()
 
         m2 = _make_knapsack_model(20)
         m2.seed = 42
         m2.set_param("branching_bias", 10.0)
-        result2 = m2.solve(stopping_time=2, num_workers=1)
+        m2.set_param("stopping_time", 2)
+        m2.set_param("num_workers", 1)
+        result2 = m2.solve()
 
         assert result1.objective == result2.objective, (
             f"Determinism: same seed+bias should give same objective: "
@@ -143,7 +151,9 @@ class TestBranchingFactorsPropagation:
         m.set_param("branching_factor", 0.5)
         m.set_param("bias_factor", 2.0)
         m.set_param("look_ahead_factor", 0.0)
-        result = m.solve(stopping_time=2, num_workers=2)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 2)
+        result = m.solve()
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
@@ -168,7 +178,9 @@ class TestBranchingFactorsPropagation:
         m.set_param("branching_factor", 0.3)
         m.set_param("bias_factor", 1.5)
         m.set_param("look_ahead_factor", 0.1)
-        result = m.solve(stopping_time=2, num_workers=2)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 2)
+        result = m.solve()
 
         assert isinstance(result, OptimizeResult)
         assert result.objective >= 0
@@ -189,7 +201,9 @@ class TestBranchingWeightsPropagation:
         m.seed = 42
         weights = [float(i % 5 + 1) for i in range(n)]
         m.set_param("branching_weights", weights)
-        result = m.solve(stopping_time=2, num_workers=2)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 2)
+        result = m.solve()
 
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
@@ -218,12 +232,16 @@ class TestBranchingWeightsPropagation:
         m1 = _make_knapsack_model(n)
         m1.seed = 42
         m1.set_param("branching_weights", weights)
-        result1 = m1.solve(stopping_time=2, num_workers=1)
+        m1.set_param("stopping_time", 2)
+        m1.set_param("num_workers", 1)
+        result1 = m1.solve()
 
         m2 = _make_knapsack_model(n)
         m2.seed = 42
         m2.set_param("branching_weights", weights)
-        result2 = m2.solve(stopping_time=2, num_workers=1)
+        m2.set_param("stopping_time", 2)
+        m2.set_param("num_workers", 1)
+        result2 = m2.solve()
 
         assert result1.objective == result2.objective, (
             f"Determinism: same seed+weights should give same objective: "

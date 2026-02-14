@@ -46,7 +46,9 @@ class TestStressSolve:
 
             # Solve with short iteration limit
             try:
-                m.solve(stopping_time=1, num_workers=1)
+                m.set_param('stopping_time', 1)
+                m.set_param('num_workers', 1)
+                m.solve()
             except Exception as e:
                 pytest.fail(f"Iteration {i} failed: {e}")
 

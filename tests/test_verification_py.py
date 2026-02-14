@@ -39,7 +39,9 @@ class TestVerifySolution:
     def test_valid_solution_verifies_true(self):
         """verify_solution() returns True for a valid solved model."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
         result = m.verify_solution()
         assert result is True
 
@@ -52,7 +54,9 @@ class TestVerifySolution:
     def test_verified_flag_true_after_success(self):
         """_verified is True after successful verification."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
         m.verify_solution()
         assert m._verified is True
 
@@ -75,7 +79,9 @@ class TestVerifySolution:
         m.verify_solution()
         assert m._verified is False
 
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
         m.verify_solution()
         assert m._verified is True
 
@@ -91,7 +97,9 @@ class TestVerifySolution:
 
         m.set_objective(x[0] + x[1] + x[2] + x[3], MAXIMIZE)
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         result = m.verify_solution()
         assert result is True
@@ -106,7 +114,9 @@ class TestVerifySolution:
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.set_objective(x[0] + x[1] + x[2], MINIMIZE)
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         result = m.verify_solution()
         assert result is True
@@ -120,7 +130,9 @@ class TestVerifySolution:
         m.add_constraint((2 * x[0] + 3 * x[1] + 4 * x[2]) <= 6)
         m.set_objective(5 * x[0] + 7 * x[1] + 8 * x[2], MAXIMIZE)
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         result = m.verify_solution()
         assert result is True
@@ -142,7 +154,9 @@ class TestVerifyWarnings:
     def test_valid_solution_no_warnings(self):
         """verify_solution() emits no warnings on valid solution."""
         m = _build_knapsack_model()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = m.verify_solution()
@@ -154,30 +168,41 @@ class TestVerifyOnSolve:
     """Tests for verify=True parameter on solve()."""
 
     def test_solve_verify_true_auto_verifies(self):
-        """solve(verify=True) automatically calls verify_solution()."""
+        """set_param('verify', True) + solve() automatically calls verify_solution()."""
         m = _build_knapsack_model()
-        result = m.solve(stopping_time=5, num_workers=1, verify=True)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.set_param('verify', True)
+        result = m.solve()
         assert m._verified is True
         assert result.verified is True
 
     def test_solve_verify_false_no_verification(self):
-        """solve(verify=False) does not call verify_solution()."""
+        """set_param('verify', False) + solve() does not call verify_solution()."""
         m = _build_knapsack_model()
-        result = m.solve(stopping_time=5, num_workers=1, verify=False)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.set_param('verify', False)
+        result = m.solve()
         assert m._verified is None
         assert result.verified is None
 
     def test_solve_default_no_verification(self):
-        """solve() with default args does not call verify_solution()."""
+        """solve() with default verify=False does not call verify_solution()."""
         m = _build_knapsack_model()
-        result = m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        result = m.solve()
         assert m._verified is None
         assert result.verified is None
 
     def test_solve_verify_true_returns_result(self):
-        """solve(verify=True) returns an OptimizeResult with verified=True."""
+        """set_param('verify', True) + solve() returns OptimizeResult with verified=True."""
         m = _build_knapsack_model()
-        result = m.solve(stopping_time=5, num_workers=1, verify=True)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.set_param('verify', True)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert result.verified is True
         assert m._verified is True

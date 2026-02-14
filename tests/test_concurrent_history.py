@@ -49,7 +49,10 @@ class TestConcurrentSolveIndependence:
         def solve_with_seed(seed_val):
             m = _build_knapsack_model()
             m.seed = seed_val
-            return m.solve(stopping_time=5, num_workers=1, track_history=True)
+            m.set_param('stopping_time', 5)
+            m.set_param('num_workers', 1)
+            m.set_param('track_history', True)
+            return m.solve()
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(solve_with_seed, s) for s in [1, 2]]
@@ -77,7 +80,10 @@ class TestConcurrentSolveIndependence:
         def solve_with_seed(seed_val):
             m = _build_knapsack_model()
             m.seed = seed_val
-            return m.solve(stopping_time=5, num_workers=1, track_history=True)
+            m.set_param('stopping_time', 5)
+            m.set_param('num_workers', 1)
+            m.set_param('track_history', True)
+            return m.solve()
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(solve_with_seed, s) for s in range(4)]
@@ -104,7 +110,10 @@ class TestSatisfyModeHistory:
     def test_satisfy_mode_history_satisfaction_count(self):
         """SATISFY mode history entries contain satisfaction counts >= 0 (CB-03)."""
         m = _build_satisfy_model()
-        result = m.solve(stopping_time=10, num_workers=1, track_history=True)
+        m.set_param('stopping_time', 10)
+        m.set_param('num_workers', 1)
+        m.set_param('track_history', True)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert isinstance(result.history, list)
         # Each entry should have (satisfaction_count, elapsed_seconds)
@@ -124,7 +133,10 @@ class TestTrackHistoryFalse:
     def test_track_history_false_no_overhead(self):
         """Solve with track_history=False produces empty history and valid solution."""
         m = _build_knapsack_model()
-        result = m.solve(stopping_time=5, num_workers=1, track_history=False)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.set_param('track_history', False)
+        result = m.solve()
         assert result.history == [], "track_history=False should produce empty history"
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
@@ -149,10 +161,11 @@ class TestConcurrentCallback:
 
             m = _build_knapsack_model()
             m.seed = seed_val
-            result = m.solve(
-                stopping_time=5, num_workers=1,
-                track_history=True, callback=my_callback,
-            )
+            m.set_param('stopping_time', 5)
+            m.set_param('num_workers', 1)
+            m.set_param('track_history', True)
+            m.set_param('callback', my_callback)
+            result = m.solve()
             return result
 
         with ThreadPoolExecutor(max_workers=2) as executor:

@@ -231,9 +231,11 @@ class TestSetParamPersistence:
         """set_param value persists after multiple solve() calls."""
         m = _make_small_model()
         m.set_param("branching_bias", 10.0)
-        m.solve(stopping_time=1, num_workers=2)
+        m.set_param("stopping_time", 1)
+        m.set_param("num_workers", 2)
+        m.solve()
         assert m.get_param("branching_bias") == 10.0
-        m.solve(stopping_time=1, num_workers=2)
+        m.solve()
         assert m.get_param("branching_bias") == 10.0
 
     def test_params_overwrite(self):
@@ -302,16 +304,16 @@ class TestOldAPIRemoved:
 
 
 class TestSetParamPrecedence:
-    """Verify set_param values take precedence over solve() kwargs."""
+    """Verify set_param values are read by solve()."""
 
-    def test_set_param_overrides_solve_kwarg(self):
-        """set_param('branching_bias') value is stored correctly for precedence."""
+    def test_set_param_values_used_by_solve(self):
+        """set_param values are what solve() reads from _params."""
         m = _make_small_model()
-        # Set a distinctive value via set_param
         m.set_param("branching_bias", 99.0)
-        # Call solve with a different bias kwarg -- set_param should win
-        result = m.solve(stopping_time=1, num_workers=2, bias=1.0)
-        # The key assertion: set_param value persists (it was not overwritten by solve kwarg)
+        m.set_param("stopping_time", 1)
+        m.set_param("num_workers", 2)
+        result = m.solve()
+        # The key assertion: set_param value persists after solve
         assert m.get_param("branching_bias") == 99.0
         # Result should be valid
         assert isinstance(result, OptimizeResult)
@@ -320,7 +322,9 @@ class TestSetParamPrecedence:
         """set_param('branching_bias') with extreme value does not crash solve."""
         m = _make_small_model()
         m.set_param("branching_bias", 100.0)
-        result = m.solve(stopping_time=1, num_workers=2)
+        m.set_param("stopping_time", 1)
+        m.set_param("num_workers", 2)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert result.solution is not None
 
@@ -616,6 +620,62 @@ class TestCallbackValidation:
 
         m.set_param("callback", my_callback)
         assert m.get_param("callback") is my_callback
+
+
+# =============================================================================
+# 17. solve() rejects kwargs (Phase 15-02)
+# =============================================================================
+
+
+class TestSolveRejectsKwargs:
+    """Verify solve() accepts zero arguments and rejects all kwargs."""
+
+    def test_solve_rejects_M_kwarg(self):
+        """solve(M=100) raises TypeError."""
+        m = _make_small_model()
+        with pytest.raises(TypeError):
+            m.solve(M=100)
+
+    def test_solve_rejects_stopping_time_kwarg(self):
+        """solve(stopping_time=5) raises TypeError."""
+        m = _make_small_model()
+        with pytest.raises(TypeError):
+            m.solve(stopping_time=5)
+
+    def test_solve_rejects_num_workers_kwarg(self):
+        """solve(num_workers=1) raises TypeError."""
+        m = _make_small_model()
+        with pytest.raises(TypeError):
+            m.solve(num_workers=1)
+
+    def test_solve_rejects_verify_kwarg(self):
+        """solve(verify=True) raises TypeError."""
+        m = _make_small_model()
+        with pytest.raises(TypeError):
+            m.solve(verify=True)
+
+    def test_solve_rejects_positional_arg(self):
+        """solve(100) raises TypeError."""
+        m = _make_small_model()
+        with pytest.raises(TypeError):
+            m.solve(100)
+
+    def test_solve_zero_args_works(self):
+        """solve() with no arguments works when params configured via set_param."""
+        m = _make_small_model()
+        m.set_param("stopping_time", 1)
+        m.set_param("num_workers", 1)
+        result = m.solve()
+        assert isinstance(result, OptimizeResult)
+
+    def test_solve_reads_from_params(self):
+        """solve() reads verify=True from _params and populates result.verified."""
+        m = _make_small_model()
+        m.set_param("stopping_time", 1)
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        result = m.solve()
+        assert result.verified is not None
 
 
 if __name__ == "__main__":

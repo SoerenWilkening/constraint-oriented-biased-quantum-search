@@ -34,13 +34,19 @@ class TestDeterminism:
         """Same seed should produce identical results."""
         m1 = self.create_simple_model()
         m1.seed = 12345
+        m1.set_param('M', 100)
+        m1.set_param('stopping_time', 5)
+        m1.set_param('num_workers', 1)
         m1.general_greedy()
-        result1 = m1.solve(M=100, stopping_time=5, num_workers=1)
+        result1 = m1.solve()
 
         m2 = self.create_simple_model()
         m2.seed = 12345
+        m2.set_param('M', 100)
+        m2.set_param('stopping_time', 5)
+        m2.set_param('num_workers', 1)
         m2.general_greedy()
-        result2 = m2.solve(M=100, stopping_time=5, num_workers=1)
+        result2 = m2.solve()
 
         # Compare objective values (both via Model property and OptimizeResult)
         assert m1.objective_value == m2.objective_value, \
@@ -52,8 +58,11 @@ class TestDeterminism:
         """seed_used should be populated after solve()."""
         m = self.create_simple_model()
         # Don't set seed - let it auto-generate
+        m.set_param('M', 50)
+        m.set_param('stopping_time', 2)
+        m.set_param('num_workers', 1)
         m.general_greedy()
-        m.solve(M=50, stopping_time=2, num_workers=1)
+        m.solve()
 
         assert m.seed_used is not None, "seed_used should be populated after solve()"
         assert isinstance(m.seed_used, int), "seed_used should be an integer"
@@ -62,8 +71,11 @@ class TestDeterminism:
         """When seed is set, seed_used should match."""
         m = self.create_simple_model()
         m.seed = 42
+        m.set_param('M', 50)
+        m.set_param('stopping_time', 2)
+        m.set_param('num_workers', 1)
         m.general_greedy()
-        m.solve(M=50, stopping_time=2, num_workers=1)
+        m.solve()
 
         assert m.seed_used == 42, f"seed_used ({m.seed_used}) should match set seed (42)"
 
@@ -71,15 +83,21 @@ class TestDeterminism:
         """Using seed_used from auto-generated run should reproduce results."""
         # First run without setting seed
         m1 = self.create_simple_model()
+        m1.set_param('M', 100)
+        m1.set_param('stopping_time', 5)
+        m1.set_param('num_workers', 1)
         m1.general_greedy()
-        m1.solve(M=100, stopping_time=5, num_workers=1)
+        m1.solve()
         captured_seed = m1.seed_used
 
         # Second run using captured seed
         m2 = self.create_simple_model()
         m2.seed = captured_seed
+        m2.set_param('M', 100)
+        m2.set_param('stopping_time', 5)
+        m2.set_param('num_workers', 1)
         m2.general_greedy()
-        m2.solve(M=100, stopping_time=5, num_workers=1)
+        m2.solve()
 
         assert m1.objective_value == m2.objective_value, \
             f"Replaying with seed_used should reproduce: {m1.objective_value} vs {m2.objective_value}"
@@ -90,8 +108,11 @@ class TestDeterminism:
         for seed in [1, 2, 3, 4, 5]:
             m = self.create_simple_model()
             m.seed = seed
+            m.set_param('M', 100)
+            m.set_param('stopping_time', 2)
+            m.set_param('num_workers', 1)
             m.general_greedy()
-            m.solve(M=100, stopping_time=2, num_workers=1)
+            m.solve()
             results.append(m.objective_value)
 
         # At least some variation expected (not a hard requirement)
@@ -105,10 +126,13 @@ class TestDeterminism:
         m = self.create_simple_model()
         m.num_threads = num_threads
         m.seed = 42  # Fixed seed for reproducibility
+        m.set_param('M', 50)
+        m.set_param('stopping_time', 2)
+        m.set_param('num_workers', num_threads)
         m.general_greedy()
 
         # Should not raise and return OptimizeResult
-        result = m.solve(M=50, stopping_time=2, num_workers=num_threads)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert result.objective is not None
 
@@ -119,9 +143,12 @@ class TestDeterminism:
         try:
             os.environ["CBQS_THREADS"] = "2"
             m = self.create_simple_model()
+            m.set_param('M', 50)
+            m.set_param('stopping_time', 2)
+            m.set_param('num_workers', 2)
             m.general_greedy()
             # Should not raise
-            m.solve(M=50, stopping_time=2, num_workers=2)
+            m.solve()
         finally:
             if original is None:
                 os.environ.pop("CBQS_THREADS", None)

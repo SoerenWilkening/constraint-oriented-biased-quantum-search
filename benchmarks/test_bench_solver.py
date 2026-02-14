@@ -73,11 +73,14 @@ class TestSolverBenchmarks:
         model = setup_model(problem)
 
         # Warmup run
-        model.solve(stopping_time=1, num_workers=1)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         # Benchmark
         def do_solve():
-            return model.solve(stopping_time=2, num_workers=1)
+            model.set_param('stopping_time', 2)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -85,8 +88,9 @@ class TestSolverBenchmarks:
             rounds=5
         )
 
-        # Basic sanity check - solve returns a list of incumbents
-        assert isinstance(result, list)
+        # Basic sanity check - solve returns an OptimizeResult
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
     def test_bench_medium(self, benchmark):
         """Benchmark medium problem (50 vars, 25 constraints).
@@ -97,10 +101,13 @@ class TestSolverBenchmarks:
         model = setup_model(problem)
 
         # Warmup
-        model.solve(stopping_time=1, num_workers=1)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=3, num_workers=1)
+            model.set_param('stopping_time', 3)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -108,7 +115,8 @@ class TestSolverBenchmarks:
             rounds=3
         )
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
     def test_bench_large(self, benchmark):
         """Benchmark large problem (200 vars, 100 constraints).
@@ -120,10 +128,13 @@ class TestSolverBenchmarks:
         model = setup_model(problem)
 
         # Warmup
-        model.solve(stopping_time=2, num_workers=1)
+        model.set_param('stopping_time', 2)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=5, num_workers=1)
+            model.set_param('stopping_time', 5)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -131,7 +142,8 @@ class TestSolverBenchmarks:
             rounds=3
         )
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
     def test_bench_dense(self, benchmark):
         """Benchmark dense constraint problem.
@@ -142,10 +154,13 @@ class TestSolverBenchmarks:
         problem = create_medium_problem(dense=True, seed=42)
         model = setup_model(problem)
 
-        model.solve(stopping_time=1, num_workers=1)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=3, num_workers=1)
+            model.set_param('stopping_time', 3)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -153,7 +168,8 @@ class TestSolverBenchmarks:
             rounds=3
         )
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
     def test_bench_sparse(self, benchmark):
         """Benchmark sparse constraint problem.
@@ -164,10 +180,13 @@ class TestSolverBenchmarks:
         problem = create_medium_problem(dense=False, seed=42)
         model = setup_model(problem)
 
-        model.solve(stopping_time=1, num_workers=1)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=3, num_workers=1)
+            model.set_param('stopping_time', 3)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -175,7 +194,8 @@ class TestSolverBenchmarks:
             rounds=3
         )
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
 
 class TestArenaImpact:
@@ -225,10 +245,13 @@ class TestArenaImpact:
         model.close()
 
         # Warmup
-        model.solve(stopping_time=1, num_workers=1)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 1)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=3, num_workers=1)
+            model.set_param('stopping_time', 3)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -241,7 +264,8 @@ class TestArenaImpact:
         benchmark.extra_info['n_vars'] = n
         benchmark.extra_info['n_constraints'] = 50
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)
 
     def test_bench_parallel_workers(self, benchmark):
         """Benchmark with multiple workers.
@@ -253,10 +277,13 @@ class TestArenaImpact:
         model = setup_model(problem)
 
         # Warmup
-        model.solve(stopping_time=1, num_workers=2)
+        model.set_param('stopping_time', 1)
+        model.set_param('num_workers', 2)
+        model.solve()
 
         def do_solve():
-            return model.solve(stopping_time=3, num_workers=2)
+            model.set_param('stopping_time', 3)
+            return model.solve()
 
         result = benchmark.pedantic(
             do_solve,
@@ -267,4 +294,5 @@ class TestArenaImpact:
         benchmark.extra_info['problem_type'] = 'parallel_workers'
         benchmark.extra_info['num_workers'] = 2
 
-        assert isinstance(result, list)
+        from cbqs.result import OptimizeResult
+        assert isinstance(result, OptimizeResult)

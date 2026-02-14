@@ -31,7 +31,9 @@ class TestBranchingMemory:
             m.add_constraint(x[0] + x[1] + x[2] + x[3] + x[4] <= 3)
             m.close()
             m.set_param("branching_weights", [0.1, 0.2, 0.3, 0.2, 0.2])
-            m.solve(stopping_time=1, num_workers=1)
+            m.set_param("stopping_time", 1)
+            m.set_param("num_workers", 1)
+            m.solve()
             del m
 
         gc.collect()

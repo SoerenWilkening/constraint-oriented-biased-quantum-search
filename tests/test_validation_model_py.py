@@ -175,18 +175,18 @@ class TestSolveValidation:
     """Tests for solve() validation improvements."""
 
     def test_solve_invalid_results_raises_valueerror(self):
-        """solve(results='invalid') raises ValueError (not AssertionError)."""
+        """set_param('results', 'invalid') raises ValueError at set-time."""
         m = Model()
         xs = m.add_variables(3)
         x = [xs[i] for i in range(3)]
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
         m.close()
-        with pytest.raises(ValueError, match="results must be 'min' or 'average'"):
-            m.solve(results="invalid", num_workers=1, stopping_time=1)
+        with pytest.raises(ValueError, match="results must be"):
+            m.set_param('results', 'invalid')
 
     def test_solve_valid_results_min(self):
-        """solve(results='min') succeeds and returns OptimizeResult."""
+        """set_param('results', 'min') + solve() succeeds and returns OptimizeResult."""
         from cbqs.result import OptimizeResult
         m = Model()
         xs = m.add_variables(3)
@@ -194,7 +194,10 @@ class TestSolveValidation:
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
         m.close()
-        result = m.solve(results="min", num_workers=1, stopping_time=2)
+        m.set_param('results', 'min')
+        m.set_param('num_workers', 1)
+        m.set_param('stopping_time', 2)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
 
     def test_solve_not_compiled_raises(self):
@@ -204,8 +207,10 @@ class TestSolveValidation:
         x = [xs[i] for i in range(3)]
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
+        m.set_param('num_workers', 1)
+        m.set_param('stopping_time', 1)
         with pytest.raises(ValueError, match="No constraints compiled"):
-            m.solve(num_workers=1, stopping_time=1)
+            m.solve()
 
 
 class TestAddVariablesValidation:

@@ -48,7 +48,9 @@ class TestLargeProblems:
 
         # Should not segfault from stack overflow
         try:
-            m.solve(stopping_time=3, num_workers=1)
+            m.set_param('stopping_time', 3)
+            m.set_param('num_workers', 1)
+            m.solve()
         except MemoryError:
             pytest.skip("System memory limit reached - not a test failure")
         except Exception as e:
@@ -80,7 +82,9 @@ class TestLargeProblems:
 
         try:
             # Multiple threads should each get their own scratch buffers
-            m.solve(stopping_time=2, num_workers=4)
+            m.set_param('stopping_time', 2)
+            m.set_param('num_workers', 4)
+            m.solve()
         except MemoryError:
             pytest.skip("System memory limit reached")
         except Exception as e:
@@ -109,7 +113,9 @@ class TestRepeatedSolves:
             m.close()
 
             try:
-                m.solve(stopping_time=0.1, num_workers=1)
+                m.set_param('stopping_time', 1)
+                m.set_param('num_workers', 1)
+                m.solve()
             except Exception as e:
                 pytest.fail(f"Iteration {i} failed: {e}")
 
@@ -139,10 +145,13 @@ class TestRepeatedSolves:
         m.set_objective(sum(x))
         m.close()
 
+        m.set_param('stopping_time', 1)
+        m.set_param('num_workers', 2)
+
         # Solve many times
         for i in range(30):
             try:
-                m.solve(stopping_time=0.2, num_workers=2)
+                m.solve()
             except Exception as e:
                 pytest.fail(f"Solve iteration {i} failed: {e}")
 
@@ -169,7 +178,9 @@ class TestEdgeCases:
         m.close(validate=False)
 
         try:
-            m.solve(stopping_time=0.1, num_workers=1)
+            m.set_param('stopping_time', 1)
+            m.set_param('num_workers', 1)
+            m.solve()
         except Exception as e:
             pytest.fail(f"Zero-constraint model failed: {e}")
 
@@ -185,7 +196,9 @@ class TestEdgeCases:
         m.close()
 
         try:
-            m.solve(stopping_time=0.5, num_workers=1)
+            m.set_param('stopping_time', 1)
+            m.set_param('num_workers', 1)
+            m.solve()
         except Exception as e:
             pytest.fail(f"Single-constraint model failed: {e}")
 
@@ -210,6 +223,8 @@ class TestEdgeCases:
         m.close()
 
         try:
-            m.solve(stopping_time=1, num_workers=1)
+            m.set_param('stopping_time', 1)
+            m.set_param('num_workers', 1)
+            m.solve()
         except Exception as e:
             pytest.fail(f"Many-variables model failed: {e}")

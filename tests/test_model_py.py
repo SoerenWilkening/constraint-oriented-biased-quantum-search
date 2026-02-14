@@ -131,8 +131,10 @@ class TestModelSolve:
         x = [xs[i] for i in range(3)]
         m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
+        m.set_param('stopping_time', 1)
+        m.set_param('num_workers', 1)
         with pytest.raises(ValueError, match="No constraints compiled"):
-            m.solve(stopping_time=1, num_workers=1)
+            m.solve()
 
     def test_close_compiles_constraints(self):
         """close() sets constraints_compiled flag."""
@@ -165,7 +167,9 @@ class TestModelSolve:
         m.set_objective(obj_expr, MAXIMIZE)
 
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         # Verify feasibility: objective value should be <= 3
         # (at most 3 items fit with weight 2 each, capacity 6)
@@ -195,7 +199,9 @@ class TestModelSolve:
         m.set_objective(obj_expr, MAXIMIZE)
 
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         # Feasibility check: objective value should be reasonable
         obj_val = m.objective_value
@@ -217,7 +223,9 @@ class TestModelSolve:
         m.set_objective(5 * x[0] + 7 * x[1] + 8 * x[2], MAXIMIZE)
 
         m.close()
-        m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.solve()
 
         obj_val = m.objective_value
         assert obj_val >= 0, "Objective should be non-negative"
@@ -232,7 +240,9 @@ class TestModelSolve:
         m.set_objective(x[0] + x[1] + x[2] + x[3] + x[4], MAXIMIZE)
 
         m.close()
-        result = m.solve(stopping_time=3, num_workers=2)
+        m.set_param('stopping_time', 3)
+        m.set_param('num_workers', 2)
+        result = m.solve()
 
         # Should complete without exception and return OptimizeResult
         assert isinstance(result, OptimizeResult)
@@ -267,7 +277,9 @@ class TestSatisfyMode:
         m.add_constraint((x[0] + x[1]) <= 1)
         m.add_constraint((x[2] + x[3]) <= 1)
         m.close()
-        result = m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
 
     def test_satisfy_objective_value_is_none(self):
@@ -277,7 +289,9 @@ class TestSatisfyMode:
         x = [xs[i] for i in range(3)]
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.close()
-        result = m.solve(stopping_time=5, num_workers=1)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        result = m.solve()
         assert m.objective_value is None
         assert result.objective is None
 
@@ -293,7 +307,9 @@ class TestSatisfyMode:
         m.add_constraint((x[0] + x[1]) <= 1)
         m.add_constraint((x[2] + x[3]) <= 1)
         m.close()
-        result = m.solve(stopping_time=30, num_workers=1)
+        m.set_param('stopping_time', 30)
+        m.set_param('num_workers', 1)
+        result = m.solve()
         # For a trivially satisfiable problem the solver should find a feasible solution
         assert result.feasible is True
 
@@ -305,7 +321,9 @@ class TestSatisfyMode:
         m.add_constraint((x[0] + x[1]) <= 1)
         m.add_constraint((x[2] + x[3]) <= 1)
         m.close()
-        result = m.solve(stopping_time=10, num_workers=1)
+        m.set_param('stopping_time', 10)
+        m.set_param('num_workers', 1)
+        result = m.solve()
         # SATISFY history entries are (satisfaction_count, elapsed_seconds)
         for entry in result.history:
             value, elapsed = entry
@@ -319,7 +337,10 @@ class TestSatisfyMode:
         x = [xs[i] for i in range(3)]
         m.add_constraint((x[0] + x[1] + x[2]) <= 2)
         m.close()
-        result = m.solve(stopping_time=5, num_workers=1, verify=True)
+        m.set_param('stopping_time', 5)
+        m.set_param('num_workers', 1)
+        m.set_param('verify', True)
+        result = m.solve()
         assert isinstance(result, OptimizeResult)
         # verified should be True or False, not None (since verify=True was passed)
         assert result.verified is not None
