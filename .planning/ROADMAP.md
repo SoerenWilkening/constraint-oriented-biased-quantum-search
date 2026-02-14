@@ -69,11 +69,11 @@ Plans:
   2. Every former solve() parameter (M, stopping_time, stop_val, callback, max_delta, reset_delta, depth_look_ahead, num_workers, results, bfs, ignore_constraint_search, verify, track_history) is settable via `model.set_param(name, value)` and readable via `model.get_param(name)`
   3. A user who never passed kwargs to solve() gets identical solver behavior after the migration — all defaults preserved
   4. `model.get_param(name)` returns the current value for any configured param, or the documented default — never returns None for params that have defaults
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 15-01: TBD
-- [ ] 15-02: TBD
+- [ ] 15-01-PLAN.md -- Expand param infrastructure: _PARAM_DEFS registry with coercion/validation/defaults, rewrite set_param/get_param, add _get_effective helper
+- [ ] 15-02-PLAN.md -- Strip solve() kwargs, rewrite internals to read from _params, update all ~80 test/benchmark solve() calls to use set_param()
 
 ### Phase 16: Global State Removal
 **Goal**: No deprecated global branching state or setter functions exist anywhere in the codebase
