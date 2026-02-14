@@ -8,7 +8,7 @@ import numpy as np
 pytest.importorskip("cbqs")
 
 from cbqs.Model import Model
-from cbqs.Constants import MINIMIZE
+from cbqs.Constants import MINIMIZE, MAXIMIZE
 from cbqs.result import OptimizeResult
 
 
@@ -212,6 +212,100 @@ class TestSeedValidation:
         m = Model()
         with pytest.raises(ValueError, match="num_threads must be a positive integer"):
             m.num_threads = 2.5
+
+
+def _make_knapsack_model(n=20):
+    """Create an n-variable knapsack problem for determinism testing.
+
+    Deterministic coefficients (no randomness) so that identical models
+    produce identical solver behavior when combined with fixed seeds.
+    """
+    m = Model()
+    x = m.add_variables(n)
+    # Deterministic coefficients: value = (i % 7) + 1
+    obj = sum((i % 7 + 1) * x[i] for i in range(n))
+    m.set_objective(obj, sense=MAXIMIZE)
+    # Capacity constraint: weight = (i % 5) + 1, capacity = n * 2
+    m.add_constraint(sum((i % 5 + 1) * x[i] for i in range(n)) <= n * 2)
+    m.close()
+    return m
+
+
+class TestBranchingWeightsDeterminism:
+    """Verify deterministic behavior survives across separate model lifecycles.
+
+    These tests create two completely independent model instances with
+    identical configuration and verify they produce identical results.
+    """
+
+    def test_cross_lifecycle_determinism_with_weights(self):
+        """Two independent models with same seed + branching_weights produce identical results."""
+        n = 20
+        weights = [float(i % 5 + 1) for i in range(n)]
+
+        # First lifecycle
+        m1 = _make_knapsack_model(n)
+        m1.seed = 42
+        m1.set_param("branching_weights", weights)
+        m1.set_param("stopping_time", 3)
+        m1.set_param("num_workers", 1)
+        result1 = m1.solve()
+
+        # Second lifecycle -- completely new model
+        m2 = _make_knapsack_model(n)
+        m2.seed = 42
+        m2.set_param("branching_weights", weights)
+        m2.set_param("stopping_time", 3)
+        m2.set_param("num_workers", 1)
+        result2 = m2.solve()
+
+        assert isinstance(result1, OptimizeResult)
+        assert isinstance(result2, OptimizeResult)
+        assert result1.objective == result2.objective, (
+            f"Cross-lifecycle determinism: same seed+weights should give same objective: "
+            f"{result1.objective} vs {result2.objective}"
+        )
+        np.testing.assert_array_equal(
+            result1.solution, result2.solution,
+            err_msg="Cross-lifecycle determinism: same seed+weights should give same solution"
+        )
+
+    def test_cross_lifecycle_determinism_with_factors(self):
+        """Two independent models with same seed + factor params produce identical results."""
+        n = 20
+
+        # First lifecycle
+        m1 = _make_knapsack_model(n)
+        m1.seed = 42
+        m1.set_param("branching_factor", 0.5)
+        m1.set_param("bias_factor", 2.0)
+        m1.set_param("look_ahead_factor", 0.1)
+        m1.set_param("branching_bias", 8.0)
+        m1.set_param("stopping_time", 3)
+        m1.set_param("num_workers", 1)
+        result1 = m1.solve()
+
+        # Second lifecycle -- completely new model
+        m2 = _make_knapsack_model(n)
+        m2.seed = 42
+        m2.set_param("branching_factor", 0.5)
+        m2.set_param("bias_factor", 2.0)
+        m2.set_param("look_ahead_factor", 0.1)
+        m2.set_param("branching_bias", 8.0)
+        m2.set_param("stopping_time", 3)
+        m2.set_param("num_workers", 1)
+        result2 = m2.solve()
+
+        assert isinstance(result1, OptimizeResult)
+        assert isinstance(result2, OptimizeResult)
+        assert result1.objective == result2.objective, (
+            f"Cross-lifecycle determinism: same seed+factors should give same objective: "
+            f"{result1.objective} vs {result2.objective}"
+        )
+        np.testing.assert_array_equal(
+            result1.solution, result2.solution,
+            err_msg="Cross-lifecycle determinism: same seed+factors should give same solution"
+        )
 
 
 if __name__ == "__main__":
