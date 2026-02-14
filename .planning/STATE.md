@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 
 Phase: All complete (17 phases across 3 milestones)
 Status: v2.0 shipped
-Last activity: 2026-02-14 - Completed quick task 1: Refactor local_search and quantum_local_search to use set_param pattern like solve
+Last activity: 2026-02-14 - Completed quick task 2: Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c
 
 Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########]
 
@@ -42,9 +42,10 @@ None.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
+| 2 | Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c | 2026-02-14 | deab932 | [2-fix-sc-nprocessors-onln-undeclared-ident](./quick/2-fix-sc-nprocessors-onln-undeclared-ident/) |
 
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: v2.0 API Cleanup milestone archived
+Stopped at: Completed quick-2 (fix _SC_NPROCESSORS_ONLN)
 Next action: `/gsd:new-milestone` to start next milestone
