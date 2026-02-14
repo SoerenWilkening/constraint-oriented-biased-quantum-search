@@ -15,14 +15,6 @@
  * objective -(x0+x1+x2).
  */
 static model_t *build_small_model(void) {
-    /* Reset global BranchingStats to avoid pollution */
-    BranchingStats.branching_weights = NULL;
-    BranchingStats.num_weights = 0;
-    BranchingStats.branching_factor = 1.0;
-    BranchingStats.bias_factor = 1;
-    BranchingStats.bias = 5;
-    BranchingStats.look_factor = 0;
-
     model_t *mod = init_model();
 
     /* Build constraint: x0 + x1 + x2 <= 2 */

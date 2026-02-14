@@ -11,19 +11,6 @@
 #include "definitions.h"
 
 /*
- * Helper: reset BranchingStats global to default values.
- * Must be called at the start of each test to avoid pollution.
- */
-static void reset_branching_stats(void) {
-    BranchingStats.branching_weights = NULL;
-    BranchingStats.num_weights = 0;
-    BranchingStats.branching_factor = 1.0;
-    BranchingStats.bias_factor = 1;
-    BranchingStats.bias = 5;
-    BranchingStats.look_factor = 0;
-}
-
-/*
  * Helper: build a 5-variable knapsack problem (same as test.c).
  * Constraint: 2*x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4 <= 33
  * Objective: minimize -(2*x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4)
@@ -150,7 +137,6 @@ static model_t *build_knapsack_3var_tight(void) {
 static void test_knapsack_feasibility(void **state) {
     (void)state;
     srand(42);
-    reset_branching_stats();
 
     model_t *mod = build_knapsack_5var();
 
@@ -174,7 +160,6 @@ static void test_knapsack_feasibility(void **state) {
 static void test_constraint_satisfaction_after_solve(void **state) {
     (void)state;
     srand(42);
-    reset_branching_stats();
 
     model_t *mod = build_knapsack_3var_tight();
 

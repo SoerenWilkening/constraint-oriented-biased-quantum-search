@@ -31,18 +31,6 @@ pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
  */
 
 /*
- * Helper: reset BranchingStats global to default values.
- */
-static void reset_branching_stats(void) {
-    BranchingStats.branching_weights = NULL;
-    BranchingStats.num_weights = 0;
-    BranchingStats.branching_factor = 1.0;
-    BranchingStats.bias_factor = 1;
-    BranchingStats.bias = 5;
-    BranchingStats.look_factor = 0;
-}
-
-/*
  * Helper: build a simple 5-variable knapsack for local search testing.
  * Constraint: 2*x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4 <= 33
  * Objective: minimize -(2*x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4)
@@ -120,7 +108,6 @@ static model_t *build_local_search_model(void) {
 static void test_local_search_thread_data_lifetime(void **state) {
     (void)state;
     srand(42);
-    reset_branching_stats();
 
     model_t *mod = build_local_search_model();
 
@@ -164,7 +151,6 @@ static void test_local_search_thread_data_lifetime(void **state) {
 static void test_local_search_multiple_iterations(void **state) {
     (void)state;
     srand(12345);
-    reset_branching_stats();
 
     model_t *mod = build_local_search_model();
     mod->stopping_time = 2;  /* Allow more iterations */
@@ -204,7 +190,6 @@ static void test_local_search_multiple_iterations(void **state) {
 static void test_local_search_with_arena(void **state) {
     (void)state;
     srand(999);
-    reset_branching_stats();
 
     /* Verify solver context contains arena */
     solver_ctx_t *ctx = solver_ctx_create();
@@ -256,7 +241,6 @@ static void test_local_search_with_arena(void **state) {
 static void test_local_search_arena_reset(void **state) {
     (void)state;
     srand(12345);
-    reset_branching_stats();
 
     solver_ctx_t *ctx = solver_ctx_create();
     assert_non_null(ctx);
