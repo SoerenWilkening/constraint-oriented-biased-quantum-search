@@ -99,11 +99,11 @@ Plans:
   2. New tests verify that branching_weights values set via set_param() reach BranchingFunction and produce correct branching scores
   3. Deterministic branching propagation tests pass — same seed and weights produce identical branching decisions across runs
   4. Valgrind reports zero leaks for branching_weights allocation, deallocation, and reallocation across solve lifecycles
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 17-01: TBD
-- [ ] 17-02: TBD
+- [ ] 17-01-PLAN.md -- Test audit, branching_weights coverage tests (Python + C), cross-lifecycle determinism tests
+- [ ] 17-02-PLAN.md -- Valgrind memory verification for branching_weights lifecycle (C + Python), final full-suite verification
 
 ## Progress
 
@@ -128,4 +128,4 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 | 14. Unified Branching Model | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 15. Solve API Migration | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 16. Global State Removal | v2.0 | 2/2 | Complete | 2026-02-14 |
-| 17. Test Suite Finalization | v2.0 | 0/TBD | Not started | - |
+| 17. Test Suite Finalization | v2.0 | 0/2 | Not started | - |
