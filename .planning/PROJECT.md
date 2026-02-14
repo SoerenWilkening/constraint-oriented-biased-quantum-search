@@ -49,7 +49,12 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ### Active
 
-(None — planning next milestone)
+- [ ] Remove global BranchingStats variable and all deprecated global setters — v2.0
+- [ ] Remove all solve() keyword arguments; all configuration via set_param() only — v2.0
+- [ ] Merge obj_dependent and constraint_dependent into single unified branching_weights array with one factor — v2.0
+- [ ] 3-term BranchingFunction: unified_array (branching_factor) + assignment bias (bias_factor) + look-ahead (look_factor) — v2.0
+- [ ] set_param('branching_weights', array) API for per-variable branching values — v2.0
+- [ ] All existing solve() params available via set_param() (M, stopping_time, stop_val, callback, etc.) — v2.0
 
 ### Out of Scope
 
@@ -70,6 +75,8 @@ Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), CMocka, pytest, GitHu
 Test suite: 56 C tests, 304 Python tests (51 new in v1.1), 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
 v1.0 audit: 15/15 requirements satisfied. v1.1 audit: 21/21 requirements satisfied.
 All known bugs fixed, all tech debt from v1.0 addressed, zero breaking changes.
+
+**v2.0 focus:** Breaking API cleanup — remove global BranchingStats, clean solve() signature, unify branching pointer model. First breaking release.
 
 ## Git Workflow
 
@@ -109,8 +116,11 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | 2-tuple history format | (value, elapsed_seconds) simpler and sufficient vs old 4-tuple | ✓ Good — cleaner API |
 | set_param/get_param with validation | Strict _KNOWN_PARAMS set, ValueError for unknowns | ✓ Good — safe API |
 | pthread_mutex_trylock for global_opt | Non-blocking; contended lock skips update (loses one update at worst) | ✓ Good — no deadlock risk |
-| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Revisit — remove in v1.2+ |
+| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Removing in v2.0 |
 | v1.1 no breaking changes | Aggressive cleanup but keep deprecated APIs working | ✓ Good — clean release |
+| v2.0 hard break on solve() args | All config via set_param(); cleaner API surface | — Pending |
+| Merge obj_dependent + constraint_dependent | Two arrays serving similar purpose; single unified array simpler | — Pending |
+| 3-term BranchingFunction | unified_array + assignment_bias + look_ahead; dropped separate obj/constraint factors | — Pending |
 
 ---
-*Last updated: 2026-02-08 after v1.1 milestone*
+*Last updated: 2026-02-14 after v2.0 milestone start*
