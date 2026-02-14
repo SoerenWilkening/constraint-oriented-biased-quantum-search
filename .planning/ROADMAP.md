@@ -54,11 +54,11 @@
   3. BranchingFunction computes scores using the 3-term formula (branching_weights * branching_factor + assignment_bias * bias_factor + look_ahead * look_factor) and produces correct branching decisions
   4. `model.set_param('branching_weights', array)` in Python flows the array through Cython into the solver context's BranchingStats_t, and the values are used during solve
   5. solver_ctx_set_branching_weights() is the only context setter for branching weight data — solver_ctx_set_obj_dependence() and solver_ctx_set_constraint_dependence() are replaced
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 14-01: TBD
-- [ ] 14-02: TBD
+- [ ] 14-01-PLAN.md -- C layer: restructure BranchingStats_t, rewrite BranchingFunction with 3-term formula, new solver_ctx setters, update all C tests
+- [ ] 14-02-PLAN.md -- Cython/Python layer: update .pxd declarations, wire branching_weights propagation, add set_param validation, update Python tests
 
 ### Phase 15: Solve API Migration
 **Goal**: All solver configuration happens through set_param()/get_param() — solve() takes no arguments
