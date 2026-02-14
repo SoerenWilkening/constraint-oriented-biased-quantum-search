@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.0 API Cleanup — Phase 15: Solve API Migration
+**Current focus:** v2.0 API Cleanup — Phase 16: Global State Removal
 
 ## Current Position
 
-Phase: 15 of 17 (Solve API Migration) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase complete
-Last activity: 2026-02-14 — Plan 15-02 complete (zero-arg solve, test migration)
+Phase: 16 of 17 (Global State Removal)
+Plan: 1 of 2 complete
+Status: Executing
+Last activity: 2026-02-14 — Plan 16-01 complete (C layer global BranchingStats removal)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ######░░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #######░░░]
 
 ## Performance Metrics
 
 **Cumulative:**
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
-- v2.0: 2 phases, 5 plans
-- Total: 15 phases, 50 plans
+- v2.0: 3 phases, 6 plans
+- Total: 16 phases, 51 plans
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -30,6 +30,7 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ######░░░░]
 | 14-02 | Cython/Python unified branching | 12min | 3 | 8 |
 | 15-01 | Param infrastructure (_PARAM_DEFS) | 5min | 2 | 2 |
 | 15-02 | Zero-arg solve, test migration | 11min | 2 | 13 |
+| 16-01 | C layer global BranchingStats removal | 3min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -56,6 +57,8 @@ See PROJECT.md Key Decisions table for full log.
 - v2.0 15-02: solve() is zero-arg, reads all 14 params from _params via _get_effective()
 - v2.0 15-02: Float stopping_time values in tests changed to int to match set_param coercion
 - v2.0 15-02: Benchmark assertions updated from list to OptimizeResult
+- v2.0 16-01: Global BranchingStats removed from C layer; all state in solver_ctx_t
+- v2.0 16-01: Removal comments left in Branching.h/c for code archaeology
 
 ### Pending Todos
 
@@ -68,5 +71,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed 15-02-PLAN.md (zero-arg solve, test migration) -- Phase 15 complete
-Next action: Plan and execute Phase 16 (or next milestone phase)
+Stopped at: Completed 16-01-PLAN.md (C layer global BranchingStats removal)
+Next action: Execute 16-02-PLAN.md (Python/Cython global state cleanup)
