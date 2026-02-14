@@ -15,78 +15,57 @@ struct solver_ctx;
 typedef struct solver_ctx solver_ctx_t;
 
 typedef struct {
-    double objective_factor;
-    double *obj_dependent;
+    double *branching_weights;  /* Per-variable weights (NULL = no weights) */
+    int num_weights;            /* Length of branching_weights (0 when NULL) */
 
-    double constraint_factor;
-    double *constraint_dependent;
-
-    double bias_factor;
-    double bias;
-
-    double look_factor;
+    double branching_factor;    /* Factor for branching_weights term (default 1.0) */
+    double bias_factor;         /* Factor for assignment_bias term (default 1.0) */
+    double bias;                /* Assignment bias value (default 5.0) */
+    double look_factor;         /* Factor for look-ahead term (default 0.0) */
 } BranchingStats_t;
 
 extern BranchingStats_t BranchingStats; // branching stats as global variable
 
-/* DEPRECATED: Use solver_ctx_set_* functions instead. Will be removed in future version. */
-void set_factors(double objective_factor, double constraint_factor, double bias_factor, double look_factor);
-
-/* DEPRECATED: Use solver_ctx_set_bias instead. Will be removed in future version. */
-void set_bias(double bias);
-
-/* DEPRECATED: Use solver_ctx_set_obj_dependence instead. Will be removed in future version. */
-void set_obj_dependence(double *dependence, int n);
-
-/* DEPRECATED: Use solver_ctx_set_constraint_dependence instead. Will be removed in future version. */
-void set_constraint_dependence(double *dependence, int n);
-
 static inline double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats){
-    double total_bias, f = 0, q = 0;
-    double objective_factor = stats->objective_factor; // objective related
-    double constraint_factor = stats->constraint_factor; // constraint related
+    double total_bias;
+    double branching_factor = stats->branching_factor;
     double bias_factor = stats->bias_factor;
     double look_factor = stats->look_factor;
+
     if (diffcount == 0) look_factor = 0;
-    double lookahead_0_probability = 0;
 
-    if (diffcount < 0) lookahead_0_probability = 0; // bias towards 1
-    else lookahead_0_probability = 1.; // bias towards 0
+    double lookahead_0_probability = (diffcount < 0) ? 0.0 : 1.0;
+    double assignment_bias = (stats->bias + 1.0) / (stats->bias + 2.0);
 
-    if (stats->obj_dependent != NULL){
-        f =  stats->obj_dependent[index];
+    /* Compute factor sum for normalization */
+    double factor_sum = bias_factor + look_factor;
+    double w = 0.0;
+
+    if (stats->branching_weights != NULL && index < stats->num_weights) {
+        w = stats->branching_weights[index];
+        factor_sum += branching_factor;
     }
-    if(stats->constraint_dependent != NULL){
-        q =  stats->constraint_dependent[index];
+
+    /* Guard against division by zero */
+    if (factor_sum <= 0.0) {
+        return 0.5;
     }
-    if (bit_T == 0){
-        if(bit_S == 0) {
-            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
-        }
-        else {
-            total_bias = 1;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
-        }
-    } else{
-        if(bit_S == 0) {
-            total_bias = 1;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias -= 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
-        }
-        else {
-            total_bias = 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * objective_factor * f;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * constraint_factor * q;
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * bias_factor * (stats->bias + 1.) / (stats->bias + 2.);
-            total_bias += 1. / (objective_factor + constraint_factor + bias_factor + look_factor) * look_factor * lookahead_0_probability;
-        }
+
+    double normalizer = 1.0 / factor_sum;
+
+    /* 3-term (or 2-term) formula */
+    double value = 0.0;
+    if (stats->branching_weights != NULL && index < stats->num_weights) {
+        value += normalizer * branching_factor * w;
+    }
+    value += normalizer * bias_factor * assignment_bias;
+    value += normalizer * look_factor * lookahead_0_probability;
+
+    /* Apply bit_S / bit_T branching logic */
+    if (bit_T == 0) {
+        total_bias = (bit_S == 0) ? value : (1.0 - value);
+    } else {
+        total_bias = (bit_S == 0) ? (1.0 - value) : value;
     }
 
     return total_bias;
