@@ -293,6 +293,88 @@ static void test_state_probability_identical(void **state) {
     free_state(threshold, 1);
 }
 
+/* test_branching_function_all_factors_zero:
+ * Set branching_factor=0, bias_factor=0, look_factor=0.
+ * All factors zero means factor_sum=0, should trigger division-by-zero guard.
+ * Expected result: 0.5 */
+static void test_branching_function_all_factors_zero(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+    solver_ctx_set_branching_factor(ctx, 0.0);
+    solver_ctx_set_bias_factor(ctx, 0.0);
+    solver_ctx_set_look_factor(ctx, 0.0);
+
+    /* No weights set, so factor_sum = bias_factor + look_factor = 0 + 0 = 0 */
+    double result = BranchingFunction(0, 0, 0, 0, &ctx->branching_stats);
+    assert_true(fabs(result - 0.5) < 1e-9);
+
+    /* Also test with different bits -- guard returns 0.5 regardless */
+    double result_diff = BranchingFunction(0, 0, 1, 0, &ctx->branching_stats);
+    assert_true(fabs(result_diff - 0.5) < 1e-9);
+}
+
+/* test_branching_weights_realloc_different_sizes:
+ * Set weights of size 2, then overwrite with size 5, then clear with NULL.
+ * Verify num_weights and stored values after each operation.
+ * Tests memory reallocation with different sizes. */
+static void test_branching_weights_realloc_different_sizes(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+
+    /* Step 1: Set weights of size 2 */
+    double arr1[] = {1.0, 3.0};
+    solver_ctx_set_branching_weights(ctx, arr1, 2);
+    assert_non_null(ctx->branching_stats.branching_weights);
+    assert_int_equal(ctx->branching_stats.num_weights, 2);
+    /* L1 norm of [1.0, 3.0] = 4.0, normalized = [0.25, 0.75] */
+    assert_true(fabs(ctx->branching_stats.branching_weights[0] - 0.25) < 1e-9);
+    assert_true(fabs(ctx->branching_stats.branching_weights[1] - 0.75) < 1e-9);
+
+    /* Step 2: Overwrite with size 5 (different size!) */
+    double arr2[] = {1.0, 2.0, 3.0, 4.0, 5.0};
+    solver_ctx_set_branching_weights(ctx, arr2, 5);
+    assert_non_null(ctx->branching_stats.branching_weights);
+    assert_int_equal(ctx->branching_stats.num_weights, 5);
+    /* L1 norm of [1,2,3,4,5] = 15.0, first weight = 1/15 */
+    assert_true(fabs(ctx->branching_stats.branching_weights[0] - 1.0 / 15.0) < 1e-9);
+    assert_true(fabs(ctx->branching_stats.branching_weights[4] - 5.0 / 15.0) < 1e-9);
+
+    /* Step 3: Clear with NULL */
+    solver_ctx_set_branching_weights(ctx, NULL, 0);
+    assert_null(ctx->branching_stats.branching_weights);
+    assert_int_equal(ctx->branching_stats.num_weights, 0);
+}
+
+/* test_branching_weights_single_element:
+ * Set weights=[1.0] (single element). L1 norm of [1.0] = 1.0, stored = [1.0].
+ * Call BranchingFunction with branching_factor=1.0, bias_factor=0, look_factor=0.
+ * factor_sum = 0 + 0 + 1.0 = 1.0, normalizer = 1.0
+ * value = 1.0 * 1.0 * 1.0 = 1.0
+ * With bit_S=0, bit_T=0: total_bias = value = 1.0 */
+static void test_branching_weights_single_element(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+
+    double arr[] = {1.0};
+    solver_ctx_set_branching_weights(ctx, arr, 1);
+    assert_non_null(ctx->branching_stats.branching_weights);
+    assert_int_equal(ctx->branching_stats.num_weights, 1);
+    /* L1 norm of [1.0] = 1.0, stored value = 1.0 */
+    assert_true(fabs(ctx->branching_stats.branching_weights[0] - 1.0) < 1e-9);
+
+    /* BranchingFunction with only branching term active */
+    solver_ctx_set_branching_factor(ctx, 1.0);
+    solver_ctx_set_bias_factor(ctx, 0.0);
+    solver_ctx_set_look_factor(ctx, 0.0);
+
+    /* index=0, bit_S=0, bit_T=0, diffcount=0 */
+    /* factor_sum = 0 + 0 + 1.0 = 1.0, normalizer = 1.0 */
+    /* value = 1.0 * 1.0 * 1.0 = 1.0 */
+    double result = BranchingFunction(0, 0, 0, 0, &ctx->branching_stats);
+    assert_true(fabs(result - 1.0) < 1e-9);
+
+    /* With different bits: total_bias = 1 - 1.0 = 0.0 */
+    double result_diff = BranchingFunction(0, 0, 1, 0, &ctx->branching_stats);
+    assert_true(fabs(result_diff - 0.0) < 1e-9);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         /* New ctx-based setter tests */
@@ -314,6 +396,10 @@ int main(void) {
         /* StateProbability tests using ctx */
         cmocka_unit_test_setup_teardown(test_state_probability, branching_setup, branching_teardown),
         cmocka_unit_test_setup_teardown(test_state_probability_identical, branching_setup, branching_teardown),
+        /* New coverage tests for edge cases */
+        cmocka_unit_test_setup_teardown(test_branching_function_all_factors_zero, branching_setup, branching_teardown),
+        cmocka_unit_test_setup_teardown(test_branching_weights_realloc_different_sizes, branching_setup, branching_teardown),
+        cmocka_unit_test_setup_teardown(test_branching_weights_single_element, branching_setup, branching_teardown),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

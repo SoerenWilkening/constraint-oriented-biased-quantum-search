@@ -253,5 +253,106 @@ class TestBranchingWeightsPropagation:
         )
 
 
+# =============================================================================
+# 5. Branching weights coverage (edge cases and combined parameters)
+# =============================================================================
+
+
+class TestBranchingWeightsCoverage:
+    """Coverage gap tests for branching_weights edge cases and combinations."""
+
+    def test_different_weights_different_behavior(self):
+        """Same seed, different branching_weights exercise distinct propagation paths.
+
+        Both uniform and heavily skewed weights must produce valid results.
+        We cannot guarantee different objectives (solver may converge to same
+        optimum), but this exercises the full propagation path with varied inputs.
+        """
+        n = 20
+
+        # Uniform weights
+        m1 = _make_knapsack_model(n)
+        m1.seed = 42
+        m1.set_param("branching_weights", [1.0] * n)
+        m1.set_param("stopping_time", 5)
+        m1.set_param("num_workers", 1)
+        result1 = m1.solve()
+
+        # Extremely skewed weights
+        m2 = _make_knapsack_model(n)
+        m2.seed = 42
+        m2.set_param("branching_weights", [float(10 * i + 1) for i in range(n)])
+        m2.set_param("stopping_time", 5)
+        m2.set_param("num_workers", 1)
+        result2 = m2.solve()
+
+        assert isinstance(result1, OptimizeResult)
+        assert isinstance(result2, OptimizeResult)
+        assert result1.objective >= 0
+        assert result2.objective >= 0
+        assert result1.solution is not None
+        assert result2.solution is not None
+
+    def test_all_zero_weights(self):
+        """All-zero branching_weights triggers division-by-zero guard.
+
+        At the C level, all-zero weights L1-normalize to all-zero (sum=0),
+        so the branching term contributes 0. The solver must complete
+        without crashing and return a valid result.
+        """
+        n = 20
+        m = _make_knapsack_model(n)
+        m.seed = 42
+        m.set_param("branching_weights", [0.0] * n)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 1)
+        result = m.solve()
+
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert result.objective >= 0
+
+    def test_branching_weights_large_n(self):
+        """branching_weights with n=100 variables scales correctly.
+
+        Tests that the weights propagation path handles larger arrays
+        without memory issues or performance degradation.
+        """
+        n = 100
+        m = _make_knapsack_model(n)
+        m.seed = 42
+        m.set_param("branching_weights", [float(i + 1) for i in range(n)])
+        m.set_param("stopping_time", 3)
+        m.set_param("num_workers", 1)
+        result = m.solve()
+
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert len(result.solution) == n
+        assert result.objective >= 0
+
+    def test_branching_weights_with_all_factors(self):
+        """All branching parameters set together exercise the full 3-term formula.
+
+        Sets branching_weights + branching_factor + bias_factor +
+        look_ahead_factor + branching_bias simultaneously.
+        """
+        n = 20
+        m = _make_knapsack_model(n)
+        m.seed = 42
+        m.set_param("branching_weights", [float(i % 5 + 1) for i in range(n)])
+        m.set_param("branching_factor", 0.5)
+        m.set_param("bias_factor", 1.5)
+        m.set_param("look_ahead_factor", 0.3)
+        m.set_param("branching_bias", 10.0)
+        m.set_param("stopping_time", 2)
+        m.set_param("num_workers", 1)
+        result = m.solve()
+
+        assert isinstance(result, OptimizeResult)
+        assert result.solution is not None
+        assert result.objective >= 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
