@@ -3,10 +3,11 @@
  * @brief Solver context lifecycle implementation
  */
 
-/* Feature test macro for POSIX clock_gettime and CLOCK_MONOTONIC.
+/* Feature test macro for GNU/POSIX extensions.
+ * Enables clock_gettime, CLOCK_MONOTONIC, and _SC_NPROCESSORS_ONLN.
  * Must be defined before any includes to take effect.
  */
-#define _POSIX_C_SOURCE 199309L
+#define _GNU_SOURCE
 
 #include "solver_ctx.h"
 #include "prng.h"
