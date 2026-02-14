@@ -3,7 +3,7 @@ from libc.stdlib cimport calloc, free, srand
 # from .Expression cimport expression_t
 from .Constraint cimport new_constraints_t
 from .state cimport *
-from .branching cimport StateProbability
+# StateProbability declared below via direct extern from Branching.h
 from .Model cimport Model, model_t
 
 # Solver context for per-solve state management
@@ -25,6 +25,10 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_bias_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_look_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
+
+# StateProbability from Branching.h (relocated from branching.pxd)
+cdef extern from "src/Branching.h":
+	double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold)
 
 # Functions to manipulate states and execute the QSearch algorithm
 #

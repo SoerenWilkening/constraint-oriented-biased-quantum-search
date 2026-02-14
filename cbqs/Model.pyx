@@ -20,7 +20,7 @@ from .state cimport init_state
 from .Constraint import new_constraint
 from .Constraint cimport add_expression_to_constraints, process_constraints
 from .Expression cimport expression_t
-from .branching import set_seed
+from libc.stdlib cimport srand
 from .SearchLib import (run_local_search, run_quantum_local_search, reset_c_flags)
 from .SearchLib import run_sampling
 from .StateGenerator import exact_simulator
@@ -564,7 +564,7 @@ or {self.runtime}s sampling
 		incumbents = []
 
 		total_iterations = 0
-		set_seed(int(time()))
+		srand(int(time()))
 		threshold = copy(self.initial_state)
 
 		while True:

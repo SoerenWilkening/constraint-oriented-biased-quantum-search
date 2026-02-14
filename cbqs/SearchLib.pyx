@@ -10,7 +10,7 @@ from random import randint
 import numpy as np
 import os
 
-from .branching import set_seed
+from libc.stdlib cimport srand
 from .Constants import *
 from .Constraint cimport new_constraint
 from .Model import Model
@@ -187,7 +187,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 	preprocess_start = time_mod.monotonic()
 	t_start: float = time.time()
 	t_total: float = 0
-	set_seed(randint(0, 10000000))
+	srand(randint(0, 10000000))
 	global python_callback
 
 	# Determine callback pointer based on track_history and user callback
