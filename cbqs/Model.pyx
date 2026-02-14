@@ -74,14 +74,13 @@ def _merge_duplicate_variable_terms(Expression expr):
 
 _KNOWN_PARAMS = {
 	"branching_bias",
-	"branching_factors",
+	"branching_weights",
+	"branching_factor",
+	"bias_factor",
+	"look_ahead_factor",
 	"num_workers",
 	"timeout",
 	"track_history",
-	"manual_bias",
-	"bias_factor",
-	"manual_bias_factor",
-	"look_ahead_factor",
 }
 
 cdef class Model:
@@ -146,6 +145,27 @@ cdef class Model:
 		"""
 		if name not in _KNOWN_PARAMS:
 			raise ValueError(f"Unknown parameter: '{name}'")
+
+		if name == 'branching_weights':
+			if value is not None:
+				arr = np.asarray(value, dtype=np.float64)
+				if arr.ndim != 1:
+					raise ValueError("branching_weights must be a 1D array")
+				if self.n > 0 and len(arr) != self.n:
+					raise ValueError(
+						f"Expected array of length {self.n}, got {len(arr)}"
+					)
+				if np.any(arr < 0):
+					raise ValueError("branching_weights must be non-negative")
+				if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+					raise ValueError(
+						"branching_weights must not contain NaN or Inf"
+					)
+
+		if name in ('branching_factor', 'bias_factor', 'look_ahead_factor'):
+			if value is not None and value < 0:
+				raise ValueError(f"{name} must be non-negative")
+
 		self._params[name] = value
 
 	def get_param(self, str name):
@@ -303,10 +323,6 @@ or {self.runtime}s sampling
 	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
 	          results = "min", bfs = False,
 	          ignore_constraint_search = False,
-	          manual_bias: list[float] | None = None,
-	          bias_factor = 1.,
-	          manual_bias_factor = 0.,
-	          look_ahead_factor = 0.,
 	          monte_calor_estimate = False,
 	          verify = False,
 	          track_history = True
@@ -346,9 +362,8 @@ or {self.runtime}s sampling
 
 		solve_start_time = time_mod.monotonic()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time,
-			                      bias, manual_bias_factor, bias_factor, look_ahead_factor,
-			                      manual_bias) for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time)
+			for _ in range(num_workers)
 		)
 
 		reset_c_flags()
