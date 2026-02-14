@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.0 API Cleanup — Phase 16: Global State Removal
+**Current focus:** v2.0 API Cleanup — Phase 17: Test Suite Finalization
 
 ## Current Position
 
-Phase: 16 of 17 (Global State Removal)
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-02-14 — Plan 16-02 complete (branching module deletion)
+Phase: 17 of 17 (Test Suite Finalization)
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-02-14 — Plan 17-01 complete (test suite run + coverage tests)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ########░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #########░]
 
 ## Performance Metrics
 
@@ -32,6 +32,7 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ########░░]
 | 15-02 | Zero-arg solve, test migration | 11min | 2 | 13 |
 | 16-01 | C layer global BranchingStats removal | 3min | 2 | 7 |
 | 16-02 | Branching module deletion | 5min | 2 | 7 |
+| 17-01 | Test suite run + coverage tests | 5min | 3 | 4 |
 
 ## Accumulated Context
 
@@ -63,6 +64,8 @@ See PROJECT.md Key Decisions table for full log.
 - v2.0 16-02: StateProbability relocated to SearchLib.pxd via direct extern from Branching.h
 - v2.0 16-02: srand() called directly from libc.stdlib (branching.set_seed wrapper eliminated)
 - v2.0 16-02: set_seed removed from cbqs public API (v2.0 breaking change)
+- v2.0 17-01: Removed stale compare() tests from test_searchlib.c (function removed in Phase 13)
+- v2.0 17-01: All-zero branching_weights confirmed to trigger division-by-zero guard and produce valid results
 
 ### Pending Todos
 
@@ -75,5 +78,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed 16-02-PLAN.md (branching module deletion) -- Phase 16 complete
-Next action: Begin Phase 17 planning (or conclude v2.0 milestone)
+Stopped at: Completed 17-01-PLAN.md (test suite run + coverage tests)
+Next action: Execute 17-02-PLAN.md (remaining Phase 17 work)
