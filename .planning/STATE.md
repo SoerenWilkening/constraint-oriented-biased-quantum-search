@@ -10,19 +10,19 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 16 of 17 (Global State Removal)
-Plan: 1 of 2 complete
-Status: Executing
-Last activity: 2026-02-14 — Plan 16-01 complete (C layer global BranchingStats removal)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-02-14 — Plan 16-02 complete (branching module deletion)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #######░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ########░░]
 
 ## Performance Metrics
 
 **Cumulative:**
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
-- v2.0: 3 phases, 6 plans
-- Total: 16 phases, 51 plans
+- v2.0: 3 phases, 7 plans
+- Total: 16 phases, 52 plans
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -31,6 +31,7 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #######░░░]
 | 15-01 | Param infrastructure (_PARAM_DEFS) | 5min | 2 | 2 |
 | 15-02 | Zero-arg solve, test migration | 11min | 2 | 13 |
 | 16-01 | C layer global BranchingStats removal | 3min | 2 | 7 |
+| 16-02 | Branching module deletion | 5min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -59,6 +60,9 @@ See PROJECT.md Key Decisions table for full log.
 - v2.0 15-02: Benchmark assertions updated from list to OptimizeResult
 - v2.0 16-01: Global BranchingStats removed from C layer; all state in solver_ctx_t
 - v2.0 16-01: Removal comments left in Branching.h/c for code archaeology
+- v2.0 16-02: StateProbability relocated to SearchLib.pxd via direct extern from Branching.h
+- v2.0 16-02: srand() called directly from libc.stdlib (branching.set_seed wrapper eliminated)
+- v2.0 16-02: set_seed removed from cbqs public API (v2.0 breaking change)
 
 ### Pending Todos
 
@@ -71,5 +75,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed 16-01-PLAN.md (C layer global BranchingStats removal)
-Next action: Execute 16-02-PLAN.md (Python/Cython global state cleanup)
+Stopped at: Completed 16-02-PLAN.md (branching module deletion) -- Phase 16 complete
+Next action: Begin Phase 17 planning (or conclude v2.0 milestone)
