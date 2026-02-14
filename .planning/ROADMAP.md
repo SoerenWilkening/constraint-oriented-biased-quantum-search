@@ -84,10 +84,11 @@ Plans:
   2. The C functions set_factors(), set_bias(), set_obj_dependence(), and set_constraint_dependence() do not exist in any .c or .h file
   3. The file branching.pyx does not exist — no Python-level deprecated wrappers remain
   4. No Cython .pxd file contains declarations for the removed C functions — the build compiles cleanly without them
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 16-01: TBD
+- [ ] 16-01-PLAN.md -- C layer: remove global BranchingStats variable from Branching.h/c, update comments in solver_ctx, update 3 C test files
+- [ ] 16-02-PLAN.md -- Cython/Python layer: delete branching.pyx/pxd, migrate set_seed to direct srand, relocate StateProbability declaration, update build system
 
 ### Phase 17: Test Suite Finalization
 **Goal**: The full test suite passes against the v2.0 API with no regressions, new branching coverage, and verified memory safety
@@ -126,5 +127,5 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 | 13. Dead Code & Documentation Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 14. Unified Branching Model | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 15. Solve API Migration | v2.0 | 2/2 | Complete | 2026-02-14 |
-| 16. Global State Removal | v2.0 | 0/TBD | Not started | - |
+| 16. Global State Removal | v2.0 | 0/2 | Not started | - |
 | 17. Test Suite Finalization | v2.0 | 0/TBD | Not started | - |
