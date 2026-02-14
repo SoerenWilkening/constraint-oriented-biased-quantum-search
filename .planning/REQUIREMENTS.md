@@ -52,29 +52,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GLOB-01 | — | Pending |
-| GLOB-02 | — | Pending |
-| GLOB-03 | — | Pending |
-| GLOB-04 | — | Pending |
-| API-01 | — | Pending |
-| API-02 | — | Pending |
-| API-03 | — | Pending |
-| API-04 | — | Pending |
-| BRANCH-01 | — | Pending |
-| BRANCH-02 | — | Pending |
-| BRANCH-03 | — | Pending |
-| BRANCH-04 | — | Pending |
-| BRANCH-05 | — | Pending |
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
-| TEST-04 | — | Pending |
+| GLOB-01 | Phase 16 | Pending |
+| GLOB-02 | Phase 16 | Pending |
+| GLOB-03 | Phase 16 | Pending |
+| GLOB-04 | Phase 16 | Pending |
+| API-01 | Phase 15 | Pending |
+| API-02 | Phase 15 | Pending |
+| API-03 | Phase 15 | Pending |
+| API-04 | Phase 15 | Pending |
+| BRANCH-01 | Phase 14 | Pending |
+| BRANCH-02 | Phase 14 | Pending |
+| BRANCH-03 | Phase 14 | Pending |
+| BRANCH-04 | Phase 14 | Pending |
+| BRANCH-05 | Phase 14 | Pending |
+| TEST-01 | Phase 17 | Pending |
+| TEST-02 | Phase 17 | Pending |
+| TEST-03 | Phase 17 | Pending |
+| TEST-04 | Phase 17 | Pending |
 
 **Coverage:**
 - v2.0 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 (pending roadmap)
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after initial definition*
+*Last updated: 2026-02-14 after roadmap creation*

@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.0 API Cleanup — BranchingStats, solve() args, unified branching weights
+**Current focus:** v2.0 API Cleanup — Phase 14: Unified Branching Model
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-14 — Milestone v2.0 started
+Phase: 14 of 17 (Unified Branching Model)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-02-14 — Roadmap created for v2.0
 
 Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ░░░░░░░░░░]
 
@@ -21,7 +21,7 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ░░░░░░░░░░
 **Cumulative:**
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
-- v2.0: 0 phases, 0 plans (in progress)
+- v2.0: 0 phases, 0 plans (ready to plan)
 - Total: 13 phases, 45 plans
 
 ## Accumulated Context
@@ -46,5 +46,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Defining v2.0 requirements
-Next action: Complete requirements and roadmap
+Stopped at: Roadmap created for v2.0 milestone
+Next action: Plan Phase 14 (Unified Branching Model)

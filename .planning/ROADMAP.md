@@ -4,6 +4,7 @@
 
 - SHIPPED **v1.0 Stabilization & Optimization** — Phases 1-8 (shipped 2026-02-06) — [archive](milestones/v1.0-ROADMAP.md)
 - SHIPPED **v1.1 Bug Fixes & Polish** — Phases 9-13 (shipped 2026-02-08) — [archive](milestones/v1.1-ROADMAP.md)
+- IN PROGRESS **v2.0 API Cleanup** — Phases 14-17
 
 ## Phases
 
@@ -32,7 +33,81 @@
 
 </details>
 
+### v2.0 API Cleanup (In Progress)
+
+**Milestone Goal:** Remove all deprecated APIs, unify the branching model into a single-array design, and clean the solve() signature so all configuration flows through set_param().
+
+- [ ] **Phase 14: Unified Branching Model** — Replace dual-array branching struct with single unified array and 3-term formula at the C layer
+- [ ] **Phase 15: Solve API Migration** — Remove all solve() keyword arguments and expand set_param()/get_param() to cover every former solve() parameter
+- [ ] **Phase 16: Global State Removal** — Delete global BranchingStats variable, deprecated C setters, branching.pyx module, and stale .pxd declarations
+- [ ] **Phase 17: Test Suite Finalization** — Update all existing tests for new API, add branching_weights coverage, and verify memory safety
+
+## Phase Details
+
+### Phase 14: Unified Branching Model
+**Goal**: Researchers can configure branching with a single weights array and one factor instead of separate objective/constraint arrays
+**Depends on**: Nothing (first v2.0 phase)
+**Requirements**: BRANCH-01, BRANCH-02, BRANCH-03, BRANCH-04, BRANCH-05
+**Success Criteria** (what must be TRUE):
+  1. BranchingStats_t contains a single `double *branching_weights` array — obj_dependent and constraint_dependent fields no longer exist in the struct
+  2. BranchingStats_t contains a single `double branching_factor` — objective_factor and constraint_factor fields no longer exist in the struct
+  3. BranchingFunction computes scores using the 3-term formula (branching_weights * branching_factor + assignment_bias * bias_factor + look_ahead * look_factor) and produces correct branching decisions
+  4. `model.set_param('branching_weights', array)` in Python flows the array through Cython into the solver context's BranchingStats_t, and the values are used during solve
+  5. solver_ctx_set_branching_weights() is the only context setter for branching weight data — solver_ctx_set_obj_dependence() and solver_ctx_set_constraint_dependence() are replaced
+**Plans**: TBD
+
+Plans:
+- [ ] 14-01: TBD
+- [ ] 14-02: TBD
+
+### Phase 15: Solve API Migration
+**Goal**: All solver configuration happens through set_param()/get_param() — solve() takes no arguments
+**Depends on**: Phase 14 (branching model must be in place before removing solve() branching kwargs)
+**Requirements**: API-01, API-02, API-03, API-04
+**Success Criteria** (what must be TRUE):
+  1. `model.solve()` accepts zero keyword arguments — calling `model.solve(M=100)` raises TypeError
+  2. Every former solve() parameter (M, stopping_time, stop_val, callback, max_delta, reset_delta, depth_look_ahead, num_workers, results, bfs, ignore_constraint_search, verify, track_history) is settable via `model.set_param(name, value)` and readable via `model.get_param(name)`
+  3. A user who never passed kwargs to solve() gets identical solver behavior after the migration — all defaults preserved
+  4. `model.get_param(name)` returns the current value for any configured param, or the documented default — never returns None for params that have defaults
+**Plans**: TBD
+
+Plans:
+- [ ] 15-01: TBD
+- [ ] 15-02: TBD
+
+### Phase 16: Global State Removal
+**Goal**: No deprecated global branching state or setter functions exist anywhere in the codebase
+**Depends on**: Phase 14 (unified model replaces globals), Phase 15 (solve() no longer passes branching args through deprecated paths)
+**Requirements**: GLOB-01, GLOB-02, GLOB-03, GLOB-04
+**Success Criteria** (what must be TRUE):
+  1. No global or file-scope BranchingStats_t variable exists in Branching.h or Branching.c — no extern declaration, no static instance
+  2. The C functions set_factors(), set_bias(), set_obj_dependence(), and set_constraint_dependence() do not exist in any .c or .h file
+  3. The file branching.pyx does not exist — no Python-level deprecated wrappers remain
+  4. No Cython .pxd file contains declarations for the removed C functions — the build compiles cleanly without them
+**Plans**: TBD
+
+Plans:
+- [ ] 16-01: TBD
+
+### Phase 17: Test Suite Finalization
+**Goal**: The full test suite passes against the v2.0 API with no regressions, new branching coverage, and verified memory safety
+**Depends on**: Phase 14 (branching model), Phase 15 (solve API), Phase 16 (global removal)
+**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04
+**Success Criteria** (what must be TRUE):
+  1. All existing Python tests pass with zero solve() kwargs — every test uses set_param() for configuration
+  2. New tests verify that branching_weights values set via set_param() reach BranchingFunction and produce correct branching scores
+  3. Deterministic branching propagation tests pass — same seed and weights produce identical branching decisions across runs
+  4. Valgrind reports zero leaks for branching_weights allocation, deallocation, and reallocation across solve lifecycles
+**Plans**: TBD
+
+Plans:
+- [ ] 17-01: TBD
+- [ ] 17-02: TBD
+
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -49,3 +124,7 @@
 | 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
+| 14. Unified Branching Model | v2.0 | 0/TBD | Not started | - |
+| 15. Solve API Migration | v2.0 | 0/TBD | Not started | - |
+| 16. Global State Removal | v2.0 | 0/TBD | Not started | - |
+| 17. Test Suite Finalization | v2.0 | 0/TBD | Not started | - |
