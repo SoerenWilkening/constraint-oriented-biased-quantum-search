@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, and per-thread history tracking with concurrent solve isolation.
+A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, per-thread history tracking with concurrent solve isolation, and a unified branching model with all solver configuration via set_param()/get_param().
 
 ## Core Value
 
@@ -46,15 +46,16 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - ✓ Mutex-protected global_opt writes in local_search — v1.1
 - ✓ Dead code and commented-out code removed from C kernel and Cython — v1.1
 - ✓ Field annotations on major solver functions (local_search, ctg, preprocessing, initial_state_preparation) — v1.1
+- ✓ Global BranchingStats variable and all deprecated global setters removed — v2.0
+- ✓ Zero-arg solve(); all configuration via set_param() only — v2.0
+- ✓ Unified branching_weights array replacing obj_dependent + constraint_dependent — v2.0
+- ✓ 3-term BranchingFunction with L1 normalization and division-by-zero guard — v2.0
+- ✓ set_param('branching_weights', array) API for per-variable branching values — v2.0
+- ✓ All 14 former solve() params available via set_param() with _PARAM_DEFS registry — v2.0
 
 ### Active
 
-- [ ] Remove global BranchingStats variable and all deprecated global setters — v2.0
-- [ ] Remove all solve() keyword arguments; all configuration via set_param() only — v2.0
-- [ ] Merge obj_dependent and constraint_dependent into single unified branching_weights array with one factor — v2.0
-- [ ] 3-term BranchingFunction: unified_array (branching_factor) + assignment bias (bias_factor) + look-ahead (look_factor) — v2.0
-- [ ] set_param('branching_weights', array) API for per-variable branching values — v2.0
-- [ ] All existing solve() params available via set_param() (M, stopping_time, stop_val, callback, etc.) — v2.0
+(None — next milestone requirements TBD)
 
 ### Out of Scope
 
@@ -66,17 +67,16 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - GUI or web interface — CLI/API only
 - Python free-threading (nogil) — Cython support experimental
 - Metal/GPU acceleration — macOS-only, not relevant to solver stabilization
-- Offline mode — not applicable
 
 ## Context
 
-Shipped v1.1 with 15,143 LOC across C/Python/Cython.
+Shipped v2.0 with C/Python/Cython codebase.
 Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), CMocka, pytest, GitHub Actions CI.
-Test suite: 56 C tests, 304 Python tests (51 new in v1.1), 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
-v1.0 audit: 15/15 requirements satisfied. v1.1 audit: 21/21 requirements satisfied.
-All known bugs fixed, all tech debt from v1.0 addressed, zero breaking changes.
+Test suite: 56 C tests, 390 Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
+v1.0 audit: 15/15 satisfied. v1.1 audit: 21/21 satisfied. v2.0 audit: 17/17 satisfied.
+First breaking release — removed all deprecated APIs, unified branching model, zero-arg solve().
 
-**v2.0 focus:** Breaking API cleanup — remove global BranchingStats, clean solve() signature, unify branching pointer model. First breaking release.
+Known tech debt: 4 orphaned model_t fields (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) — initialized/freed but never read. Cosmetic commented-out import in state_sampler.pxd.
 
 ## Git Workflow
 
@@ -114,13 +114,15 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | objective_value returns None in SATISFY | None clearly signals "no objective" vs 0 which could be valid | ✓ Good — clean SATISFY semantics |
 | Per-thread _SolveState for callbacks | threading.get_ident()-keyed dict for concurrent solve isolation | ✓ Good — zero cross-contamination |
 | 2-tuple history format | (value, elapsed_seconds) simpler and sufficient vs old 4-tuple | ✓ Good — cleaner API |
-| set_param/get_param with validation | Strict _KNOWN_PARAMS set, ValueError for unknowns | ✓ Good — safe API |
+| set_param/get_param with validation | Strict _PARAM_DEFS registry, ValueError for unknowns, type coercion | ✓ Good — safe API |
 | pthread_mutex_trylock for global_opt | Non-blocking; contended lock skips update (loses one update at worst) | ✓ Good — no deadlock risk |
-| Deprecated global BranchingStats kept | Backward compatibility for existing code | ⚠️ Removing in v2.0 |
-| v1.1 no breaking changes | Aggressive cleanup but keep deprecated APIs working | ✓ Good — clean release |
-| v2.0 hard break on solve() args | All config via set_param(); cleaner API surface | — Pending |
-| Merge obj_dependent + constraint_dependent | Two arrays serving similar purpose; single unified array simpler | — Pending |
-| 3-term BranchingFunction | unified_array + assignment_bias + look_ahead; dropped separate obj/constraint factors | — Pending |
+| v2.0 hard break on solve() args | All config via set_param(); cleaner API surface | ✓ Good — clean zero-arg solve() |
+| Merge obj_dependent + constraint_dependent | Two arrays serving similar purpose; single unified array simpler | ✓ Good — single branching_weights array |
+| 3-term BranchingFunction | unified_array + assignment_bias + look_ahead; dropped separate obj/constraint factors | ✓ Good — simpler formula, L1 normalization |
+| L1 normalization at set-time | Ensures branching_weights sum to 1.0; division-by-zero guard returns 0.5 | ✓ Good — predictable behavior |
+| _PARAM_DEFS registry | Dict-of-dicts replacing flat _KNOWN_PARAMS set; coercion, validation, defaults | ✓ Good — extensible parameter system |
+| Remove set_seed from public API | srand() called directly from libc.stdlib; branching.pyx wrapper eliminated | ✓ Good — v2.0 breaking change, simpler |
+| Remove deprecated global BranchingStats | All state in solver_ctx_t; backward compatibility period complete | ✓ Good — clean C layer |
 
 ---
-*Last updated: 2026-02-14 after v2.0 milestone start*
+*Last updated: 2026-02-14 after v2.0 milestone completion*

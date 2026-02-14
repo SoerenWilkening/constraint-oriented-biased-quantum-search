@@ -61,3 +61,34 @@
 **What's next:** v2.0 — Branching extensions, solver extensions, or user experience improvements
 
 ---
+
+## v2.0 API Cleanup (Shipped: 2026-02-14)
+
+**Delivered:** First breaking release — unified the branching model into a single-array design, removed all solve() keyword arguments in favor of set_param(), and eliminated all deprecated global state.
+
+**Phases completed:** 14-17 (8 plans, 19 tasks)
+
+**Key accomplishments:**
+
+- Unified branching model — replaced dual obj_dependent/constraint_dependent arrays with single `branching_weights` array and 3-term formula with L1 normalization
+- Zero-arg solve() — removed all 14 solve() keyword arguments; all configuration now flows through set_param()/get_param() with type coercion and validation
+- Global state elimination — deleted global BranchingStats_t, deprecated C setters, and entire branching.pyx module
+- Parameter registry — _PARAM_DEFS registry with 20 params, strict coercion, defaults, and _get_effective() helper
+- Full test coverage — 446 tests (390 Python + 56 C) with new branching_weights edge case, determinism, and lifecycle tests
+- Valgrind-verified memory safety — zero leaks for branching_weights allocation, deallocation, and reallocation across solve lifecycles
+
+**Stats:**
+
+- 54 files modified, 5,908 insertions, 716 deletions
+- 4 phases, 8 plans, ~56 minutes execution time
+- 446 tests passing (390 Python + 56 C), 100% pass rate
+- 1 day (2026-02-14)
+
+**Git range:** `feat(14-01)` → `feat(17-02)`
+
+**Audit:** 17/17 requirements satisfied, 0 gaps, 2 tech debt items (0 blockers)
+
+**What's next:** Next milestone TBD — ML-based branching, adaptive branching, or solver extensions
+
+---
+
