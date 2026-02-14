@@ -21,11 +21,11 @@
 
 ### Branching Model
 
-- [ ] **BRANCH-01**: BranchingStats_t has single `double *branching_weights` array replacing obj_dependent and constraint_dependent
-- [ ] **BRANCH-02**: BranchingStats_t has single `double branching_factor` replacing objective_factor and constraint_factor
-- [ ] **BRANCH-03**: BranchingFunction uses 3-term formula: branching_weights (branching_factor) + assignment bias (bias_factor) + look-ahead (look_factor)
-- [ ] **BRANCH-04**: `model.set_param('branching_weights', array)` sets per-variable branching values — array flows from Python through Cython to C context
-- [ ] **BRANCH-05**: solver_ctx_set_branching_weights() replaces solver_ctx_set_obj_dependence() and solver_ctx_set_constraint_dependence()
+- [x] **BRANCH-01**: BranchingStats_t has single `double *branching_weights` array replacing obj_dependent and constraint_dependent
+- [x] **BRANCH-02**: BranchingStats_t has single `double branching_factor` replacing objective_factor and constraint_factor
+- [x] **BRANCH-03**: BranchingFunction uses 3-term formula: branching_weights (branching_factor) + assignment bias (bias_factor) + look-ahead (look_factor)
+- [x] **BRANCH-04**: `model.set_param('branching_weights', array)` sets per-variable branching values — array flows from Python through Cython to C context
+- [x] **BRANCH-05**: solver_ctx_set_branching_weights() replaces solver_ctx_set_obj_dependence() and solver_ctx_set_constraint_dependence()
 
 ### Testing
 
@@ -60,11 +60,11 @@
 | API-02 | Phase 15 | Pending |
 | API-03 | Phase 15 | Pending |
 | API-04 | Phase 15 | Pending |
-| BRANCH-01 | Phase 14 | Pending |
-| BRANCH-02 | Phase 14 | Pending |
-| BRANCH-03 | Phase 14 | Pending |
-| BRANCH-04 | Phase 14 | Pending |
-| BRANCH-05 | Phase 14 | Pending |
+| BRANCH-01 | Phase 14 | Complete |
+| BRANCH-02 | Phase 14 | Complete |
+| BRANCH-03 | Phase 14 | Complete |
+| BRANCH-04 | Phase 14 | Complete |
+| BRANCH-05 | Phase 14 | Complete |
 | TEST-01 | Phase 17 | Pending |
 | TEST-02 | Phase 17 | Pending |
 | TEST-03 | Phase 17 | Pending |

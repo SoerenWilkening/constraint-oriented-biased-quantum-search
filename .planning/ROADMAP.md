@@ -37,7 +37,7 @@
 
 **Milestone Goal:** Remove all deprecated APIs, unify the branching model into a single-array design, and clean the solve() signature so all configuration flows through set_param().
 
-- [ ] **Phase 14: Unified Branching Model** — Replace dual-array branching struct with single unified array and 3-term formula at the C layer
+- [x] **Phase 14: Unified Branching Model** — Replace dual-array branching struct with single unified array and 3-term formula at the C layer — completed 2026-02-14
 - [ ] **Phase 15: Solve API Migration** — Remove all solve() keyword arguments and expand set_param()/get_param() to cover every former solve() parameter
 - [ ] **Phase 16: Global State Removal** — Delete global BranchingStats variable, deprecated C setters, branching.pyx module, and stale .pxd declarations
 - [ ] **Phase 17: Test Suite Finalization** — Update all existing tests for new API, add branching_weights coverage, and verify memory safety
@@ -57,8 +57,8 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 14-01-PLAN.md -- C layer: restructure BranchingStats_t, rewrite BranchingFunction with 3-term formula, new solver_ctx setters, update all C tests
-- [ ] 14-02-PLAN.md -- Cython/Python layer: update .pxd declarations, wire branching_weights propagation, add set_param validation, update Python tests
+- [x] 14-01-PLAN.md -- C layer: restructure BranchingStats_t, rewrite BranchingFunction with 3-term formula, new solver_ctx setters, update all C tests
+- [x] 14-02-PLAN.md -- Cython/Python layer: update .pxd declarations, wire branching_weights propagation, add set_param validation, update Python tests
 
 ### Phase 15: Solve API Migration
 **Goal**: All solver configuration happens through set_param()/get_param() — solve() takes no arguments
@@ -124,7 +124,7 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 | 11. Callback Concurrency Rework | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 12. BranchingStats & Local Search Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 13. Dead Code & Documentation Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
-| 14. Unified Branching Model | v2.0 | 0/TBD | Not started | - |
+| 14. Unified Branching Model | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 15. Solve API Migration | v2.0 | 0/TBD | Not started | - |
 | 16. Global State Removal | v2.0 | 0/TBD | Not started | - |
 | 17. Test Suite Finalization | v2.0 | 0/TBD | Not started | - |

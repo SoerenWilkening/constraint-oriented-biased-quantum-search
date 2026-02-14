@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.0 API Cleanup — Phase 15: API Cleanup
+**Current focus:** v2.0 API Cleanup — Phase 15: Solve API Migration
 
 ## Current Position
 
-Phase: 14 of 17 (Unified Branching Model) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase complete
-Last activity: 2026-02-14 — Completed 14-02 (Cython/Python unified branching)
+Phase: 15 of 17 (Solve API Migration)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-02-14 — Phase 14 complete (verified ✓)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##░░░░░░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ###░░░░░░░]
 
 ## Performance Metrics
 
@@ -57,5 +57,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed 14-02-PLAN.md (Cython/Python unified branching) -- Phase 14 complete
-Next action: Begin Phase 15 (API Cleanup)
+Stopped at: Phase 14 complete — verified ✓
+Next action: Plan Phase 15 (Solve API Migration)
