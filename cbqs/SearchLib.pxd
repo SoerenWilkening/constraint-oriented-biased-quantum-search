@@ -19,10 +19,11 @@ cdef extern from "src/solver_ctx.h":
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
 	void solver_ctx_request_stop(solver_ctx_t* ctx)
-	void solver_ctx_set_factors(solver_ctx_t* ctx, double obj, double con, double bias, double look)
 	void solver_ctx_set_bias(solver_ctx_t* ctx, double bias)
-	void solver_ctx_set_obj_dependence(solver_ctx_t* ctx, double* dep, int n)
-	void solver_ctx_set_constraint_dependence(solver_ctx_t* ctx, double* dep, int n)
+	void solver_ctx_set_branching_weights(solver_ctx_t* ctx, const double* weights, int n)
+	void solver_ctx_set_branching_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_bias_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_look_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
 
 # Functions to manipulate states and execute the QSearch algorithm
