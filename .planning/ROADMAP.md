@@ -39,7 +39,7 @@
 
 - [x] **Phase 14: Unified Branching Model** — Replace dual-array branching struct with single unified array and 3-term formula at the C layer — completed 2026-02-14
 - [x] **Phase 15: Solve API Migration** — Remove all solve() keyword arguments and expand set_param()/get_param() to cover every former solve() parameter — completed 2026-02-14
-- [ ] **Phase 16: Global State Removal** — Delete global BranchingStats variable, deprecated C setters, branching.pyx module, and stale .pxd declarations
+- [x] **Phase 16: Global State Removal** — Delete global BranchingStats variable, deprecated C setters, branching.pyx module, and stale .pxd declarations — completed 2026-02-14
 - [ ] **Phase 17: Test Suite Finalization** — Update all existing tests for new API, add branching_weights coverage, and verify memory safety
 
 ## Phase Details
@@ -87,8 +87,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 16-01-PLAN.md -- C layer: remove global BranchingStats variable from Branching.h/c, update comments in solver_ctx, update 3 C test files
-- [ ] 16-02-PLAN.md -- Cython/Python layer: delete branching.pyx/pxd, migrate set_seed to direct srand, relocate StateProbability declaration, update build system
+- [x] 16-01-PLAN.md -- C layer: remove global BranchingStats variable from Branching.h/c, update comments in solver_ctx, update 3 C test files
+- [x] 16-02-PLAN.md -- Cython/Python layer: delete branching.pyx/pxd, migrate set_seed to direct srand, relocate StateProbability declaration, update build system
 
 ### Phase 17: Test Suite Finalization
 **Goal**: The full test suite passes against the v2.0 API with no regressions, new branching coverage, and verified memory safety
@@ -127,5 +127,5 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17
 | 13. Dead Code & Documentation Cleanup | v1.1 | 2/2 | Complete | 2026-02-08 |
 | 14. Unified Branching Model | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 15. Solve API Migration | v2.0 | 2/2 | Complete | 2026-02-14 |
-| 16. Global State Removal | v2.0 | 0/2 | Not started | - |
+| 16. Global State Removal | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 17. Test Suite Finalization | v2.0 | 0/TBD | Not started | - |
