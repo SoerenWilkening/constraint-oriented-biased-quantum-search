@@ -55,8 +55,6 @@ extensions += [
 	          include_dirs = [os.path.join("cbqs", "src")]),
 	Extension("cbqs.Constraint", ["cbqs/Constraint.pyx"] + sources, extra_compile_args = compiler_args,
 	          include_dirs = [os.path.join("cbqs", "src")]),
-	Extension("cbqs.branching", ["cbqs/branching.pyx"] + sources, extra_compile_args = compiler_args,
-	          include_dirs = [os.path.join("cbqs", "src")]),
 ]
 
 setup(
