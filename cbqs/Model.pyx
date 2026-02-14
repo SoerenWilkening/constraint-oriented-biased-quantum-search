@@ -174,7 +174,6 @@ cdef class Model:
 		"""Set a solver parameter by name.
 
 		Parameters persist across multiple solve() calls until changed.
-		set_param values take precedence over solve() keyword arguments.
 		set_param(name, None) resets the parameter to its default value.
 
 		Type coercion is applied automatically (e.g. set_param('M', '100')
@@ -389,15 +388,11 @@ or {self.runtime}s sampling
 			self.manual_initial(0, [0] * self.n)
 		initial_state_preparation(self.mod)
 
-	def solve(self, M: int = -1, stopping_time: int = 300, bias: float | int = -1, stop_val: int = -1, callback = None,
-	          max_delta = 7, reset_delta = True, depth_look_ahead = 0, num_workers: int = 12,
-	          results = "min", bfs = False,
-	          ignore_constraint_search = False,
-	          monte_calor_estimate = False,
-	          verify = False,
-	          track_history = True
-	          ):
+	def solve(self):
 		"""Solve the optimization or satisfiability problem.
+
+		All solver parameters are configured via set_param() before calling solve().
+		solve() accepts zero arguments.
 
 		Returns an OptimizeResult object containing solution, objective,
 		timing, history, and verification data.
@@ -405,19 +400,30 @@ or {self.runtime}s sampling
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
 
-		if results not in ["min", "average"]:
-			raise ValueError(f"results must be 'min' or 'average', got '{results}'")
+		# Read all params from _params (with defaults from _PARAM_DEFS)
+		M = self._get_effective('M')
+		stopping_time = self._get_effective('stopping_time')
+		stop_val = self._get_effective('stop_val')
+		callback = self._get_effective('callback')
+		max_delta = self._get_effective('max_delta')
+		reset_delta = self._get_effective('reset_delta')
+		depth_look_ahead = self._get_effective('depth_look_ahead')
+		num_workers = self._get_effective('num_workers')
+		results = self._get_effective('results')
+		bfs = self._get_effective('bfs')
+		ignore_constraint_search = self._get_effective('ignore_constraint_search')
+		monte_carlo_estimate = self._get_effective('monte_carlo_estimate')
+		verify = self._get_effective('verify')
+		track_history = self._get_effective('track_history')
 
 		self.calls += 1
 
 		if self.mod.solver == SATISFY:
 			if M != -1: warn("Defined M will be ignored when solving SAT")
-			if bias != -1: warn("Defined bias will be ignored when solving SAT")
 			if stop_val != -1: warn("Defined stop_val will be ignored when solving SAT")
 
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
 		if M == -1: M = self.n ** 2 // 16
-		if bias == -1: bias = self.n / 4
 
 		not_stop = [1]
 
@@ -426,7 +432,7 @@ or {self.runtime}s sampling
 		self.mod.stop_val = stop_val
 		self.mod.stopping_time = stopping_time
 		self.mod.ignore_constraint_search = ignore_constraint_search
-		self.mod.monte_carlo_estimate = monte_calor_estimate
+		self.mod.monte_carlo_estimate = monte_carlo_estimate
 		self.mod.max_delta = max_delta
 		self.mod.reset_delta = reset_delta
 
