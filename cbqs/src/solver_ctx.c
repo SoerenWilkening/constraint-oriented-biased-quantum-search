@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include <unistd.h>  /* for sysconf */
 
 /* ============================================================
@@ -27,10 +28,9 @@ solver_ctx_t *solver_ctx_create(void) {
     }
 
     /* Initialize branching_stats with same defaults as global BranchingStats */
-    ctx->branching_stats.objective_factor = 0;
-    ctx->branching_stats.obj_dependent = NULL;
-    ctx->branching_stats.constraint_factor = 0;
-    ctx->branching_stats.constraint_dependent = NULL;
+    ctx->branching_stats.branching_weights = NULL;
+    ctx->branching_stats.num_weights = 0;
+    ctx->branching_stats.branching_factor = 1.0;
     ctx->branching_stats.bias_factor = 1;
     ctx->branching_stats.bias = 5;
     ctx->branching_stats.look_factor = 0.0;
@@ -69,14 +69,10 @@ void solver_ctx_free(solver_ctx_t *ctx) {
         return;
     }
 
-    /* Free dependence arrays if allocated */
-    if (ctx->branching_stats.obj_dependent != NULL) {
-        free(ctx->branching_stats.obj_dependent);
-        ctx->branching_stats.obj_dependent = NULL;
-    }
-    if (ctx->branching_stats.constraint_dependent != NULL) {
-        free(ctx->branching_stats.constraint_dependent);
-        ctx->branching_stats.constraint_dependent = NULL;
+    /* Free branching_weights array if allocated */
+    if (ctx->branching_stats.branching_weights != NULL) {
+        free(ctx->branching_stats.branching_weights);
+        ctx->branching_stats.branching_weights = NULL;
     }
 
     /* Free arena if allocated */
@@ -132,16 +128,6 @@ int solver_ctx_should_stop(solver_ctx_t *ctx) {
  * Context-aware Setters
  * ============================================================ */
 
-void solver_ctx_set_factors(solver_ctx_t *ctx, double obj, double con, double bias, double look) {
-    if (ctx == NULL) {
-        return;
-    }
-    ctx->branching_stats.objective_factor = obj;
-    ctx->branching_stats.constraint_factor = con;
-    ctx->branching_stats.bias_factor = bias;
-    ctx->branching_stats.look_factor = look;
-}
-
 void solver_ctx_set_bias(solver_ctx_t *ctx, double bias) {
     if (ctx == NULL) {
         return;
@@ -149,38 +135,62 @@ void solver_ctx_set_bias(solver_ctx_t *ctx, double bias) {
     ctx->branching_stats.bias = bias;
 }
 
-void solver_ctx_set_obj_dependence(solver_ctx_t *ctx, double *dep, int n) {
-    if (ctx == NULL || dep == NULL || n <= 0) {
+void solver_ctx_set_branching_weights(solver_ctx_t *ctx, const double *weights, int n) {
+    if (ctx == NULL) {
         return;
     }
 
-    /* Free existing array if present */
-    if (ctx->branching_stats.obj_dependent != NULL) {
-        free(ctx->branching_stats.obj_dependent);
+    /* Free existing weights if present */
+    if (ctx->branching_stats.branching_weights != NULL) {
+        free(ctx->branching_stats.branching_weights);
+        ctx->branching_stats.branching_weights = NULL;
+        ctx->branching_stats.num_weights = 0;
+    }
+
+    /* NULL/empty means clear weights */
+    if (weights == NULL || n <= 0) {
+        return;
     }
 
     /* Allocate and copy */
-    ctx->branching_stats.obj_dependent = calloc((size_t)n, sizeof(double));
-    if (ctx->branching_stats.obj_dependent != NULL) {
-        memcpy(ctx->branching_stats.obj_dependent, dep, (size_t)n * sizeof(double));
+    ctx->branching_stats.branching_weights = calloc((size_t)n, sizeof(double));
+    if (ctx->branching_stats.branching_weights == NULL) {
+        return;
+    }
+    memcpy(ctx->branching_stats.branching_weights, weights, (size_t)n * sizeof(double));
+    ctx->branching_stats.num_weights = n;
+
+    /* L1 normalize: sum all values (all non-negative, validated upstream) */
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        sum += fabs(ctx->branching_stats.branching_weights[i]);
+    }
+    if (sum > 0.0) {
+        for (int i = 0; i < n; i++) {
+            ctx->branching_stats.branching_weights[i] /= sum;
+        }
     }
 }
 
-void solver_ctx_set_constraint_dependence(solver_ctx_t *ctx, double *dep, int n) {
-    if (ctx == NULL || dep == NULL || n <= 0) {
+void solver_ctx_set_branching_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) {
         return;
     }
+    ctx->branching_stats.branching_factor = factor;
+}
 
-    /* Free existing array if present */
-    if (ctx->branching_stats.constraint_dependent != NULL) {
-        free(ctx->branching_stats.constraint_dependent);
+void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) {
+        return;
     }
+    ctx->branching_stats.bias_factor = factor;
+}
 
-    /* Allocate and copy */
-    ctx->branching_stats.constraint_dependent = calloc((size_t)n, sizeof(double));
-    if (ctx->branching_stats.constraint_dependent != NULL) {
-        memcpy(ctx->branching_stats.constraint_dependent, dep, (size_t)n * sizeof(double));
+void solver_ctx_set_look_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) {
+        return;
     }
+    ctx->branching_stats.look_factor = factor;
 }
 
 /* ============================================================
@@ -205,17 +215,17 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
             "\"elapsed_sec\":%.3f,"
             "\"bias\":%.2f,"
             "\"bias_factor\":%.2f,"
-            "\"objective_factor\":%.2f,"
-            "\"constraint_factor\":%.2f,"
+            "\"branching_factor\":%.2f,"
             "\"look_factor\":%.2f,"
+            "\"has_branching_weights\":%s,"
             "\"timeout_ms\":%llu,"
             "\"stopped\":%s}\n",
             elapsed_sec,
             ctx->branching_stats.bias,
             ctx->branching_stats.bias_factor,
-            ctx->branching_stats.objective_factor,
-            ctx->branching_stats.constraint_factor,
+            ctx->branching_stats.branching_factor,
             ctx->branching_stats.look_factor,
+            (ctx->branching_stats.branching_weights != NULL) ? "true" : "false",
             (unsigned long long)ctx->timeout_ms,
             atomic_load(&ctx->stop) ? "true" : "false");
 }

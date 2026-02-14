@@ -86,8 +86,7 @@ solver_ctx_t *solver_ctx_create(void);
  * @brief Free a solver context and all owned resources
  *
  * Frees:
- * - branching_stats.obj_dependent array (if not NULL)
- * - branching_stats.constraint_dependent array (if not NULL)
+ * - branching_stats.branching_weights array (if not NULL)
  * - The context struct itself
  *
  * @param ctx Context to free (safe to pass NULL)
@@ -123,19 +122,8 @@ void solver_ctx_request_stop(solver_ctx_t *ctx);
 int solver_ctx_should_stop(solver_ctx_t *ctx);
 
 /* ============================================================
- * Context-aware Setters (parallel to existing global setters)
+ * Context-aware Setters
  * ============================================================ */
-
-/**
- * @brief Set all branching factor weights
- *
- * @param ctx Solver context
- * @param obj Objective factor weight
- * @param con Constraint factor weight
- * @param bias Bias factor weight
- * @param look Look-ahead factor weight
- */
-void solver_ctx_set_factors(solver_ctx_t *ctx, double obj, double con, double bias, double look);
 
 /**
  * @brief Set the bias value
@@ -146,26 +134,40 @@ void solver_ctx_set_factors(solver_ctx_t *ctx, double obj, double con, double bi
 void solver_ctx_set_bias(solver_ctx_t *ctx, double bias);
 
 /**
- * @brief Set objective dependence array
+ * @brief Set per-variable branching weights
  *
- * Copies the provided array into the context. Frees any existing array first.
+ * Copies the provided array into the context, L1-normalizes it, and stores it.
+ * Frees any existing weights array first. Pass NULL/0 to clear weights.
  *
  * @param ctx Solver context
- * @param dep Dependence values to copy
+ * @param weights Weight values to copy (NULL to clear)
  * @param n Number of elements
  */
-void solver_ctx_set_obj_dependence(solver_ctx_t *ctx, double *dep, int n);
+void solver_ctx_set_branching_weights(solver_ctx_t *ctx, const double *weights, int n);
 
 /**
- * @brief Set constraint dependence array
- *
- * Copies the provided array into the context. Frees any existing array first.
+ * @brief Set the branching factor (weight for branching_weights term)
  *
  * @param ctx Solver context
- * @param dep Dependence values to copy
- * @param n Number of elements
+ * @param factor Factor value (default: 1.0)
  */
-void solver_ctx_set_constraint_dependence(solver_ctx_t *ctx, double *dep, int n);
+void solver_ctx_set_branching_factor(solver_ctx_t *ctx, double factor);
+
+/**
+ * @brief Set the bias factor (weight for assignment_bias term)
+ *
+ * @param ctx Solver context
+ * @param factor Factor value (default: 1.0)
+ */
+void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor);
+
+/**
+ * @brief Set the look-ahead factor (weight for look-ahead term)
+ *
+ * @param ctx Solver context
+ * @param factor Factor value (default: 0.0)
+ */
+void solver_ctx_set_look_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
  * Debug Output
