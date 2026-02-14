@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.0 API Cleanup — Phase 17: Test Suite Finalization
+**Current focus:** v2.0 API Cleanup — Phase 17: Test Suite Finalization (COMPLETE)
 
 ## Current Position
 
 Phase: 17 of 17 (Test Suite Finalization)
-Plan: 1 of 2 complete
-Status: In Progress
-Last activity: 2026-02-14 — Plan 17-01 complete (test suite run + coverage tests)
+Plan: 2 of 2 complete
+Status: Complete
+Last activity: 2026-02-14 — Plan 17-02 complete (Valgrind memory verification)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #########░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########]
 
 ## Performance Metrics
 
 **Cumulative:**
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
-- v2.0: 3 phases, 7 plans
-- Total: 16 phases, 52 plans
+- v2.0: 3 phases, 8 plans
+- Total: 16 phases, 53 plans
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -33,6 +33,7 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 #########░]
 | 16-01 | C layer global BranchingStats removal | 3min | 2 | 7 |
 | 16-02 | Branching module deletion | 5min | 2 | 7 |
 | 17-01 | Test suite run + coverage tests | 5min | 3 | 4 |
+| 17-02 | Valgrind memory verification | 9min | 2 | 2 |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ See PROJECT.md Key Decisions table for full log.
 - v2.0 16-02: set_seed removed from cbqs public API (v2.0 breaking change)
 - v2.0 17-01: Removed stale compare() tests from test_searchlib.c (function removed in Phase 13)
 - v2.0 17-01: All-zero branching_weights confirmed to trigger division-by-zero guard and produce valid results
+- v2.0 17-02: Flaky local_search determinism test fixed (compare objectives only, disable track_history)
+- v2.0 17-02: Valgrind-verified zero memory leaks for branching_weights lifecycle (C and Python paths)
 
 ### Pending Todos
 
@@ -78,5 +81,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed 17-01-PLAN.md (test suite run + coverage tests)
-Next action: Execute 17-02-PLAN.md (remaining Phase 17 work)
+Stopped at: Completed 17-02-PLAN.md (Valgrind memory verification)
+Next action: v2.0 API Cleanup milestone complete. All 17 phases done.
