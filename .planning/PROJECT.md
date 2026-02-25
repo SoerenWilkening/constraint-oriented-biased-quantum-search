@@ -55,7 +55,16 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ### Active
 
-(None — next milestone requirements TBD)
+## Current Milestone: v2.1 Code Audit & Optimization
+
+**Goal:** Comprehensive codebase cleanup — eliminate dead code, enforce API consistency, fix build/packaging, fill documentation gaps, and verify+adopt incremental evaluation for performance.
+
+**Target features:**
+- Remove orphaned model_t fields and all dead code across C/Cython/Python
+- Verify and adopt incremental evaluation from constraint.c (replace full recalc in solver/local_search), benchmark before/after
+- Audit API consistency across Python/Cython/C layers
+- Clean up build & packaging (setup.py, deps, warnings, CI)
+- Fill documentation gaps (docstrings, comments, README)
 
 ### Out of Scope
 
@@ -125,4 +134,4 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | Remove deprecated global BranchingStats | All state in solver_ctx_t; backward compatibility period complete | ✓ Good — clean C layer |
 
 ---
-*Last updated: 2026-02-14 after v2.0 milestone completion*
+*Last updated: 2026-02-25 after v2.1 milestone start*

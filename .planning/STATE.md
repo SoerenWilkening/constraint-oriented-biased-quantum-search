@@ -5,15 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** Planning next milestone
+**Current focus:** v2.1 Code Audit & Optimization
 
 ## Current Position
 
-Phase: All complete (17 phases across 3 milestones)
-Status: v2.0 shipped
-Last activity: 2026-02-14 - Completed quick task 2: Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-25 — Milestone v2.1 started
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ░░░░░░░░░░]
 
 ## Performance Metrics
 
@@ -48,4 +49,4 @@ None.
 
 Last session: 2026-02-14
 Stopped at: Completed quick-2 (fix _SC_NPROCESSORS_ONLN)
-Next action: `/gsd:new-milestone` to start next milestone
+Next action: Define v2.1 requirements
