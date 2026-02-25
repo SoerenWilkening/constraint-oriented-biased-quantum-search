@@ -4,22 +4,22 @@ from .state cimport state_py, state_t
 
 cdef extern from "src/constraint.h":
 	ctypedef struct new_constraints_t:
-		size_t num_constraints;  # number of constraints
-		size_t *num_clauses;  # how many clauses per constraint
-		size_t *clause_offset;  # offset, to correctly locate factor and length_clause given C and c
+		uint32_t num_constraints;  # number of constraints
+		uint32_t *num_clauses;  # how many clauses per constraint
+		uint32_t *clause_offset;  # offset, to correctly locate factor and length_clause given C and c
 		int64_t *factors;  # store the factor of a clause
-		size_t *clause_length;  # how many variables per clause
-		size_t *variable_offset;  # where is the first index of the variables of a clause given constraint C
-		size_t * variables;
-		int * sense;
+		uint32_t *clause_length;  # how many variables per clause
+		uint32_t *variable_offset;  # where is the first index of the variables of a clause given constraint C
+		uint32_t *variables;
+		int *sense;
 		int64_t *rhs;
 
-		unsigned int *positive_indices;
-		unsigned int *negative_indices;
-		unsigned int *positive_offsets;
-		unsigned int *negative_offsets;
-		unsigned int *num_positive_indices;
-		unsigned int *num_negative_indices;
+		uint32_t *positive_indices;
+		uint32_t *negative_indices;
+		uint32_t *positive_offsets;
+		uint32_t *negative_offsets;
+		uint32_t *num_positive_indices;
+		uint32_t *num_negative_indices;
 
 		uint32_t *neg_rows;
 		uint32_t *neg_cols;

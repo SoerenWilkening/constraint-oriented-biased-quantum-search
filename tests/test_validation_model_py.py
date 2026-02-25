@@ -174,31 +174,11 @@ class TestCloseValidation:
 class TestSolveValidation:
     """Tests for solve() validation improvements."""
 
-    def test_solve_invalid_results_raises_valueerror(self):
-        """set_param('results', 'invalid') raises ValueError at set-time."""
+    def test_solve_results_param_removed(self):
+        """set_param('results', ...) raises ValueError (removed orphaned param in Phase 20)."""
         m = Model()
-        xs = m.add_variables(3)
-        x = [xs[i] for i in range(3)]
-        m.add_constraint((x[0] + x[1] + x[2]) <= 2)
-        m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
-        m.close()
-        with pytest.raises(ValueError, match="results must be"):
-            m.set_param('results', 'invalid')
-
-    def test_solve_valid_results_min(self):
-        """set_param('results', 'min') + solve() succeeds and returns OptimizeResult."""
-        from cbqs.result import OptimizeResult
-        m = Model()
-        xs = m.add_variables(3)
-        x = [xs[i] for i in range(3)]
-        m.add_constraint((x[0] + x[1] + x[2]) <= 2)
-        m.set_objective(x[0] + x[1] + x[2], MAXIMIZE)
-        m.close()
-        m.set_param('results', 'min')
-        m.set_param('num_workers', 1)
-        m.set_param('stopping_time', 2)
-        result = m.solve()
-        assert isinstance(result, OptimizeResult)
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param('results', 'min')
 
     def test_solve_not_compiled_raises(self):
         """solve() without close() raises ValueError."""
