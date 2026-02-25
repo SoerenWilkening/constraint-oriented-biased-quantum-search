@@ -21,7 +21,7 @@ typedef struct {
     double branching_factor;    /* Factor for branching_weights term (default 1.0) */
     double bias_factor;         /* Factor for assignment_bias term (default 1.0) */
     double bias;                /* Assignment bias value (default 5.0) */
-    double look_factor;         /* Factor for look-ahead term (default 0.0) */
+    double look_ahead_factor;   /* Factor for look-ahead term (default 0.0) */
 } BranchingStats_t;
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */
@@ -30,15 +30,15 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
     double total_bias;
     double branching_factor = stats->branching_factor;
     double bias_factor = stats->bias_factor;
-    double look_factor = stats->look_factor;
+    double look_ahead_factor = stats->look_ahead_factor;
 
-    if (diffcount == 0) look_factor = 0;
+    if (diffcount == 0) look_ahead_factor = 0;
 
     double lookahead_0_probability = (diffcount < 0) ? 0.0 : 1.0;
     double assignment_bias = (stats->bias + 1.0) / (stats->bias + 2.0);
 
     /* Compute factor sum for normalization */
-    double factor_sum = bias_factor + look_factor;
+    double factor_sum = bias_factor + look_ahead_factor;
     double w = 0.0;
 
     if (stats->branching_weights != NULL && index < stats->num_weights) {
@@ -59,7 +59,7 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
         value += normalizer * branching_factor * w;
     }
     value += normalizer * bias_factor * assignment_bias;
-    value += normalizer * look_factor * lookahead_0_probability;
+    value += normalizer * look_ahead_factor * lookahead_0_probability;
 
     /* Apply bit_S / bit_T branching logic */
     if (bit_T == 0) {

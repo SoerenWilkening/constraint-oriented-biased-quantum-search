@@ -34,7 +34,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->branching_stats.branching_factor = 1.0;
     ctx->branching_stats.bias_factor = 1;
     ctx->branching_stats.bias = 5;
-    ctx->branching_stats.look_factor = 0.0;
+    ctx->branching_stats.look_ahead_factor = 0.0;
 
     /* Initialize atomic stop flag */
     atomic_init(&ctx->stop, false);
@@ -187,11 +187,11 @@ void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor) {
     ctx->branching_stats.bias_factor = factor;
 }
 
-void solver_ctx_set_look_factor(solver_ctx_t *ctx, double factor) {
+void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor) {
     if (ctx == NULL) {
         return;
     }
-    ctx->branching_stats.look_factor = factor;
+    ctx->branching_stats.look_ahead_factor = factor;
 }
 
 /* ============================================================
@@ -217,7 +217,7 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
             "\"bias\":%.2f,"
             "\"bias_factor\":%.2f,"
             "\"branching_factor\":%.2f,"
-            "\"look_factor\":%.2f,"
+            "\"look_ahead_factor\":%.2f,"
             "\"has_branching_weights\":%s,"
             "\"timeout_ms\":%llu,"
             "\"stopped\":%s}\n",
@@ -225,7 +225,7 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
             ctx->branching_stats.bias,
             ctx->branching_stats.bias_factor,
             ctx->branching_stats.branching_factor,
-            ctx->branching_stats.look_factor,
+            ctx->branching_stats.look_ahead_factor,
             (ctx->branching_stats.branching_weights != NULL) ? "true" : "false",
             (unsigned long long)ctx->timeout_ms,
             atomic_load(&ctx->stop) ? "true" : "false");

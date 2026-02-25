@@ -167,7 +167,7 @@ void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor);
  * @param ctx Solver context
  * @param factor Factor value (default: 0.0)
  */
-void solver_ctx_set_look_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
  * Debug Output
