@@ -18,10 +18,6 @@ cdef extern from "src/model.h":
 		int depth_look_ahead;
 		int num_workers;
 		int ignore_constraint_search;
-		double *manual_bias;
-		double bias_factor;
-		double manual_bias_factor;
-		double look_ahead_factor;
 		int monte_carlo_estimate;
 		int reset_delta;
 		int max_delta;
@@ -60,7 +56,6 @@ cdef class Model:
 	cdef public object feasible
 	cdef public object grover_iterations
 	cdef public object quantum_cycles
-	# cdef public object objective_value
 	cdef public object final_state
 	cdef public object improved
 	cdef public object gpu_compiled

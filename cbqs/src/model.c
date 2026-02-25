@@ -6,9 +6,6 @@
 
 model_t *init_model(void){
     model_t *mod = malloc(sizeof(model_t));
-    mod->bias_factor = 1.;
-    mod->manual_bias_factor = 0.;
-    mod->look_ahead_factor = 0.;
     mod->depth_look_ahead = 0;
     mod->break_item = 0;
     mod->num_workers = 12;
@@ -17,7 +14,6 @@ model_t *init_model(void){
     mod->M = -1;
     mod->monte_carlo_estimate = 0;
     mod->ignore_constraint_search = 0;
-    mod->manual_bias = NULL;
     mod->initial_state = NULL;
     mod->global_opt = NULL;
     mod->obj = malloc(sizeof(new_constraints_t));
@@ -38,7 +34,6 @@ model_t *init_model(void){
 
 
 void free_model(model_t *mod){
-    if (mod->manual_bias != NULL) free(mod->manual_bias);
     if (mod->initial_state != NULL) free_state(mod->initial_state, 1);
     if (mod->global_opt != NULL) free_state(mod->global_opt, 1);
 

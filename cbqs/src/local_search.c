@@ -554,7 +554,6 @@ state_t *quantum_local_search_states(
 
 	array_t ful = sw_init(obj->num_clauses[0]);
 	prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
-	(void)objective_value(obj, cur_sol); /* init_val used only in commented-out code below */
 
 	size_t feasible_state_counter = 0;
 	state_t *st = malloc(num_moves * sizeof(state_t));
@@ -607,27 +606,12 @@ state_t *quantum_local_search_states(
 				total_violation -= remainings[cnstr] - totals[cnstr] < 0 ? remainings[cnstr] - totals[cnstr] : 0;
 			}
 
-//			for (int cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
-//				int64_t viol = constraint_violation(con, &st[feasible_state_counter], cnstr);
-//				total_violation -= (viol < 0) * viol;
-//			}
 			feasible = (total_violation <= 0);
 			// for non feasible solutions, objective value is constraint violation
 			if (!feasible) {
 				objective = total_violation;
-//			} else { objective = objective_value(obj, &st[feasible_state_counter]); }
 			} else {
-				int *changes = calloc(MINSIZE, sizeof(int));
 				objective = objective_value(obj, cur_sol);
-//				objective = init_val + objective_value_improved(
-//						obj,
-//						&st[feasible_state_counter],
-//						moves[i].num_flips,
-//						moves[i].flips,
-//						&ful,
-//						&changes,
-//						&num_cahnges);
-				free(changes);
 			}
 			free(totals);  /* Free heap-allocated totals array */
 		}

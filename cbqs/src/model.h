@@ -21,10 +21,6 @@ typedef struct {
 	int depth_look_ahead;
 	int num_workers;
 	int ignore_constraint_search;
-	double *manual_bias;
-	double bias_factor;
-	double manual_bias_factor;
-	double look_ahead_factor;
 	int monte_carlo_estimate;
 	int reset_delta;
 	int max_delta;

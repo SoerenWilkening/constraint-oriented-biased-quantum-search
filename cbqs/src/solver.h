@@ -20,12 +20,6 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total);
 
-//int initial_state_preparation(state_t *new_sol, state_t *cur_sol,
-//                              new_constraints_t *con,
-//                              new_constraints_t *obj,
-//                              int depth_look_ahead, int *break_item
-//);
-
 int initial_state_preparation(model_t *mod);
 
 int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,

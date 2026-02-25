@@ -35,7 +35,6 @@ static void test_model_defaults(void **state) {
     model_t *mod = init_model();
 
     assert_int_equal(mod->n, 0);
-    assert_null(mod->manual_bias);
     assert_null(mod->initial_state);
     assert_null(mod->global_opt);
     assert_non_null(mod->obj);
@@ -49,9 +48,6 @@ static void test_model_defaults(void **state) {
     assert_int_equal(mod->stopping_time, 1000000);
     assert_int_equal(mod->max_worse_acceptances, 10);
     assert_int_equal(mod->distance, 2);
-    assert_true(mod->bias_factor == 1.0);
-    assert_true(mod->manual_bias_factor == 0.0);
-    assert_true(mod->look_ahead_factor == 0.0);
     assert_true(mod->runtime == 0.0);
 
     free_model(mod);
