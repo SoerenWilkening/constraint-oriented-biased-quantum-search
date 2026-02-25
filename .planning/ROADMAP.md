@@ -48,7 +48,7 @@
 
 **Milestone Goal:** Comprehensive codebase cleanup — eliminate dead code, enforce API consistency, fix build/packaging, fill documentation gaps, and verify+adopt incremental evaluation for performance.
 
-- [ ] **Phase 18: Dead Code Removal** - Remove orphaned model_t fields and all remaining dead/commented-out code across C, Cython, and Python
+- [x] **Phase 18: Dead Code Removal** - Remove orphaned model_t fields and all remaining dead/commented-out code across C, Cython, and Python (completed 2026-02-25)
 - [ ] **Phase 19: Incremental Evaluation** - Benchmark and adopt incremental constraint evaluation in local_search, replacing full recalculation
 - [ ] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers
 - [ ] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version
@@ -66,10 +66,10 @@
   3. solver.h contains no commented-out function signatures
   4. local_search.c contains no commented-out code blocks
   5. Full test suite (56 C + 390 Python) passes after removal with zero new failures
-**Plans**: TBD
+**Plans**: 1/1 complete
 
 Plans:
-- [ ] 18-01: TBD
+- [x] 18-01: Remove orphaned model_t fields, commented-out code, and stale Cython declarations (completed 2026-02-25)
 
 ### Phase 19: Incremental Evaluation
 **Goal**: local_search uses incremental constraint evaluation instead of full recalculation, with benchmarks confirming correctness and measuring performance delta
@@ -148,7 +148,7 @@ Plans:
 | 15. Solve API Migration | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 16. Global State Removal | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 17. Test Suite Finalization | v2.0 | 2/2 | Complete | 2026-02-14 |
-| 18. Dead Code Removal | v2.1 | 0/TBD | Not started | - |
+| 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
 | 19. Incremental Evaluation | v2.1 | 0/TBD | Not started | - |
 | 20. API Consistency | v2.1 | 0/TBD | Not started | - |
 | 21. Build & Packaging | v2.1 | 0/TBD | Not started | - |

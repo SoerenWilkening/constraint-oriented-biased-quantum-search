@@ -9,10 +9,10 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### Dead Code Removal
 
-- [ ] **DEAD-01**: All 4 orphaned model_t fields removed (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) from model.h, model.c, and Model.pxd
-- [ ] **DEAD-02**: Orphaned Cython declarations for removed fields removed from Model.pxd
-- [ ] **DEAD-03**: Commented-out function signature in solver.h removed
-- [ ] **DEAD-04**: Commented-out code blocks in local_search.c removed
+- [x] **DEAD-01**: All 4 orphaned model_t fields removed (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) from model.h, model.c, and Model.pxd
+- [x] **DEAD-02**: Orphaned Cython declarations for removed fields removed from Model.pxd
+- [x] **DEAD-03**: Commented-out function signature in solver.h removed
+- [x] **DEAD-04**: Commented-out code blocks in local_search.c removed
 
 ### Incremental Evaluation
 
@@ -69,10 +69,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEAD-01 | Phase 18 | Pending |
-| DEAD-02 | Phase 18 | Pending |
-| DEAD-03 | Phase 18 | Pending |
-| DEAD-04 | Phase 18 | Pending |
+| DEAD-01 | Phase 18 | Complete |
+| DEAD-02 | Phase 18 | Complete |
+| DEAD-03 | Phase 18 | Complete |
+| DEAD-04 | Phase 18 | Complete |
 | INCR-01 | Phase 19 | Pending |
 | INCR-02 | Phase 19 | Pending |
 | INCR-03 | Phase 19 | Pending |
