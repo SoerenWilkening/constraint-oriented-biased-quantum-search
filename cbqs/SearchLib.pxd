@@ -23,7 +23,7 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_branching_weights(solver_ctx_t* ctx, const double* weights, int n)
 	void solver_ctx_set_branching_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_bias_factor(solver_ctx_t* ctx, double factor)
-	void solver_ctx_set_look_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_look_ahead_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
 
 # StateProbability from Branching.h (relocated from branching.pxd)

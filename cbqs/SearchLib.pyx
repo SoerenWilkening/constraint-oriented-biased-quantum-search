@@ -244,7 +244,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 
 	param_look_factor = mod._params.get('look_ahead_factor') if hasattr(mod, '_params') else None
 	if param_look_factor is not None:
-		solver_ctx_set_look_factor(ctx, param_look_factor)
+		solver_ctx_set_look_ahead_factor(ctx, param_look_factor)
 
 	# Branching weights (new unified array)
 	param_weights = mod._params.get('branching_weights') if hasattr(mod, '_params') else None
@@ -387,7 +387,7 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 
 	param_look_factor_ls = mod._params.get('look_ahead_factor') if hasattr(mod, '_params') else None
 	if param_look_factor_ls is not None:
-		solver_ctx_set_look_factor(ctx, param_look_factor_ls)
+		solver_ctx_set_look_ahead_factor(ctx, param_look_factor_ls)
 
 	# Branching weights (new unified array)
 	param_weights_ls = mod._params.get('branching_weights') if hasattr(mod, '_params') else None

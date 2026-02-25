@@ -95,9 +95,6 @@ _PARAM_DEFS = {
 	                             'validate_msg': 'depth_look_ahead must be non-negative'},
 	'num_workers':              {'default': 12,    'coerce': int,          'validate': lambda v: v >= 1,
 	                             'validate_msg': 'num_workers must be >= 1'},
-	'results':                  {'default': 'min', 'coerce': str,          'validate': lambda v: v in ('min', 'average'),
-	                             'validate_msg': "results must be 'min' or 'average'"},
-	'bfs':                      {'default': False, 'coerce': _coerce_bool, 'validate': None},
 	'ignore_constraint_search': {'default': False, 'coerce': _coerce_bool, 'validate': None},
 	'monte_carlo_estimate':     {'default': False, 'coerce': _coerce_bool, 'validate': None},
 	'verify':                   {'default': False, 'coerce': _coerce_bool, 'validate': None},
@@ -417,8 +414,6 @@ or {self.runtime}s sampling
 		reset_delta = self._get_effective('reset_delta')
 		depth_look_ahead = self._get_effective('depth_look_ahead')
 		num_workers = self._get_effective('num_workers')
-		results = self._get_effective('results')
-		bfs = self._get_effective('bfs')
 		ignore_constraint_search = self._get_effective('ignore_constraint_search')
 		monte_carlo_estimate = self._get_effective('monte_carlo_estimate')
 		verify = self._get_effective('verify')

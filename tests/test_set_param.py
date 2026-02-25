@@ -345,8 +345,6 @@ class TestSetParamSolveParamsBasic:
         ("reset_delta", False),
         ("depth_look_ahead", 2),
         ("num_workers", 4),
-        ("results", "average"),
-        ("bfs", True),
         ("ignore_constraint_search", True),
         ("monte_carlo_estimate", True),
         ("verify", True),
@@ -393,12 +391,6 @@ class TestSetParamCoercion:
         m.set_param("num_workers", 2.0)
         assert m.get_param("num_workers") == 2
 
-    def test_coerce_results_int_to_str_fails_validation(self):
-        """set_param('results', 42) coerces to '42' but fails validation (not 'min'/'average')."""
-        m = Model()
-        with pytest.raises(ValueError, match="results must be"):
-            m.set_param("results", 42)
-
 
 # =============================================================================
 # 11. Set-time validation
@@ -438,11 +430,17 @@ class TestSetParamSetTimeValidation:
         with pytest.raises(ValueError, match="depth_look_ahead must be non-negative"):
             m.set_param("depth_look_ahead", -1)
 
-    def test_results_invalid_raises(self):
-        """set_param('results', 'max') raises ValueError."""
+    def test_results_removed_raises(self):
+        """set_param('results', 'min') raises ValueError (removed orphaned param)."""
         m = Model()
-        with pytest.raises(ValueError, match="results must be"):
-            m.set_param("results", "max")
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("results", "min")
+
+    def test_bfs_removed_raises(self):
+        """set_param('bfs', True) raises ValueError (removed orphaned param)."""
+        m = Model()
+        with pytest.raises(ValueError, match="Unknown parameter"):
+            m.set_param("bfs", True)
 
     def test_callback_not_callable_raises(self):
         """set_param('callback', 'not_a_function') raises ValueError."""
@@ -469,7 +467,6 @@ class TestSetParamResetToDefault:
         ("M", 500, -1),
         ("stopping_time", 60, 300),
         ("num_workers", 4, 12),
-        ("results", "average", "min"),
         ("track_history", False, True),
         ("callback", lambda: None, None),
     ])
@@ -498,8 +495,6 @@ class TestGetParamDefaults:
         ("reset_delta", True),
         ("depth_look_ahead", 0),
         ("num_workers", 12),
-        ("results", "min"),
-        ("bfs", False),
         ("ignore_constraint_search", False),
         ("monte_carlo_estimate", False),
         ("verify", False),
@@ -552,29 +547,29 @@ class TestUnknownParamRejected:
 class TestBoolCoercionStrict:
     """Verify bool coercion rejects strings, accepts bool and int."""
 
-    def test_bfs_string_raises(self):
-        """set_param('bfs', 'true') raises ValueError (string not accepted as bool)."""
+    def test_ignore_constraint_search_string_raises(self):
+        """set_param('ignore_constraint_search', 'true') raises ValueError (string not accepted as bool)."""
         m = Model()
         with pytest.raises(ValueError, match="Cannot coerce"):
-            m.set_param("bfs", "true")
+            m.set_param("ignore_constraint_search", "true")
 
-    def test_bfs_int_coerced(self):
-        """set_param('bfs', 1) coerces int to True."""
+    def test_ignore_constraint_search_int_coerced(self):
+        """set_param('ignore_constraint_search', 1) coerces int to True."""
         m = Model()
-        m.set_param("bfs", 1)
-        assert m.get_param("bfs") is True
+        m.set_param("ignore_constraint_search", 1)
+        assert m.get_param("ignore_constraint_search") is True
 
-    def test_bfs_int_zero_coerced(self):
-        """set_param('bfs', 0) coerces int 0 to False."""
+    def test_ignore_constraint_search_int_zero_coerced(self):
+        """set_param('ignore_constraint_search', 0) coerces int 0 to False."""
         m = Model()
-        m.set_param("bfs", 0)
-        assert m.get_param("bfs") is False
+        m.set_param("ignore_constraint_search", 0)
+        assert m.get_param("ignore_constraint_search") is False
 
-    def test_bfs_bool_true_works(self):
-        """set_param('bfs', True) works directly."""
+    def test_ignore_constraint_search_bool_true_works(self):
+        """set_param('ignore_constraint_search', True) works directly."""
         m = Model()
-        m.set_param("bfs", True)
-        assert m.get_param("bfs") is True
+        m.set_param("ignore_constraint_search", True)
+        assert m.get_param("ignore_constraint_search") is True
 
     def test_reset_delta_string_raises(self):
         """set_param('reset_delta', 'False') raises ValueError."""
