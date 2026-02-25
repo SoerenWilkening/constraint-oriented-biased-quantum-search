@@ -22,9 +22,9 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### API Consistency
 
-- [ ] **API-01**: Parameter naming unified across C/Cython/Python layers (look_factor/look_ahead_factor/depth_look_ahead resolved to single consistent name)
-- [ ] **API-02**: Unused or disconnected _PARAM_DEFS entries audited and either connected or removed
-- [ ] **API-03**: Cython type declarations aligned with C headers (uint32_t vs unsigned int consistency)
+- [x] **API-01**: Parameter naming unified across C/Cython/Python layers (look_factor/look_ahead_factor/depth_look_ahead resolved to single consistent name)
+- [x] **API-02**: Unused or disconnected _PARAM_DEFS entries audited and either connected or removed
+- [x] **API-03**: Cython type declarations aligned with C headers (uint32_t vs unsigned int consistency)
 
 ### Build & Packaging
 
@@ -76,9 +76,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INCR-01 | Phase 19 | Complete |
 | INCR-02 | Phase 19 | Complete |
 | INCR-03 | Phase 19 | Complete |
-| API-01 | Phase 20 | Pending |
-| API-02 | Phase 20 | Pending |
-| API-03 | Phase 20 | Pending |
+| API-01 | Phase 20 | Complete |
+| API-02 | Phase 20 | Complete |
+| API-03 | Phase 20 | Complete |
 | BUILD-01 | Phase 21 | Pending |
 | BUILD-02 | Phase 21 | Pending |
 | BUILD-03 | Phase 21 | Pending |
