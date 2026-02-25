@@ -151,6 +151,6 @@ Plans:
 | 17. Test Suite Finalization | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
 | 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
-| 20. API Consistency | v2.1 | 0/TBD | Not started | - |
+| 20. API Consistency | 1/2 | In Progress|  | - |
 | 21. Build & Packaging | v2.1 | 0/TBD | Not started | - |
 | 22. Documentation | v2.1 | 0/TBD | Not started | - |
