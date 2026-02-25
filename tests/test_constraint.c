@@ -262,6 +262,99 @@ static void test_eval_all_zero_state(void **state) {
     free_constraints(&con);
 }
 
+/* ------------------------------------------------------------------ */
+/* test_incremental_vs_full_recalc: INCR-03 correctness verification   */
+/* Compares constraint_violation() full-recalc against                  */
+/* adjusted_constraint_violation() incremental path for exact equality  */
+/* ------------------------------------------------------------------ */
+static void test_incremental_vs_full_recalc(void **state) {
+    (void)state;
+    int n = 8;
+    new_constraints_t con = init_new_constraint();
+
+    /* Constraint 0: 3*x0 + 2*x1 - 1*x2 + 4*x3 <= 6 */
+    int64_t coeffs0[] = {3, 2, -1, 4, 0, 0, 0, 0};
+    expression_t *e0 = build_linear_expression(n, coeffs0, LOWER, 6);
+    add_expression_to_constraints(&con, e0);
+    free_expression(e0);
+
+    /* Constraint 1: -2*x0 + 5*x1 + 1*x4 + 3*x5 <= 8 */
+    int64_t coeffs1[] = {-2, 5, 0, 0, 1, 3, 0, 0};
+    expression_t *e1 = build_linear_expression(n, coeffs1, LOWER, 8);
+    add_expression_to_constraints(&con, e1);
+    free_expression(e1);
+
+    /* Constraint 2: 1*x2 + 1*x3 + 1*x6 + 1*x7 <= 3 */
+    int64_t coeffs2[] = {0, 0, 1, 1, 0, 0, 1, 1};
+    expression_t *e2 = build_linear_expression(n, coeffs2, LOWER, 3);
+    add_expression_to_constraints(&con, e2);
+    free_expression(e2);
+
+    /* Preprocess for incremental access */
+    preprocessing(n, &con);
+
+    /* Create solution: x0=1, x1=1, x3=1, x5=1 */
+    int arr[] = {1, 1, 0, 1, 0, 1, 0, 0};
+    state_t *sol = init_state(0, arr, n);
+
+    uint32_t C = con.num_constraints;
+
+    /* Compute baseline remainings using full-recalc */
+    int64_t *remainings = malloc(C * sizeof(int64_t));
+    for (uint32_t i = 0; i < C; ++i)
+        remainings[i] = constraint_violation(&con, sol, i);
+
+    /* Test flipping each variable individually and comparing paths */
+    for (int flip_var = 0; flip_var < n; ++flip_var) {
+        /* Flip the variable */
+        sw_flpbit(sol->vector, flip_var);
+
+        /* Full-recalc after flip */
+        int64_t *full_after = malloc(C * sizeof(int64_t));
+        for (uint32_t i = 0; i < C; ++i)
+            full_after[i] = constraint_violation(&con, sol, i);
+
+        /* Incremental after flip: prepare ful_con from ORIGINAL solution */
+        sw_flpbit(sol->vector, flip_var); /* back to original */
+        array_t ful_con = sw_init(con.total_clauses);
+        prepare_constraints(&con, sol, &ful_con);
+        sw_flpbit(sol->vector, flip_var); /* flip again */
+
+        int64_t *totals = calloc(C, sizeof(int64_t));
+        array_t inv = sw_init(con.total_clauses);
+        int *changed_con = calloc(MINSIZE, sizeof(int));
+        int num_con_changes = 0;
+
+        adjusted_constraint_violation(&con, flip_var,
+            con.positive_indices, con.num_positive_indices,
+            con.positive_offsets, sol, POSITIVE,
+            totals, &ful_con, &changed_con, &num_con_changes, &inv);
+        adjusted_constraint_violation(&con, flip_var,
+            con.negative_indices, con.num_negative_indices,
+            con.negative_offsets, sol, NEGATIVE,
+            totals, &ful_con, &changed_con, &num_con_changes, &inv);
+
+        /* Compare: incremental = remainings[c] - totals[c] should match full_after[c] */
+        for (uint32_t c = 0; c < C; ++c) {
+            int64_t incremental_result = remainings[c] - totals[c];
+            assert_int_equal(full_after[c], incremental_result);
+        }
+
+        /* Unflip to restore original state for next iteration */
+        sw_flpbit(sol->vector, flip_var);
+
+        free(changed_con);
+        sw_clear(inv);
+        sw_clear(ful_con);
+        free(totals);
+        free(full_after);
+    }
+
+    free(remainings);
+    free_state(sol, 1);
+    free_constraints(&con);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_init_new_constraint),
@@ -275,6 +368,7 @@ int main(void) {
         cmocka_unit_test(test_constraint_violation_satisfied),
         cmocka_unit_test(test_preprocessing),
         cmocka_unit_test(test_eval_all_zero_state),
+        cmocka_unit_test(test_incremental_vs_full_recalc),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
