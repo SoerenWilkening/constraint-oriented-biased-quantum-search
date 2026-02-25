@@ -16,9 +16,9 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### Incremental Evaluation
 
-- [ ] **INCR-01**: Current full-recalculation paths benchmarked with before/after metrics
-- [ ] **INCR-02**: Incremental objective evaluation adopted in local_search using adjusted_constraint_violation() pattern
-- [ ] **INCR-03**: Benchmark confirms no correctness regression after incremental adoption
+- [x] **INCR-01**: Current full-recalculation paths benchmarked with before/after metrics
+- [x] **INCR-02**: Incremental objective evaluation adopted in local_search using adjusted_constraint_violation() pattern
+- [x] **INCR-03**: Benchmark confirms no correctness regression after incremental adoption
 
 ### API Consistency
 
@@ -73,9 +73,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEAD-02 | Phase 18 | Complete |
 | DEAD-03 | Phase 18 | Complete |
 | DEAD-04 | Phase 18 | Complete |
-| INCR-01 | Phase 19 | Pending |
-| INCR-02 | Phase 19 | Pending |
-| INCR-03 | Phase 19 | Pending |
+| INCR-01 | Phase 19 | Complete |
+| INCR-02 | Phase 19 | Complete |
+| INCR-03 | Phase 19 | Complete |
 | API-01 | Phase 20 | Pending |
 | API-02 | Phase 20 | Pending |
 | API-03 | Phase 20 | Pending |

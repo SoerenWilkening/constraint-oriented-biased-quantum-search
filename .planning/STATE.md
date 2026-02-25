@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.1 Code Audit & Optimization — Phase 18 complete, Phase 19 next
+**Current focus:** v2.1 Code Audit & Optimization — Phase 19 complete, Phase 20 next
 
 ## Current Position
 
-Phase: 19 of 22 (Incremental Evaluation)
+Phase: 20 of 22 (API Consistency)
 Plan: —
 Status: Ready to plan
-Last activity: 2026-02-25 — Phase 18 complete (dead code removal)
+Last activity: 2026-02-25 — Phase 19 complete (incremental evaluation adopted and benchmarked)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##░░░░░░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ####░░░░░░]
 
 ## Performance Metrics
 
@@ -22,8 +22,8 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##░░░�
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
 - v2.0: 4 phases, 8 plans
-- v2.1: 5 phases, 1 plan complete
-- Total: 22 phases, 54 plans complete
+- v2.1: 5 phases, 3 plans complete
+- Total: 22 phases, 56 plans complete
 
 ## Accumulated Context
 
@@ -34,6 +34,8 @@ See PROJECT.md Key Decisions table for full log.
 Recent decisions affecting v2.1:
 - Dead code removal first: low-risk, foundational — cleans the code base before any behavior changes
 - Incremental evaluation after dead code: modifying live solver logic requires a stable baseline
+- Caller-owns-baseline pattern: local_search() manages remainings[] and ful_con, passes to accept_best_routine()
+- Full-recalc refresh after accepted moves: simpler than tracking exact flipped bits from threaded results
 - API consistency after dead code: look_ahead_factor naming conflict only resolvable once orphaned fields are gone
 - Documentation last: documents final API names and algorithm comments for the cleaned state
 
@@ -55,5 +57,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Phase 18 (Dead Code Removal) complete — 4 orphaned model_t fields removed, commented-out code cleaned
-Next action: Plan Phase 19 (Incremental Evaluation)
+Stopped at: Phase 19 (Incremental Evaluation) complete — incremental constraint evaluation adopted in local_search, benchmarked across 6 problem sizes
+Next action: Plan Phase 20 (API Consistency)

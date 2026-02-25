@@ -49,7 +49,7 @@
 **Milestone Goal:** Comprehensive codebase cleanup — eliminate dead code, enforce API consistency, fix build/packaging, fill documentation gaps, and verify+adopt incremental evaluation for performance.
 
 - [x] **Phase 18: Dead Code Removal** - Remove orphaned model_t fields and all remaining dead/commented-out code across C, Cython, and Python (completed 2026-02-25)
-- [ ] **Phase 19: Incremental Evaluation** - Benchmark and adopt incremental constraint evaluation in local_search, replacing full recalculation
+- [x] **Phase 19: Incremental Evaluation** - Benchmark and adopt incremental constraint evaluation in local_search, replacing full recalculation (completed 2026-02-25)
 - [ ] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers
 - [ ] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version
 - [ ] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel
@@ -80,10 +80,11 @@ Plans:
   2. local_search calls adjusted_constraint_violation() (or equivalent incremental path) instead of full constraint recalculation for objective evaluation on each move
   3. All 446 tests pass after the incremental adoption — no correctness regression
   4. Benchmark output (or summary) is committed alongside the implementation change
-**Plans**: TBD
+**Plans**: 2/2 complete
 
 Plans:
-- [ ] 19-01: TBD
+- [x] 19-01: Adopt incremental constraint evaluation in explore_neighbourhood() and accept_best_routine() (completed 2026-02-25)
+- [x] 19-02: Create benchmark script and BENCHMARK.md with timing results (completed 2026-02-25)
 
 ### Phase 20: API Consistency
 **Goal**: Parameter naming is consistent across all three layers (C/Cython/Python), _PARAM_DEFS has no disconnected entries, and Cython type declarations match C headers
@@ -149,7 +150,7 @@ Plans:
 | 16. Global State Removal | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 17. Test Suite Finalization | v2.0 | 2/2 | Complete | 2026-02-14 |
 | 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
-| 19. Incremental Evaluation | v2.1 | 0/TBD | Not started | - |
+| 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
 | 20. API Consistency | v2.1 | 0/TBD | Not started | - |
 | 21. Build & Packaging | v2.1 | 0/TBD | Not started | - |
 | 22. Documentation | v2.1 | 0/TBD | Not started | - |
