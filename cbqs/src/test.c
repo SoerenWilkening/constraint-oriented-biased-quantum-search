@@ -37,7 +37,7 @@ int main(void){
 	preprocessing(5, &con);
 
 	size_t total_oracle_application = 0;
-	quantum_local_search(&obj, &con, sol, 2, &total_oracle_application);
+	quantum_local_search(&obj, &con, sol, 2, &total_oracle_application, NULL);
 	printf("%zu ", total_oracle_application);
 	print_state(sol);
 	printf("\n");

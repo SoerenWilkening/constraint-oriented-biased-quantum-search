@@ -3,6 +3,8 @@ project(constraint-oriented-biased-quantum-search C)
 
 set(CMAKE_C_STANDARD 17)
 
+find_package(Python3 REQUIRED COMPONENTS Development)
+
 add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/Expression.c
         cbqs/src/Expression.h
@@ -28,18 +30,28 @@ add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/model.h
         cbqs/src/approximate_state_sampler.c
         cbqs/src/approximate_state_sampler.h
+        cbqs/src/arena.c
+        cbqs/src/arena.h
+        cbqs/src/dyn_expr.c
+        cbqs/src/dyn_expr.h
+        cbqs/src/prng.c
+        cbqs/src/prng.h
 )
 
+target_include_directories(constraint-oriented-biased-quantum-search PRIVATE ${Python3_INCLUDE_DIRS})
+target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE ${Python3_LIBRARIES})
 target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
     -Wall -Wextra -Wpedantic -Wvla
 )
 
 
-add_executable(metal_test
-        cbqs/src/metal_files/exec_metal.m
-        cbqs/src/metal_files/exec_metal.h
-)
-target_link_libraries(metal_test
-        "-framework Metal"
-        "-framework Foundation"
-)
+if(APPLE)
+    add_executable(metal_test EXCLUDE_FROM_ALL
+            cbqs/src/metal_files/exec_metal.m
+            cbqs/src/metal_files/exec_metal.h
+    )
+    target_link_libraries(metal_test
+            "-framework Metal"
+            "-framework Foundation"
+    )
+endif()
