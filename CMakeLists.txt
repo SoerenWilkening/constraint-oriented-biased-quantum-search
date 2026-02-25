@@ -39,7 +39,7 @@ add_executable(constraint-oriented-biased-quantum-search
 )
 
 target_include_directories(constraint-oriented-biased-quantum-search PRIVATE ${Python3_INCLUDE_DIRS})
-target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE ${Python3_LIBRARIES})
+target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE ${Python3_LIBRARIES} m)
 target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
     -Wall -Wextra -Wpedantic -Wvla
 )
