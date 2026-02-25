@@ -69,30 +69,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEAD-01 | — | Pending |
-| DEAD-02 | — | Pending |
-| DEAD-03 | — | Pending |
-| DEAD-04 | — | Pending |
-| INCR-01 | — | Pending |
-| INCR-02 | — | Pending |
-| INCR-03 | — | Pending |
-| API-01 | — | Pending |
-| API-02 | — | Pending |
-| API-03 | — | Pending |
-| BUILD-01 | — | Pending |
-| BUILD-02 | — | Pending |
-| BUILD-03 | — | Pending |
-| BUILD-04 | — | Pending |
-| DOC-01 | — | Pending |
-| DOC-02 | — | Pending |
-| DOC-03 | — | Pending |
-| DOC-04 | — | Pending |
+| DEAD-01 | Phase 18 | Pending |
+| DEAD-02 | Phase 18 | Pending |
+| DEAD-03 | Phase 18 | Pending |
+| DEAD-04 | Phase 18 | Pending |
+| INCR-01 | Phase 19 | Pending |
+| INCR-02 | Phase 19 | Pending |
+| INCR-03 | Phase 19 | Pending |
+| API-01 | Phase 20 | Pending |
+| API-02 | Phase 20 | Pending |
+| API-03 | Phase 20 | Pending |
+| BUILD-01 | Phase 21 | Pending |
+| BUILD-02 | Phase 21 | Pending |
+| BUILD-03 | Phase 21 | Pending |
+| BUILD-04 | Phase 21 | Pending |
+| DOC-01 | Phase 22 | Pending |
+| DOC-02 | Phase 22 | Pending |
+| DOC-03 | Phase 22 | Pending |
+| DOC-04 | Phase 22 | Pending |
 
 **Coverage:**
 - v2.1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-25*
-*Last updated: 2026-02-25 after initial definition*
+*Last updated: 2026-02-25 after roadmap creation*
