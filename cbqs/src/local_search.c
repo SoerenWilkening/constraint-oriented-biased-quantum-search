@@ -178,36 +178,44 @@ void *explore_neighbourhood(void *args) {
 		int64_t *totals = dat->thread_totals;
 		memset(totals, 0, C * sizeof(int64_t));
 
-		/* Arena-based allocations for hot-path (avoid malloc/free per move) */
+		/* Incremental constraint evaluation using adjusted_constraint_violation()
+		 * instead of full constraint_violation() loop (INCR-02).
+		 * Pattern mirrors quantum_local_search_states(). */
+		int use_arena = (dat->ctx != NULL && dat->ctx->arena != NULL);
 		array_t inv;
 		int *changed_con;
-		int use_arena = (dat->ctx != NULL && dat->ctx->arena != NULL);
 		if (use_arena) {
-			inv = sw_init_arena(C * dat->size_ful, dat->ctx->arena);
+			inv = sw_init_arena(dat->con->total_clauses, dat->ctx->arena);
 			changed_con = (int*)arena_alloc(dat->ctx->arena, MINSIZE * sizeof(int), 4);
 			if (changed_con) memset(changed_con, 0, MINSIZE * sizeof(int));
 		} else {
-			inv = sw_init(C * dat->size_ful);
+			inv = sw_init(dat->con->total_clauses);
 			changed_con = calloc(MINSIZE, sizeof(int));
 		}
+		int num_con_changes = 0;
 
-        for (uint32_t i = 0; i < C; ++i){
-            totals[i] = constraint_violation(dat->con, new_sol, i);
-        }
-		/* Free only if not using arena */
+		for (int fi = 0; fi < k; ++fi) {
+			adjusted_constraint_violation(dat->con, comb[fi],
+				dat->con->positive_indices, dat->con->num_positive_indices,
+				dat->con->positive_offsets, new_sol,
+				POSITIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
+			adjusted_constraint_violation(dat->con, comb[fi],
+				dat->con->negative_indices, dat->con->num_negative_indices,
+				dat->con->negative_offsets, new_sol,
+				NEGATIVE, totals, &dat->ful_con, &changed_con, &num_con_changes, &inv);
+		}
 		if (!use_arena) {
 			free(changed_con);
 			sw_clear(inv);
 		}
-		/* Arena allocations are freed by arena_reset between iterations */
 
 		// compute with new solution
 		// is the new solution feasible ?
 		int64_t total_violation = 0;
 
 		for (uint32_t cnstr = 0; cnstr < C; ++cnstr) {
-			// only sum up violations
-			total_violation += totals[cnstr] < 0 ? totals[cnstr] : 0;
+			// only sum up violations — use remainings baseline with incremental delta
+			total_violation -= dat->remainings[cnstr] - totals[cnstr] < 0 ? dat->remainings[cnstr] - totals[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
 
@@ -266,7 +274,8 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
                         int *accept_worse_counter, int max_worse_acceptances,
-                        int stopping_criterion, int *neighbourhood_counter) {
+                        int stopping_criterion, int *neighbourhood_counter,
+                        int64_t *remainings_in, array_t *ful_con_in) {
 
 	uint32_t C = con->num_constraints;
 
@@ -276,24 +285,9 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	cur_best_tabu->tot_profit = INT64_MAX;
 
 	array_t ful = sw_init(obj->num_clauses[0]);
-	array_t ful_con = sw_init(C * size_ful);
-
-	int64_t *remainings;
-	int use_arena_for_remainings = (ctx != NULL && ctx->arena != NULL);
-	if (use_arena_for_remainings) {
-		remainings = (int64_t *)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
-	} else {
-		remainings = (int64_t *)malloc(C * sizeof(int64_t));
-	}
-	if (remainings == NULL) {
-		free_state(cur_best, 1);
-		free_state(cur_best_tabu, 1);
-		sw_clear(ful);
-		sw_clear(ful_con);
-		return -1;  /* Allocation failure */
-	}
-	for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
-	prepare_constraints(con, new_sol, &ful_con);
+	/* Use caller-provided remainings and ful_con (INCR-02) */
+	int64_t *remainings = remainings_in;
+	array_t ful_con = sw_set(*ful_con_in);
 	prepare(obj, new_sol, &ful); // prepare for optimized computation of objective value
 
 	/* Get thread count from solver context (default to 4 if no ctx) */
@@ -346,7 +340,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 			free(data);
 			free(threads);
 			free(progress_arr);
-			if (!use_arena_for_remainings) free(remainings);
 			free_state(cur_best, 1);
 			free_state(cur_best_tabu, 1);
 			sw_clear(ful);
@@ -423,7 +416,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	if (!accepted) {
 		if (*accept_worse_counter == max_worse_acceptances) {
 			/* MEM-01 FIX: Clean up before early return */
-			if (!use_arena_for_remainings) free(remainings);
 			free_state(cur_best, 1);
 			free_state(cur_best_tabu, 1);
 			sw_clear(ful);
@@ -443,7 +435,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	tabu_list->moves[tabu_list->head] = accepted_index;
 	tabu_list->head = (tabu_list->head + 1) % tabu_list->max_moves;
 
-	if (!use_arena_for_remainings) free(remainings);
 	free_state(cur_best, 1);
 	free_state(cur_best_tabu, 1);  /* MEM-01 FIX: was missing before */
 	sw_clear(ful);
@@ -500,6 +491,12 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		tabu_list.moves[i] = -1;
 	}
 
+	/* INCR-02: Compute remainings[] and ful_con once before the iteration loop.
+	 * These are passed to accept_best_routine and refreshed after each iteration. */
+	int64_t *remainings = malloc(C * sizeof(int64_t));
+	for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
+	prepare_constraints(mod->con, cur_sol, &ful_con);
+
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
 	int counter = 0;
@@ -511,12 +508,19 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		break_condition = accept_best_routine(ctx, cur_sol, mod->global_opt, mod->con, mod->obj, mod->distance, &initial_feasible,
 		                                      max_constraint_clauses, moves, num_moves, &tabu_list,
 		                                      &worse_acceptance_counter, mod->max_worse_acceptances,
-                                              mod->stopping_condition, &neighbourhood_counter);
+                                              mod->stopping_condition, &neighbourhood_counter,
+                                              remainings, &ful_con);
 		clock_gettime(CLOCK_MONOTONIC, &t2);
 		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
         mod->runtime = time;
 		if (callback) callback();
 		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
+
+		/* Refresh remainings[] and ful_con for the (possibly changed) cur_sol */
+		for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
+		memset(ful_con.part, 0, ful_con.n * sizeof(part_length_t));
+		prepare_constraints(mod->con, cur_sol, &ful_con);
+
 		counter++;
 	}
 
@@ -524,6 +528,7 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 
 	free_move_list(moves, num_moves);
 	free(tabu_list.moves);  /* MEM-01 FIX: was missing */
+	free(remainings);
 	sw_clear(ful_con);
 	sw_clear(ful);
 
