@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/SoerenWilkening/CBQS"
+Repository = "https://github.com/SoerenWilkening/constraint-oriented-biased-quantum-search"
 Paper = "https://arxiv.org/abs/2512.05205"
 
 [tool.setuptools.dynamic]

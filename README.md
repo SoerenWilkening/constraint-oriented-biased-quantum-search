@@ -13,7 +13,7 @@ python setup.py build_ext --inplace
 ```
 or 
 ```bash
-pip install .
+pip install -e .
 ```
 to compile the code.
 
@@ -29,6 +29,7 @@ m.add_constraint(sum(x[i] * z[i] for i in x) <= Z)
 m.set_objective(sum(x[i] * p[i] for i in x), MAXIMIZE)
 m.close()
 
+m.set_param('branching_bias', n / 4) # upper bound of 1000 oracle
 m.set_param('M', 1000) # upper bound of 1000 oracle applications
 m.solve()
 
