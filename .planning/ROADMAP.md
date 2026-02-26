@@ -109,10 +109,11 @@ Plans:
   2. pandas is absent from install_requires (or any dependency list) unless a concrete usage is found in the codebase
   3. Common build artifact patterns (*.so, *.pyc, build/, dist/, *.egg-info/) are covered by .gitignore — git status shows clean working tree after a fresh build
   4. The installed package reports version 2.1.0 (e.g., via importlib.metadata or __version__)
-**Plans**: TBD
+**Plans**: 0/2
 
 Plans:
-- [ ] 21-01: TBD
+- [ ] 21-01: Deduplicate C sources in setup.py, modernize pyproject.toml, create MANIFEST.in (BUILD-01)
+- [ ] 21-02: Audit dependencies, update .gitignore, bump version to 2.1.0 (BUILD-02, BUILD-03, BUILD-04)
 
 ### Phase 22: Documentation
 **Goal**: Every public Python method has a docstring, and the C kernel has algorithmic comments explaining the branching formula, preprocessing, look-ahead logic, and all _PARAM_DEFS entries
@@ -152,5 +153,5 @@ Plans:
 | 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
 | 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
-| 21. Build & Packaging | v2.1 | 0/TBD | Not started | - |
+| 21. Build & Packaging | 1/2 | In Progress|  | - |
 | 22. Documentation | v2.1 | 0/TBD | Not started | - |

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Code Audit & Optimization
 status: unknown
-last_updated: "2026-02-25T23:25:39.214Z"
+last_updated: "2026-02-26T08:58:16.855Z"
 progress:
-  total_phases: 20
+  total_phases: 21
   completed_phases: 20
-  total_plans: 57
-  completed_plans: 57
+  total_plans: 59
+  completed_plans: 58
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.1 Code Audit & Optimization — Phase 19 complete, Phase 20 next
+**Current focus:** v2.1 Code Audit & Optimization -- Phase 21 Build & Packaging in progress
 
 ## Current Position
 
-Phase: 20 of 22 (API Consistency)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-02-25 — Phase 19 complete (incremental evaluation adopted and benchmarked)
+Phase: 21 of 22 (Build & Packaging)
+Plan: 2 of 2
+Status: Plan 21-02 complete
+Last activity: 2026-02-26 -- Plan 21-02 complete (deps audit, gitignore, version 2.1.0)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ####░░░░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ######░░░░]
 
 ## Performance Metrics
 
@@ -51,6 +51,8 @@ Recent decisions affecting v2.1:
 - Full-recalc refresh after accepted moves: simpler than tracking exact flipped bits from threaded results
 - API consistency after dead code: look_ahead_factor naming conflict only resolvable once orphaned fields are gone
 - Documentation last: documents final API names and algorithm comments for the cleaned state
+- [Phase 21]: Removed pandas from dependencies -- zero runtime imports in cbqs/
+- [Phase 21]: Version bumped to 2.1.0 -- single source of truth in cbqs/__init__.py
 
 ### Pending Todos
 
@@ -66,9 +68,10 @@ None.
 |---|-------------|------|--------|-----------|
 | 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
 | 2 | Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c | 2026-02-14 | deab932 | [2-fix-sc-nprocessors-onln-undeclared-ident](./quick/2-fix-sc-nprocessors-onln-undeclared-ident/) |
+| Phase 21 P02 | 3min | 3 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: Phase 19 (Incremental Evaluation) complete — incremental constraint evaluation adopted in local_search, benchmarked across 6 problem sizes
-Next action: Plan Phase 20 (API Consistency)
+Last session: 2026-02-26
+Stopped at: Completed 21-02-PLAN.md (deps audit, gitignore, version bump to 2.1.0)
+Next action: Execute Plan 21-01 or advance to Phase 22

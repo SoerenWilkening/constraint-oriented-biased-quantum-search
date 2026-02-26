@@ -29,9 +29,9 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 ### Build & Packaging
 
 - [ ] **BUILD-01**: setup.py source duplication eliminated (each C source compiled once)
-- [ ] **BUILD-02**: pandas dependency verified and removed if unused
-- [ ] **BUILD-03**: Stray build artifacts cleaned and .gitignore updated
-- [ ] **BUILD-04**: Package version updated to 2.1.0
+- [x] **BUILD-02**: pandas dependency verified and removed if unused
+- [x] **BUILD-03**: Stray build artifacts cleaned and .gitignore updated
+- [x] **BUILD-04**: Package version updated to 2.1.0
 
 ### Documentation
 
@@ -80,9 +80,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-02 | Phase 20 | Complete |
 | API-03 | Phase 20 | Complete |
 | BUILD-01 | Phase 21 | Pending |
-| BUILD-02 | Phase 21 | Pending |
-| BUILD-03 | Phase 21 | Pending |
-| BUILD-04 | Phase 21 | Pending |
+| BUILD-02 | Phase 21 | Complete |
+| BUILD-03 | Phase 21 | Complete |
+| BUILD-04 | Phase 21 | Complete |
 | DOC-01 | Phase 22 | Pending |
 | DOC-02 | Phase 22 | Pending |
 | DOC-03 | Phase 22 | Pending |
