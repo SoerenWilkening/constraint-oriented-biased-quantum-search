@@ -9,4 +9,4 @@ from .Constants import *
 from .result import OptimizeResult
 
 
-__version__ = '1.0.1'
+__version__ = '2.1.0'
