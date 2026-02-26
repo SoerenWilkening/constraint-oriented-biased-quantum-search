@@ -153,5 +153,5 @@ Plans:
 | 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
 | 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
-| 21. Build & Packaging | 2/2 | Complete   | 2026-02-26 | - |
+| 21. Build & Packaging | 2/2 | Complete    | 2026-02-26 | - |
 | 22. Documentation | v2.1 | 0/TBD | Not started | - |
