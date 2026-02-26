@@ -1,28 +1,43 @@
-.idea
-.claude/
-.DS_Store
+# === Build artifacts ===
+*.so
+*.o
+*.pyc
+*.pyo
 __pycache__/
-random_QOQC/test.py
-venv
-cbqs/*.c
-cbqs/*.so
-build
-build-tests
-build-tests-asan
-cbqs/src/test.c
-cmake-build-debug
-cbqs/generators/*.c
-results.csv
-plot.py
-stores*.csv
-iqs.egg-info
+build/
+build-*/
+dist/
+*.egg-info/
 *.whl
+
+# Cython-generated C files (from .pyx compilation)
+cbqs/*.c
+cbqs/generators/*.c
+
+# === IDE / Editor ===
+.idea/
+.vscode/
+
+# === OS files ===
+.DS_Store
+Thumbs.db
+
+# === Project-specific ===
+venv/
+.venv-test/
+.claude/
+.github/
+
+# === Test / temporary ===
+.pytest_cache/
 test_callback.txt
+results.csv
+stores*.csv
+cbqs/src/test.c
+
+# === External / not part of core package ===
 random_QOQC
 random_QOQC2
-dist
-.rsync-exclude
-makefile
 random_QuarticOQuarticC
 quadknap
 2DVBP
@@ -30,10 +45,9 @@ MaxClique
 bounded_integers
 Paper
 Projects
-plot_smth.py
 others
-*.egg-info
-
-.venv-test
-build-*
-.github
+plot_smth.py
+plot.py
+.rsync-exclude
+makefile
+cmake-build-debug
