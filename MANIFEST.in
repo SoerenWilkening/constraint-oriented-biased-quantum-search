@@ -1,0 +1,28 @@
+# Source files
+recursive-include cbqs/src *.c *.h
+recursive-include cbqs *.pyx *.pxd *.py
+
+# Tests
+recursive-include tests *.py *.c *.h
+include tests/CMakeLists.txt
+
+# Build config
+include setup.py
+include pyproject.toml
+include MANIFEST.in
+include README.md
+include LICENSE
+
+# Exclude development/CI files
+prune .planning
+prune .claude
+prune .github
+prune venv
+prune .venv-test
+prune build-*
+prune cbqs/src/metal_files
+
+# Exclude generated files
+global-exclude *.so *.o *.pyc
+global-exclude .DS_Store
+prune __pycache__
