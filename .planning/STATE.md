@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: Code Audit & Optimization
-status: shipped
-last_updated: "2026-02-26T13:00:00.000Z"
+milestone: v3.0
+milestone_name: Adaptive Branching
+status: active
+last_updated: "2026-02-26T00:00:00.000Z"
 progress:
-  total_phases: 24
-  completed_phases: 24
-  total_plans: 66
-  completed_plans: 66
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.1 shipped — planning next milestone
+**Current focus:** v3.0 Adaptive Branching — defining requirements
 
 ## Current Position
 
-Phase: All complete (24/24)
-Plan: All complete (66/66)
-Status: v2.1 Code Audit & Optimization shipped
-Last activity: 2026-02-26 - Milestone v2.1 archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-26 — Milestone v3.0 started
 
-Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########]
+Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########] [v3.0 ░░░░░░░░░░]
 
 ## Performance Metrics
 
@@ -63,5 +63,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Milestone v2.1 archived and tagged
-Next action: `/gsd:new-milestone` to define next milestone
+Stopped at: Milestone v3.0 started — defining requirements
+Next action: Complete requirements definition and roadmap creation

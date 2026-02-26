@@ -61,12 +61,21 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ### Active
 
-(No active requirements — use `/gsd:new-milestone` to define next milestone)
+## Current Milestone: v3.0 Adaptive Branching
+
+**Goal:** Add ML-based learning of branching weights — train on small/medium instances, generalize to larger ones, with real-time online adaptation during solve.
+
+**Target features:**
+- Offline training pipeline: collect performance data across instance sets, learn problem-feature → weight mappings
+- Online adaptation: branching weights adjust during solve based on objective improvement + constraint satisfaction feedback
+- Sampling solver as initial target (local search extension deferred)
+- Combined reward signal: objective improvement rate + constraint satisfaction rate
+- sklearn as optional dependency for ML components
 
 ### Out of Scope
 
-- ML-based branching strategy selection — deferred to future milestone
-- Adaptive branching that learns during search — deferred to future milestone
+- ML-based branching strategy selection — moved to v3.0 Active
+- Adaptive branching that learns during search — moved to v3.0 Active
 - Automatic multi-heuristic solver (combining sampling + local search) — deferred to future milestone
 - Branch-and-bound extension — deferred to future milestone
 - Circuit backend / quantum hardware execution — exists as submodule but not active
@@ -138,4 +147,4 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | NumPy-style docstrings | Standard format with Parameters/Returns/Raises/Examples | ✓ Good — pydoc/help() readable output |
 
 ---
-*Last updated: 2026-02-26 after v2.1 milestone completion*
+*Last updated: 2026-02-26 after v3.0 milestone start*
