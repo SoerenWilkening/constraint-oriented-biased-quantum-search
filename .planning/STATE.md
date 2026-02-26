@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-02-25)
 Phase: 21 of 22 (Build & Packaging)
 Plan: 2 of 2 (all complete)
 Status: Phase 21 complete
-Last activity: 2026-02-26 -- Plan 21-01 complete (C source deduplication, pyproject.toml modernization, MANIFEST.in)
+Last activity: 2026-02-26 - Completed quick task 3: Update example code in README.md — fix outdated solve() method arguments
 
 Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 #######░░░]
 
@@ -71,8 +71,6 @@ None.
 | 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
 | 2 | Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c | 2026-02-14 | deab932 | [2-fix-sc-nprocessors-onln-undeclared-ident](./quick/2-fix-sc-nprocessors-onln-undeclared-ident/) |
 | 3 | Update README example code to use set_param() + zero-arg solve() | 2026-02-26 | ae81337 | [3-update-example-code-in-readme-md-fix-out](./quick/3-update-example-code-in-readme-md-fix-out/) |
-| Phase 21 P02 | 3min | 3 tasks | 4 files |
-| Phase 21 P01 | 13min | 2 tasks | 3 files |
 
 ## Session Continuity
 
