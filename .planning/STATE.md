@@ -70,11 +70,12 @@ None.
 |---|-------------|------|--------|-----------|
 | 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
 | 2 | Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c | 2026-02-14 | deab932 | [2-fix-sc-nprocessors-onln-undeclared-ident](./quick/2-fix-sc-nprocessors-onln-undeclared-ident/) |
+| 3 | Update README example code to use set_param() + zero-arg solve() | 2026-02-26 | ae81337 | [3-update-example-code-in-readme-md-fix-out](./quick/3-update-example-code-in-readme-md-fix-out/) |
 | Phase 21 P02 | 3min | 3 tasks | 4 files |
 | Phase 21 P01 | 13min | 2 tasks | 3 files |
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 21-01-PLAN.md (C source deduplication, pyproject.toml, MANIFEST.in)
+Stopped at: Completed quick task 3 (README example code fix)
 Next action: Phase 21 complete -- advance to Phase 22 (Documentation)
