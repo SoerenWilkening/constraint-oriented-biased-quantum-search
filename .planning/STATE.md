@@ -5,7 +5,7 @@ milestone_name: Adaptive Branching
 status: active
 last_updated: "2026-02-26T00:00:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v3.0 Adaptive Branching — defining requirements
+**Current focus:** v3.0 Adaptive Branching — Phase 25 ready to plan
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 25 of 28 (Feature Extraction & ML Foundation)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-02-26 — Milestone v3.0 started
+Status: Ready to plan
+Last activity: 2026-02-26 — Roadmap created for v3.0 milestone
 
 Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########] [v3.0 ░░░░░░░░░░]
 
@@ -36,7 +36,8 @@ Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########
 - v1.1: 5 phases, 10 plans
 - v2.0: 4 phases, 8 plans
 - v2.1: 7 phases, 14 plans
-- Total: 24 phases, 67 plans complete
+- v3.0: 4 phases, 0 plans (not started)
+- Total: 28 phases, 67 plans complete
 
 ## Accumulated Context
 
@@ -44,13 +45,21 @@ Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########
 
 See PROJECT.md Key Decisions table for full log.
 
+Recent decisions for v3.0:
+- Pure-Python cbqs/ml/ subpackage — no C kernel changes needed for ML layer
+- sklearn as only new dependency, optional extra via cbqs[ml]
+- Multi-round inter-solve adaptation (not intra-solve C-level mutation) for thread safety
+- Per-variable prediction model for size-invariant transfer learning
+- ExtraTreesRegressor for offline, SGDRegressor for online adaptation
+
 ### Pending Todos
 
 None.
 
 ### Blockers/Concerns
 
-None.
+- Research flag: FeatureExtractor data access path (Cython helper vs. direct attribute access) needs spike in Phase 25
+- Research flag: AdaptiveController reward signal may need stage-aware weighting for CBQS's 3-stage solve structure
 
 ### Quick Tasks Completed
 
@@ -63,5 +72,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Milestone v3.0 started — defining requirements
-Next action: Complete requirements definition and roadmap creation
+Stopped at: Roadmap created for v3.0 Adaptive Branching (Phases 25-28)
+Next action: Plan Phase 25 via /gsd:plan-phase 25

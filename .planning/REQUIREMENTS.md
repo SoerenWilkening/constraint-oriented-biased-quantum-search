@@ -77,30 +77,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEAT-01 | — | Pending |
-| FEAT-02 | — | Pending |
-| FEAT-03 | — | Pending |
-| TRAIN-01 | — | Pending |
-| TRAIN-02 | — | Pending |
-| TRAIN-03 | — | Pending |
-| TRAIN-04 | — | Pending |
-| TRAIN-05 | — | Pending |
-| ADAPT-01 | — | Pending |
-| ADAPT-02 | — | Pending |
-| ADAPT-03 | — | Pending |
-| ADAPT-04 | — | Pending |
-| DIAG-01 | — | Pending |
-| DIAG-02 | — | Pending |
-| DIAG-03 | — | Pending |
-| INTG-01 | — | Pending |
-| INTG-02 | — | Pending |
-| INTG-03 | — | Pending |
+| FEAT-01 | Phase 25 | Pending |
+| FEAT-02 | Phase 25 | Pending |
+| FEAT-03 | Phase 25 | Pending |
+| TRAIN-01 | Phase 26 | Pending |
+| TRAIN-02 | Phase 26 | Pending |
+| TRAIN-03 | Phase 26 | Pending |
+| TRAIN-04 | Phase 26 | Pending |
+| TRAIN-05 | Phase 26 | Pending |
+| ADAPT-01 | Phase 27 | Pending |
+| ADAPT-02 | Phase 27 | Pending |
+| ADAPT-03 | Phase 27 | Pending |
+| ADAPT-04 | Phase 27 | Pending |
+| DIAG-01 | Phase 28 | Pending |
+| DIAG-02 | Phase 28 | Pending |
+| DIAG-03 | Phase 28 | Pending |
+| INTG-01 | Phase 25 | Pending |
+| INTG-02 | Phase 25 | Pending |
+| INTG-03 | Phase 25 | Pending |
 
 **Coverage:**
 - v3.0 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after initial definition*
+*Last updated: 2026-02-26 after roadmap creation*
