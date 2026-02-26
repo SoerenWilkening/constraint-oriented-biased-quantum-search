@@ -28,9 +28,11 @@ x = m.add_vars(n) # n variables
 m.add_constraint(sum(x[i] * z[i] for i in x) <= Z)
 m.set_objective(sum(x[i] * p[i] for i in x), MAXIMIZE)
 m.close()
-m.solve(M = 1000) # upper bound of 1000 oracle applications
 
-del m 
+m.set_param('M', 1000) # upper bound of 1000 oracle applications
+m.solve()
+
+del m
 ```
 
 Cite as:
