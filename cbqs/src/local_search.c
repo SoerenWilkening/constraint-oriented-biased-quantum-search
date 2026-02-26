@@ -7,6 +7,31 @@
 #include "prng.h"
 #include "arena.h"
 
+/*
+ * Local Search Algorithm
+ *
+ * Implements iterative k-flip neighborhood search for combinatorial optimization.
+ * The algorithm repeatedly evaluates all k-flip neighbors of the current solution
+ * (where k is controlled by the 'distance' parameter), accepts the best improving
+ * move, and terminates when no improvement is found for max_worse_acceptances
+ * consecutive iterations.
+ *
+ * Key components:
+ *   - explore_neighbourhood(): Evaluates all k-flip neighbors in parallel across
+ *     threads. Each thread handles a slice of the move list, using incremental
+ *     constraint evaluation (adjusted_constraint_violation) for efficiency.
+ *   - accept_best_routine(): Collects thread results, selects the best non-tabu
+ *     move (preferring feasible moves, then best objective), updates the solution.
+ *   - local_search(): Main loop driving iteration, termination, and timing.
+ *
+ * Cycling prevention: A tabu list marks recently-flipped variables, preventing
+ * the algorithm from immediately reversing a move.
+ *
+ * Thread model: explore_neighbourhood() runs in parallel via pthreads.
+ * Each worker thread owns its own scratch buffers. The shared global_opt is
+ * updated under mutex protection (update_lock).
+ */
+
 /* MEM-02: Reference the mutex defined in SearchLib.c for global_opt protection */
 extern pthread_mutex_t update_lock;
 
@@ -136,6 +161,17 @@ void free_move_list(move_t *move_list, int num_moves) {
 	free(move_list);
 }
 
+/*
+ * explore_neighbourhood -- Evaluate a slice of k-flip neighbors in a worker thread.
+ *
+ * Each thread processes moves[start_move..end_move), flipping the indicated variable
+ * bits, computing the new objective via incremental evaluation (adjusted_constraint_violation),
+ * and tracking the best non-tabu and best tabu moves found. Uses per-thread scratch
+ * buffers to avoid contention.
+ *
+ * After processing all assigned moves, stores the best candidates in dat->cur_best
+ * and dat->cur_best_tabu for the main thread to collect.
+ */
 void *explore_neighbourhood(void *args) {
 	local_search_data_t *dat = (local_search_data_t *) args;
 
@@ -270,6 +306,20 @@ void *explore_neighbourhood(void *args) {
 	return NULL;
 }
 
+/*
+ * accept_best_routine -- Select and apply the best improving move from the neighborhood.
+ *
+ * Spawns worker threads to explore the full k-flip neighborhood via explore_neighbourhood(),
+ * then collects results and selects the overall best move. Selection criteria:
+ *   1. Feasibility first: a feasible move beats an infeasible one
+ *   2. Among same-feasibility moves: best (lowest) objective wins
+ *   3. Non-tabu moves preferred; tabu moves used only if no non-tabu improvement exists
+ *
+ * After selecting the best move, updates new_sol in place and checks whether the
+ * global optimum should be updated (under mutex protection).
+ *
+ * Returns: 1 if an improving move was accepted, 0 if stuck (triggers termination check).
+ */
 int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt, new_constraints_t *con, new_constraints_t *obj,
                         int d, int *initial_feasible, int size_ful,
                         move_t *moves, int num_moves, tabu_list_t *tabu_list,
@@ -443,7 +493,27 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 }
 
 /*
- * local_search(ctx, cur_sol, mod, callback)
+ * local_search -- Main loop driving iterative neighborhood exploration.
+ *
+ * Algorithm:
+ *   1. Generate the full k-flip move list (all combinations of 1..distance variable flips)
+ *   2. Initialize a tabu list (size 10) and compute initial constraint remainings
+ *   3. Loop:
+ *      a. Call accept_best_routine() to explore neighborhood and apply best move
+ *      b. Invoke callback (if any)
+ *      c. Check termination: time limit, target objective, or max non-improving iterations
+ *      d. Refresh constraint remainings for the updated solution
+ *   4. Accept the final best solution into global_opt
+ *
+ * Termination conditions (any triggers exit):
+ *   - Wall-clock time exceeds mod->stopping_time
+ *   - Objective reaches mod->stop_val (if set)
+ *   - max_worse_acceptances consecutive non-improving iterations
+ *   - Solver context stop flag set (for multi-worker coordination)
+ *
+ * Thread model: This function runs as a single worker. Multiple workers can run
+ * local_search independently in parallel; they share mod->global_opt protected by
+ * update_lock mutex.
  *
  * Reads:  cur_sol->vector.bits,
  *         mod->con->num_constraints, mod->con->num_clauses[],
@@ -451,14 +521,8 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
  *         mod->distance, mod->stopping_time, mod->stop_val,
  *         mod->max_worse_acceptances, mod->stopping_condition,
  *         mod->global_opt (passed to accept_best_routine)
- *
- * Writes: mod->runtime (unprotected -- written each iteration),
- *         mod->global_opt->tot_profit (mutex-protected via update_lock trylock),
- *         mod->global_opt->vector (mutex-protected via update_lock trylock),
- *         mod->global_opt->feasible (mutex-protected via update_lock trylock),
- *         cur_sol->vector (unprotected -- single-thread ownership),
- *         cur_sol->tot_profit (unprotected),
- *         cur_sol->feasible (unprotected)
+ * Writes: mod->runtime, mod->global_opt (mutex-protected),
+ *         cur_sol (single-thread ownership)
  */
 int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) {
 

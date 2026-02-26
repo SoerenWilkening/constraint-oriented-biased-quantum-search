@@ -105,17 +105,30 @@ void print_new_constraint(new_constraints_t *con) {
 }
 
 /*
- * preprocessing(n, con)
+ * preprocessing -- Build dense index structures for constraint evaluation.
+ *
+ * Purpose: For each (variable, constraint) pair, build arrays that map to the
+ * clause indices where that variable appears. This allows the sampling solver
+ * to evaluate the effect of assigning a variable in O(k) time (where k is the
+ * number of clauses containing it) instead of scanning all clauses.
+ *
+ * Data structures built (all 1D arrays, indexed by item * C + cnstr):
+ *   positive_indices[]      -- clause indices for positive-coefficient terms
+ *   positive_offsets[]      -- offset into positive_indices for each (item, cnstr)
+ *   num_positive_indices[]  -- count of positive clause entries per (item, cnstr)
+ *   negative_indices[]      -- clause indices for negative-coefficient terms
+ *   negative_offsets[]      -- offset into negative_indices for each (item, cnstr)
+ *   num_negative_indices[]  -- count of negative clause entries per (item, cnstr)
+ *
+ * Separation into positive/negative is needed because the branching direction
+ * (assign 0 vs 1) has opposite effects on positive and negative terms when
+ * computing constraint potential updates.
+ *
+ * Called once during model.close() on the main thread before any parallel solve.
  *
  * Reads:  con->num_constraints, con->num_clauses[], con->clause_length[],
  *         con->variables[], con->factors[]
- *
- * Writes: con->sparsity, con->positive_indices, con->negative_indices,
- *         con->positive_offsets, con->negative_offsets,
- *         con->num_positive_indices, con->num_negative_indices,
- *         con->positive_array_length, con->negative_array_length,
- *         con->array_length
- *         (All unprotected -- called during single-threaded model setup)
+ * Writes: All index arrays above, con->sparsity = DENSE, con->array_length
  */
 void preprocessing(
 		int n,
@@ -241,6 +254,22 @@ int64_t get_index(const uint32_t *columns, const uint32_t *rows, int item, size_
 }
 
 
+/*
+ * preprocessing_sparse -- Build sparse (CSR-like) index structures for constraint evaluation.
+ *
+ * Same purpose as preprocessing(), but for sparse constraint matrices where most
+ * (variable, constraint) pairs have no entries. Used when clause density is low:
+ * 10 * total_clauses <= n * num_constraints.
+ *
+ * Instead of allocating n * C entries for offsets/counts (which would be mostly zeros),
+ * this version stores only the non-zero (item, constraint) pairs using row/column arrays:
+ *   pos_rows[], pos_cols[]  -- (row=constraint, col=variable) for positive terms
+ *   neg_rows[], neg_cols[]  -- same for negative terms
+ *
+ * Lookup during solving uses binary search via get_index() on the sorted row/column
+ * structure, trading O(1) dense access for O(log nnz) sparse access with much less
+ * memory when constraints are sparse.
+ */
 void preprocessing_sparse(
     int n,
     new_constraints_t *con

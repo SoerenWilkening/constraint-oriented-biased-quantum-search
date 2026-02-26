@@ -58,6 +58,31 @@ int update_potentials(new_constraints_t *con, int64_t *potentials, int direction
 	return 1;
 }
 
+/*
+ * look_ahead_correct -- Recursively check if a partial variable assignment can lead
+ *                       to a feasible solution by exploring future assignments.
+ *
+ * Algorithm: Starting at variable `index`, tentatively assigns `next_assignment` (0 or 1)
+ * and evaluates whether constraint potentials remain non-negative (feasibility check).
+ * If feasible and `index < depth`, recurses on the next variable trying both 0 and 1.
+ * Each time the recursion reaches `depth` with a feasible assignment, `count_solutions`
+ * is incremented.
+ *
+ * Parameters:
+ *   index           -- current variable being assigned
+ *   next_assignment -- 0 or 1 to try for this variable
+ *   depth           -- how far ahead to look (0 = check only this variable)
+ *   count_solutions -- [out] incremented for each feasible completion found
+ *   con             -- constraint data with preprocessed indices
+ *   potentials      -- remaining capacity for each constraint (modified and restored)
+ *   cur_sol         -- current partial solution (bits set/cleared during recursion)
+ *   ret_total       -- scratch array for constraint evaluation results
+ *
+ * Purpose: Prunes the branching tree early by detecting that no feasible completion
+ * exists beyond a certain depth, avoiding wasted exploration of infeasible subtrees.
+ * The count of feasible completions is used by the sampling algorithm to bias the
+ * branching probability toward assignments that have more feasible continuations.
+ */
 int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
                        state_t *cur_sol, int64_t *ret_total) {
@@ -132,20 +157,31 @@ int64_t max_value(const int64_t *arr, size_t n) {
 
 
 /*
- * initial_state_preparation(mod)
+ * initial_state_preparation -- Construct an initial solution using greedy sampling
+ *                              with branching probabilities and look-ahead.
+ *
+ * Algorithm: Assigns variables left-to-right (index 0 to n-1). For each variable:
+ *   1. Evaluate constraint potentials for assignment=0 and assignment=1
+ *   2. Run look_ahead_correct() for both assignments to count feasible continuations
+ *   3. Combine feasibility counts with branching probability (from BranchingFunction)
+ *   4. Choose assignment probabilistically, biased toward more-feasible directions
+ *   5. Update constraint potentials and mark the variable as branched
+ *
+ * If neither assignment is feasible at any point, the break_item is recorded and
+ * the remaining variables are assigned without branching.
+ *
+ * Data flow: potentials[] tracking -> evaluation() -> look_ahead_correct() ->
+ *            probabilistic selection -> update_potentials() -> next variable
+ *
+ * This function runs once on the main thread during model setup (before parallel
+ * solve workers start). It populates mod->initial_state with the greedy solution
+ * and mod->global_opt with the best solution found.
  *
  * Reads:  mod->initial_state->vector.bits, mod->con->num_constraints,
  *         mod->con->rhs[], mod->depth_look_ahead,
  *         mod->obj (for objective_value)
- *
- * Writes: mod->initial_state->tot_profit (unprotected),
- *         mod->initial_state->vector (unprotected),
- *         mod->initial_state->branch (unprotected),
- *         mod->initial_state->feasible (unprotected),
- *         mod->break_item (unprotected),
- *         mod->global_opt->tot_profit (unprotected),
- *         mod->global_opt->vector (unprotected),
- *         mod->global_opt->feasible (unprotected)
+ * Writes: mod->initial_state (vector, tot_profit, branch, feasible),
+ *         mod->break_item, mod->global_opt (vector, tot_profit, feasible)
  *         (All unprotected -- called during single-threaded setup before solve)
  */
 int initial_state_preparation(model_t *mod) {

@@ -1,6 +1,16 @@
-//
-// Created by Sören Wilkening on 24.10.25.
-//
+/*
+ * Approximate State Sampler
+ *
+ * Generates approximate quantum state samples using classical simulation.
+ * The core function CSearch_opt_sampler() constructs random solutions by
+ * assigning variables left-to-right, using the same look-ahead feasibility
+ * mechanism as solver.c (look_ahead_correct) combined with branching
+ * probabilities to bias assignments toward feasible, high-quality solutions.
+ *
+ * Multiple samples are generated and classified as "good" (improving over
+ * a threshold) or "bad" (not improving). The good/bad ratio approximates
+ * the quantum state amplitude used by the Grover-style search.
+ */
 
 #include "approximate_state_sampler.h"
 #include "solver_ctx.h"
