@@ -51,7 +51,7 @@
 - [x] **Phase 18: Dead Code Removal** - Remove orphaned model_t fields and all remaining dead/commented-out code across C, Cython, and Python (completed 2026-02-25)
 - [x] **Phase 19: Incremental Evaluation** - Benchmark and adopt incremental constraint evaluation in local_search, replacing full recalculation (completed 2026-02-25)
 - [x] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers (completed 2026-02-25)
-- [ ] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version
+- [x] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version (completed 2026-02-26)
 - [ ] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel
 
 ## Phase Details
@@ -153,5 +153,5 @@ Plans:
 | 18. Dead Code Removal | 1/1 | Complete   | 2026-02-25 | - |
 | 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
-| 21. Build & Packaging | 1/2 | In Progress|  | - |
+| 21. Build & Packaging | 2/2 | Complete   | 2026-02-26 | - |
 | 22. Documentation | v2.1 | 0/TBD | Not started | - |
