@@ -5,7 +5,7 @@ Verifies that:
 - cbqs.ml imports work with sklearn installed
 - cbqs.ml raises clear ImportError when sklearn is missing
 - Stub modules exist and are importable
-- FeatureExtractor stub methods raise NotImplementedError
+- FeatureExtractor class has expected interface
 """
 import importlib
 import sys
@@ -60,14 +60,15 @@ def test_ml_import_error_message():
     importlib.import_module('cbqs.ml')
 
 
-def test_feature_extractor_stub_raises():
-    """FeatureExtractor stub methods raise NotImplementedError."""
+def test_feature_extractor_has_expected_interface():
+    """FeatureExtractor class has extract_variable_features and extract_instance_features."""
     from cbqs.ml.features import FeatureExtractor
 
     fe = FeatureExtractor()
 
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        fe.extract_variable_features(None)
-
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        fe.extract_instance_features(None)
+    assert hasattr(fe, 'extract_variable_features')
+    assert hasattr(fe, 'extract_instance_features')
+    assert hasattr(fe, 'feature_names')
+    assert hasattr(fe, 'instance_feature_names')
+    assert callable(fe.extract_variable_features)
+    assert callable(fe.extract_instance_features)
