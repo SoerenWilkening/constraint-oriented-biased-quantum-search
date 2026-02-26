@@ -1,0 +1,106 @@
+# Requirements: CBQS v3.0 Adaptive Branching
+
+**Defined:** 2026-02-26
+**Core Value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
+
+## v3.0 Requirements
+
+Requirements for ML-based adaptive branching weight learning. Each maps to roadmap phases.
+
+### Feature Extraction
+
+- [ ] **FEAT-01**: User can extract per-variable feature matrix (n_vars x n_features) from a closed Model
+- [ ] **FEAT-02**: User can extract instance-level feature vector (constraint density, variable count, coefficient statistics)
+- [ ] **FEAT-03**: Feature extraction works on models of any size without coupling to a fixed dimension
+
+### Offline Training
+
+- [ ] **TRAIN-01**: User can train a weight predictor from a collection of (Model, best_weights) pairs via fit()
+- [ ] **TRAIN-02**: User can predict branching weights for a new Model via predict(), returning a numpy array compatible with set_param()
+- [ ] **TRAIN-03**: User can save and load a trained predictor via joblib serialization
+- [ ] **TRAIN-04**: User can collect training data automatically via a utility that runs short solves with diverse weight strategies
+- [ ] **TRAIN-05**: Training pipeline includes uniform-weights baseline in evaluation
+
+### Online Adaptation
+
+- [ ] **ADAPT-01**: User can run an adaptive multi-round solve where weights update between rounds via EMA
+- [ ] **ADAPT-02**: Adaptation uses a combined reward signal (objective improvement rate + constraint satisfaction rate)
+- [ ] **ADAPT-03**: Online adaptation preserves solver determinism (same seed + threads = same result)
+- [ ] **ADAPT-04**: Online adaptation preserves thread safety (no shared mutable weight arrays between workers)
+
+### Transfer & Diagnostics
+
+- [ ] **DIAG-01**: User can train on small instances and apply learned weights to larger instances of the same problem type
+- [ ] **DIAG-02**: User can evaluate learned weights against uniform and default baselines via evaluate_weights utility
+- [ ] **DIAG-03**: Evaluation reports objective improvement and convergence speed relative to baselines
+
+### Integration
+
+- [ ] **INTG-01**: sklearn is an optional dependency installed via `pip install cbqs[ml]`
+- [ ] **INTG-02**: Importing cbqs without sklearn installed does not raise errors
+- [ ] **INTG-03**: ML module has clear import error message when sklearn is missing
+
+## Future Requirements
+
+Deferred to v3.1+.
+
+### Advanced ML
+
+- **ADV-01**: GNN-based weight prediction using bipartite constraint-variable graph
+- **ADV-02**: Reinforcement learning training loop for weight optimization
+- **ADV-03**: Custom ML model plugin interface for user-supplied estimators
+
+### Extended Solvers
+
+- **EXT-01**: Local search solver weight adaptation
+- **EXT-02**: Multi-solver orchestration combining sampling + local search with learned strategy selection
+
+### Visualization
+
+- **VIS-01**: Real-time weight evolution visualization during adaptive solve
+- **VIS-02**: Training convergence dashboard
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| PyTorch / TensorFlow dependency | Overkill for 10-20 features and 10-100 training instances; sklearn sufficient |
+| GNN-based prediction | Requires thousands of training instances and PyTorch; deferred to v3.1+ |
+| Intra-solve C-level weight mutation | Thread-safety and determinism risk; inter-solve multi-round approach achieves same goal safely |
+| Algorithm portfolio / multi-solver | Separate milestone scope; requires both solvers to have ML weights first |
+| GPU acceleration | Not relevant for sklearn-based tabular regression |
+| PassiveAggressiveRegressor | Deprecated in sklearn 1.8, removed in 1.10; use SGDRegressor instead |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| FEAT-01 | — | Pending |
+| FEAT-02 | — | Pending |
+| FEAT-03 | — | Pending |
+| TRAIN-01 | — | Pending |
+| TRAIN-02 | — | Pending |
+| TRAIN-03 | — | Pending |
+| TRAIN-04 | — | Pending |
+| TRAIN-05 | — | Pending |
+| ADAPT-01 | — | Pending |
+| ADAPT-02 | — | Pending |
+| ADAPT-03 | — | Pending |
+| ADAPT-04 | — | Pending |
+| DIAG-01 | — | Pending |
+| DIAG-02 | — | Pending |
+| DIAG-03 | — | Pending |
+| INTG-01 | — | Pending |
+| INTG-02 | — | Pending |
+| INTG-03 | — | Pending |
+
+**Coverage:**
+- v3.0 requirements: 18 total
+- Mapped to phases: 0
+- Unmapped: 18
+
+---
+*Requirements defined: 2026-02-26*
+*Last updated: 2026-02-26 after initial definition*
