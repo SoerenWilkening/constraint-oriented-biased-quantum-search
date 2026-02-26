@@ -82,48 +82,108 @@ def _coerce_bool(value):
 
 _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
-	'M':                        {'default': -1,    'coerce': int,          'validate': None},
+	'M':                        {'default': -1,    'coerce': int,          'validate': None,
+	                             'description': 'Maximum number of sampling iterations per worker thread; -1 means auto-calculate as n^2/16. Range: -1 or >= 1. Default: -1. Set before solve.'},
 	'stopping_time':            {'default': 300,   'coerce': int,          'validate': lambda v: v > 0,
-	                             'validate_msg': 'stopping_time must be positive'},
-	'stop_val':                 {'default': -1,    'coerce': int,          'validate': None},
+	                             'validate_msg': 'stopping_time must be positive',
+	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
+	'stop_val':                 {'default': -1,    'coerce': int,          'validate': None,
+	                             'description': 'Target objective value; solver stops early if reached. -1 disables early stopping. Range: -1 or any int. Default: -1. Set before solve.'},
 	'callback':                 {'default': None,  'coerce': None,         'validate': lambda v: v is None or callable(v),
-	                             'validate_msg': 'callback must be callable or None'},
+	                             'validate_msg': 'callback must be callable or None',
+	                             'description': 'Callable invoked after each sampling iteration with the current model state. None disables callbacks. Default: None. Set before solve.'},
 	'max_delta':                {'default': 7,     'coerce': int,          'validate': lambda v: v >= 0,
-	                             'validate_msg': 'max_delta must be non-negative'},
-	'reset_delta':              {'default': True,  'coerce': _coerce_bool, 'validate': None},
+	                             'validate_msg': 'max_delta must be non-negative',
+	                             'description': 'Maximum Hamming distance for neighborhood search during sampling. Larger values explore more neighbors per iteration. Range: >= 0. Default: 7. Set before solve.'},
+	'reset_delta':              {'default': True,  'coerce': _coerce_bool, 'validate': None,
+	                             'description': 'Whether to reset the search delta to max_delta when an improvement is found. Range: True or False. Default: True. Set before solve.'},
 	'depth_look_ahead':         {'default': 0,     'coerce': int,          'validate': lambda v: v >= 0,
-	                             'validate_msg': 'depth_look_ahead must be non-negative'},
+	                             'validate_msg': 'depth_look_ahead must be non-negative',
+	                             'description': 'Number of variables to look ahead when checking feasibility during branching. 0 disables look-ahead (checks only the next variable). Range: >= 0. Default: 0. Set before solve.'},
 	'num_workers':              {'default': 12,    'coerce': int,          'validate': lambda v: v >= 1,
-	                             'validate_msg': 'num_workers must be >= 1'},
-	'ignore_constraint_search': {'default': False, 'coerce': _coerce_bool, 'validate': None},
-	'monte_carlo_estimate':     {'default': False, 'coerce': _coerce_bool, 'validate': None},
-	'verify':                   {'default': False, 'coerce': _coerce_bool, 'validate': None},
-	'track_history':            {'default': True,  'coerce': _coerce_bool, 'validate': None},
+	                             'validate_msg': 'num_workers must be >= 1',
+	                             'description': 'Number of parallel worker threads for solve(). Each worker runs an independent sampling search. Range: >= 1. Default: 12. Set before solve.'},
+	'ignore_constraint_search': {'default': False, 'coerce': _coerce_bool, 'validate': None,
+	                             'description': 'Skip constraint-guided search during sampling; uses random branching only. Range: True or False. Default: False. Set before solve.'},
+	'monte_carlo_estimate':     {'default': False, 'coerce': _coerce_bool, 'validate': None,
+	                             'description': 'Use Monte Carlo probability estimation instead of exact calculation during branching. Range: True or False. Default: False. Set before solve.'},
+	'verify':                   {'default': False, 'coerce': _coerce_bool, 'validate': None,
+	                             'description': 'Automatically verify solution feasibility and objective correctness after solve completes. Range: True or False. Default: False. Set before solve.'},
+	'track_history':            {'default': True,  'coerce': _coerce_bool, 'validate': None,
+	                             'description': 'Record incumbent solution history during solve for later analysis. Range: True or False. Default: True. Set before solve.'},
 
 	# --- Former local_search() params ---
 	'distance':                 {'default': 2,     'coerce': int,          'validate': lambda v: v >= 1,
-	                             'validate_msg': 'distance must be >= 1'},
+	                             'validate_msg': 'distance must be >= 1',
+	                             'description': 'Neighborhood distance (k) for local search: number of variable flips explored per move. Range: >= 1. Default: 2. Set before local_search.'},
 	'max_worse_acceptances':    {'default': 10,    'coerce': int,          'validate': lambda v: v >= 0,
-	                             'validate_msg': 'max_worse_acceptances must be non-negative'},
+	                             'validate_msg': 'max_worse_acceptances must be non-negative',
+	                             'description': 'Maximum consecutive non-improving moves allowed before local search terminates. Range: >= 0. Default: 10. Set before local_search.'},
 	'stopping_condition':       {'default': 1,     'coerce': int,          'validate': lambda v: v in (0, 1),
-	                             'validate_msg': 'stopping_condition must be STOPATBEST (0) or STOPATFIRST (1)'},
+	                             'validate_msg': 'stopping_condition must be STOPATBEST (0) or STOPATFIRST (1)',
+	                             'description': 'Local search stopping criterion. STOPATBEST (0): explore full neighborhood, pick best move. STOPATFIRST (1): accept first improving move found. Range: 0 or 1. Default: 1. Set before local_search.'},
 
 	# --- Existing params (from Phase 12/14) ---
-	'branching_bias':           {'default': None,  'coerce': float,        'validate': None},
-	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special'},
+	'branching_bias':           {'default': None,  'coerce': float,        'validate': None,
+	                             'description': 'Assignment bias value for the branching formula; controls preference toward 0 or 1 assignments. None means auto-set to n/4 at close(). Range: any float or None. Default: None (auto). Set before solve.'},
+	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special',
+	                             'description': 'Per-variable weight array for the branching formula; encodes learned or prior knowledge about variable importance. Must be a 1D non-negative numpy array of length n. None disables per-variable weighting. Default: None. Set before solve.'},
 	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
-	                             'validate_msg': 'branching_factor must be non-negative'},
+	                             'validate_msg': 'branching_factor must be non-negative',
+	                             'description': 'Weight of the branching_weights term in the 3-term branching formula. None uses the solver default. Range: >= 0 or None. Default: None. Set before solve.'},
 	'bias_factor':              {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
-	                             'validate_msg': 'bias_factor must be non-negative'},
+	                             'validate_msg': 'bias_factor must be non-negative',
+	                             'description': 'Weight of the assignment_bias term in the 3-term branching formula. None uses the solver default. Range: >= 0 or None. Default: None. Set before solve.'},
 	'look_ahead_factor':        {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
-	                             'validate_msg': 'look_ahead_factor must be non-negative'},
+	                             'validate_msg': 'look_ahead_factor must be non-negative',
+	                             'description': 'Weight of the look-ahead term in the 3-term branching formula. None uses the solver default (0.0, disabled). Range: >= 0 or None. Default: None. Set before solve.'},
 	'timeout':                  {'default': None,  'coerce': int,          'validate': lambda v: v > 0,
-	                             'validate_msg': 'timeout must be positive'},
+	                             'validate_msg': 'timeout must be positive',
+	                             'description': 'Hard timeout in seconds; overrides stopping_time if set. None means use stopping_time instead. Range: > 0 or None. Default: None. Set before solve.'},
 }
 
 _KNOWN_PARAMS = set(_PARAM_DEFS.keys())
 
 cdef class Model:
+	"""Constraint-oriented biased quantum search model.
+
+	The central class for defining and solving combinatorial optimization
+	and satisfiability problems using quantum-inspired branching search,
+	local search, or quantum local search algorithms.
+
+	Typical usage follows a five-step workflow:
+
+	1. **Add variables** -- ``add_variable()`` / ``add_variables()``
+	2. **Set objective** -- ``set_objective(expr, sense)``
+	3. **Add constraints** -- ``add_constraint(expr <= rhs)``
+	4. **Close the model** -- ``close()`` (preprocesses constraints)
+	5. **Solve** -- ``solve()`` / ``local_search()``
+
+	Solver parameters are configured via ``set_param()`` before calling
+	the solve method. Results are returned as ``OptimizeResult`` objects.
+
+	Method groups
+	-------------
+	Modeling : add_variable, add_variables, set_objective, add_constraint, close
+	Parameters : set_param, get_param
+	Solving : solve, local_search, quantum_local_search
+	Results : objective_value, solution, oracle_calls, runtime
+	Reproducibility : seed, seed_used, num_threads
+	Verification : verify_solution
+
+	Examples
+	--------
+	>>> from cbqs import Model, MAXIMIZE
+	>>> m = Model()
+	>>> x = m.add_variables(3)
+	>>> m.set_objective(x[0] + 2*x[1] + x[2], MAXIMIZE)
+	>>> m.add_constraint(x[0] + x[1] + x[2] <= 2)
+	>>> m.close()
+	>>> m.set_param('num_workers', 4)
+	>>> result = m.solve()
+	>>> print(result.objective)
+	"""
+
 	def __cinit__(self):
 		self.mod = init_model()
 		self.gpu_imported = False
@@ -179,12 +239,27 @@ cdef class Model:
 		"""Set a solver parameter by name.
 
 		Parameters persist across multiple solve() calls until changed.
-		set_param(name, None) resets the parameter to its default value.
+		Passing None resets the parameter to its default value.
+		Type coercion is applied automatically (e.g., ``set_param('M', '100')``
+		stores ``int(100)``). Validation is performed at set-time.
 
-		Type coercion is applied automatically (e.g. set_param('M', '100')
-		stores int 100). Validation is performed at set-time.
+		Parameters
+		----------
+		name : str
+			Parameter name. See ``_PARAM_DEFS`` for the full list.
+		value : object
+			Value to set. Pass ``None`` to reset to default.
 
-		Raises ValueError for unknown parameter names or invalid values.
+		Raises
+		------
+		ValueError
+			If *name* is unknown or *value* fails validation.
+
+		Examples
+		--------
+		>>> m.set_param('num_workers', 4)
+		>>> m.set_param('stopping_time', 60)
+		>>> m.set_param('num_workers', None)  # reset to default (12)
 		"""
 		if name not in _KNOWN_PARAMS:
 			raise ValueError(f"Unknown parameter: '{name}'")
@@ -234,10 +309,23 @@ cdef class Model:
 	def get_param(self, str name):
 		"""Get a solver parameter by name.
 
-		Returns the stored value if set, or the documented default.
-		Never returns None for parameters that have defaults.
+		Returns the stored value if previously set via ``set_param()``,
+		or the documented default otherwise.
 
-		Raises ValueError for unknown parameter names.
+		Parameters
+		----------
+		name : str
+			Parameter name. See ``_PARAM_DEFS`` for the full list.
+
+		Returns
+		-------
+		object
+			Current parameter value.
+
+		Raises
+		------
+		ValueError
+			If *name* is unknown.
 		"""
 		if name not in _KNOWN_PARAMS:
 			raise ValueError(f"Unknown parameter: '{name}'")
@@ -253,6 +341,18 @@ cdef class Model:
 		return _PARAM_DEFS[name]['default']
 
 	def __copy__(self):
+		"""Create a shallow copy of this model.
+
+		Copies the objective and constraint containers (including their
+		underlying C data), the initial state, solver mode, optimization
+		sense, and all parameter settings. The copy shares no mutable
+		state with the original and can be solved independently.
+
+		Returns
+		-------
+		Model
+			A new Model instance with copied state.
+		"""
 		new_m = Model()
 		new_m.objective = copy(self.objective)
 		new_m.constraint = copy(self.constraint)
@@ -272,12 +372,48 @@ or {self.runtime}s sampling
 		"""
 
 	def reset(self):
+		"""Reset solve state so the model can be re-solved.
+
+		Clears the solution, objective value, and improvement flag while
+		keeping variables, constraints, objectives, and parameters intact.
+		Call this between successive solve() calls on the same model.
+		"""
 		self.quantum_cycles: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 		self.global_opt = None
 
 	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> int | Variable | Expression:
+		"""Add a single decision variable to the model.
+
+		For binary variables (bound=1), returns a ``Variable``. For bounded
+		integer variables (bound>1), automatically creates auxiliary binary
+		variables and an upper-bound constraint, returning an ``Expression``
+		representing the integer value.
+
+		Parameters
+		----------
+		index : int, optional
+			Variable index. If less than the current variable count,
+			the next available index is used. Default: 0.
+		name : str, optional
+			Variable name prefix. Default: ``"x"``.
+		bound : int, optional
+			Upper bound on the variable value. 1 for binary, >1 for
+			bounded integer (encoded with ceil(log2(bound))+1 bits).
+			Default: 1.
+
+		Returns
+		-------
+		Variable or Expression
+			A ``Variable`` for binary, or an ``Expression`` for bounded
+			integer variables.
+
+		Examples
+		--------
+		>>> x = m.add_variable(name="x")       # binary variable
+		>>> y = m.add_variable(bound=7)         # integer variable 0..7
+		"""
 		if bound > 1:
 			number = int(np.floor(np.log2(bound))) + 1
 			x = self.add_variables(number, name = name)
@@ -291,6 +427,38 @@ or {self.runtime}s sampling
 		return x
 
 	def add_variables(self, n: int = 1, name: str = "x", bound = 1) -> dict:
+		"""Add multiple decision variables to the model.
+
+		Creates *n* variables and returns a dictionary mapping indices to
+		``Variable`` objects (for binary) or ``Expression`` objects (for
+		bounded integers).
+
+		Parameters
+		----------
+		n : int, optional
+			Number of variables to add. Must be >= 1. Default: 1.
+		name : str, optional
+			Variable name prefix. Variables are named ``{name}{index}``.
+			Default: ``"x"``.
+		bound : int, optional
+			Upper bound per variable. 1 for binary, >1 for bounded
+			integer (each encoded with multiple bits). Default: 1.
+
+		Returns
+		-------
+		dict
+			Mapping of variable index to ``Variable`` or ``Expression``.
+
+		Raises
+		------
+		ValueError
+			If *n* < 1.
+
+		Examples
+		--------
+		>>> x = m.add_variables(5)          # 5 binary variables
+		>>> y = m.add_variables(3, bound=7) # 3 integer variables 0..7
+		"""
 		if n < 1:
 			raise ValueError(f"Number of variables must be >= 1, got {n}")
 		x = {}
@@ -306,6 +474,33 @@ or {self.runtime}s sampling
 		return x
 
 	def set_objective(self, Expression objective = None, sense: int = MAXIMIZE, validate = True) -> None:
+		"""Set the objective function and optimization sense.
+
+		The objective expression defines what to optimize. In SATISFY mode
+		(no objective set), the solver searches for any feasible solution.
+
+		Parameters
+		----------
+		objective : Expression
+			The objective expression to maximize or minimize.
+		sense : int, optional
+			``MAXIMIZE`` or ``MINIMIZE``. Default: ``MAXIMIZE``.
+		validate : bool, optional
+			Whether to validate inputs and merge duplicate terms.
+			Default: True.
+
+		Raises
+		------
+		ValueError
+			If *objective* is None (when validate=True).
+		TypeError
+			If *sense* is not MAXIMIZE or MINIMIZE.
+
+		Examples
+		--------
+		>>> x = m.add_variables(3)
+		>>> m.set_objective(x[0] + 2*x[1] + x[2], MAXIMIZE)
+		"""
 		if validate:
 			if objective is None:
 				raise ValueError("Objective expression cannot be None")
@@ -336,6 +531,32 @@ or {self.runtime}s sampling
 		self.objective.add_expression(expr)
 
 	def add_constraint(self, Expression constraint = None, validate = True) -> None:
+		"""Add a constraint to the model.
+
+		The constraint must be an ``Expression`` with a comparison applied
+		(``<=``, ``>=``, or ``==``). Raw expressions without a comparison
+		operator are rejected.
+
+		Parameters
+		----------
+		constraint : Expression
+			A constraint expression created via comparison operators,
+			e.g., ``expr <= 5`` or ``expr == 0``.
+		validate : bool, optional
+			Whether to validate inputs and merge duplicate terms.
+			Default: True.
+
+		Raises
+		------
+		ValueError
+			If *constraint* is None or has no comparison operator applied.
+
+		Examples
+		--------
+		>>> x = m.add_variables(3)
+		>>> m.add_constraint(x[0] + x[1] + x[2] <= 2)
+		>>> m.add_constraint(x[0] + x[1] >= 1)
+		"""
 		if validate:
 			if constraint is None:
 				raise ValueError("Constraint cannot be None")
@@ -353,6 +574,20 @@ or {self.runtime}s sampling
 		self.con_expr.append(expr)
 
 	def manual_initial(self, P: int, assignment: list) -> None:
+		"""Set an explicit initial state for the solver.
+
+		Overrides the default all-zeros starting point with a user-supplied
+		variable assignment. Used when a good starting solution is already
+		known (e.g., from a heuristic or previous run).
+
+		Parameters
+		----------
+		P : int
+			Initial objective/profit value for this state.
+		assignment : list of int
+			Binary assignment array of length *n* (one entry per variable,
+			each 0 or 1).
+		"""
 		self.initialized = True
 
 		arr = np.array(assignment, dtype = np.int32)
@@ -363,6 +598,13 @@ or {self.runtime}s sampling
 		free(<void *> ptr)
 
 	def compile(self):
+		"""No-op retained for backward compatibility.
+
+		.. deprecated::
+			This method is no longer needed. Constraint preprocessing
+			is handled by ``close()``. Calling ``compile()`` has no
+			effect.
+		"""
 		self.gpu_compiled = True
 
 	def __del__(self):
@@ -374,6 +616,30 @@ or {self.runtime}s sampling
 		self.circuit = None
 
 	def close(self, enforce_density = False, validate = True):
+		"""Preprocess constraints and prepare the model for solving.
+
+		Must be called after all variables, objectives, and constraints
+		have been added and before any solve method. Builds internal
+		index structures for efficient constraint evaluation during search.
+
+		If ``branching_bias`` has not been set via ``set_param()``, it is
+		automatically initialized to ``n / 4``.
+
+		Parameters
+		----------
+		enforce_density : bool, optional
+			Force dense constraint representation regardless of sparsity.
+			Default: False (auto-detect based on clause density).
+		validate : bool, optional
+			Check that variables and constraints exist before closing.
+			Default: True.
+
+		Raises
+		------
+		ValueError
+			If the model has no variables or no constraints (when
+			validate=True).
+		"""
 		if validate:
 			if self.n == 0:
 				raise ValueError("Model has no variables; add variables before closing")
@@ -389,6 +655,13 @@ or {self.runtime}s sampling
 			self.constraints_compiled = True
 
 	def general_greedy(self):
+		"""Run a greedy construction heuristic to build an initial solution.
+
+		Assigns variables one by one using the C-level greedy algorithm.
+		The result is stored as the initial state for subsequent solve calls.
+		If no initial state has been set, a default all-zeros state is
+		created first.
+		"""
 		if not self.initialized:
 			self.manual_initial(0, [0] * self.n)
 		initial_state_preparation(self.mod)
@@ -396,11 +669,40 @@ or {self.runtime}s sampling
 	def solve(self):
 		"""Solve the optimization or satisfiability problem.
 
-		All solver parameters are configured via set_param() before calling solve().
-		solve() accepts zero arguments.
+		Uses quantum-inspired biased sampling search with configurable
+		branching, look-ahead, and multi-threaded parallel workers. All
+		solver parameters are configured via ``set_param()`` before
+		calling ``solve()``. This method takes no arguments.
 
-		Returns an OptimizeResult object containing solution, objective,
-		timing, history, and verification data.
+		The model must be closed (via ``close()``) before solving.
+
+		Returns
+		-------
+		OptimizeResult
+			Result object containing:
+			- ``solution`` (ndarray): best variable assignment found
+			- ``objective`` (int): best objective value
+			- ``feasible`` (bool): whether the solution satisfies all constraints
+			- ``solve_time`` (float): wall-clock solve time in milliseconds
+			- ``history`` (list): incumbent history if track_history is True
+			- ``verified`` (bool or None): verification result if verify is True
+
+		Raises
+		------
+		ValueError
+			If constraints have not been compiled (``close()`` not called).
+
+		Examples
+		--------
+		>>> m = Model()
+		>>> x = m.add_variables(5)
+		>>> m.set_objective(sum(x[i] for i in x), MAXIMIZE)
+		>>> m.add_constraint(sum(x[i] for i in x) <= 3)
+		>>> m.close()
+		>>> m.set_param('num_workers', 4)
+		>>> m.set_param('stopping_time', 30)
+		>>> result = m.solve()
+		>>> print(result.objective, result.feasible)
 		"""
 		if not self.constraints_compiled:
 			raise ValueError("No constraints compiled")
@@ -505,11 +807,24 @@ or {self.runtime}s sampling
 	def local_search(self):
 		"""Execute the local search solver.
 
-		All solver parameters are configured via set_param() before calling local_search().
-		local_search() accepts zero arguments.
+		Iteratively improves the current solution by exploring k-flip
+		neighborhoods with tabu-list cycling prevention. All parameters
+		are configured via ``set_param()`` before calling. Key
+		parameters: ``distance``, ``max_worse_acceptances``,
+		``stopping_condition``, ``stopping_time``.
 
-		Returns an OptimizeResult object containing solution, objective,
-		timing, history, and verification data.
+		Returns
+		-------
+		OptimizeResult
+			Result object with the same fields as ``solve()``.
+
+		Examples
+		--------
+		>>> m.close()
+		>>> m.set_param('distance', 3)
+		>>> m.set_param('max_worse_acceptances', 20)
+		>>> result = m.local_search()
+		>>> print(result.objective, result.feasible)
 		"""
 		# Read all params from _params (with defaults from _PARAM_DEFS)
 		distance = self._get_effective('distance')
@@ -569,8 +884,12 @@ or {self.runtime}s sampling
 	def quantum_local_search(self):
 		"""Execute the quantum local search solver.
 
-		All solver parameters are configured via set_param() before calling
-		quantum_local_search(). quantum_local_search() accepts zero arguments.
+		Combines local search neighborhood exploration with quantum-inspired
+		Grover amplification. Runs multi-threaded workers that each
+		independently perform quantum-accelerated local improvements.
+		All parameters are configured via ``set_param()`` before calling.
+
+		Key parameters: ``distance``, ``num_workers``, ``callback``.
 		"""
 		# Read all params from _params (with defaults from _PARAM_DEFS)
 		distance = self._get_effective('distance')
@@ -588,6 +907,29 @@ or {self.runtime}s sampling
 		)
 
 	def approximate_benchmarking(self, samples = 1024, M = 100):
+		"""Benchmark the solver using approximate quantum state simulation.
+
+		Repeatedly generates approximate quantum states, runs the
+		quantum search, and records iteration counts and objective
+		improvements until no further improvement is found.
+
+		Parameters
+		----------
+		samples : int, optional
+			Number of samples per approximate state. Default: 1024.
+		M : int, optional
+			Maximum Grover iterations per quantum search call.
+			Default: 100.
+
+		Returns
+		-------
+		tuple
+			``(total_iterations, deltas, incumbents)`` where
+			*total_iterations* is the cumulative oracle call count,
+			*deltas* is a list of search deltas per round, and
+			*incumbents* is a list of ``(objective, iterations)`` tuples
+			tracking improvement over time.
+		"""
 		deltas = []
 		incumbents = []
 
@@ -614,6 +956,21 @@ or {self.runtime}s sampling
 		return total_iterations, deltas, incumbents
 
 	def exact_benchmark(self, M):
+		"""Benchmark the solver using exact quantum state simulation.
+
+		Uses an exact state generator (with a Gurobi model) to run the
+		quantum maximum search with precise state probabilities.
+
+		Parameters
+		----------
+		M : int
+			Maximum Grover iterations per quantum search call.
+
+		Returns
+		-------
+		list
+			Incumbent solution history from the quantum max search.
+		"""
 		self._params.setdefault('branching_bias', self.n / 4)
 		if self.stgen is None:
 			self.stgen = exact_simulator(self)
@@ -624,20 +981,55 @@ or {self.runtime}s sampling
 
 	@property
 	def objective_value(self):
+		"""Best objective value found by the solver.
+
+		Returns
+		-------
+		int or None
+			The objective value of the best solution, accounting for
+			the optimization sense (MAXIMIZE/MINIMIZE). Returns None
+			in SATISFY mode where there is no objective.
+		"""
 		if self.mod[0].solver == SATISFY:
 			return None
 		return self.mod[0].global_opt[0].tot_profit * self.sense
 
 	@property
 	def oracle_calls(self):
+		"""Number of Grover (QTG) oracle applications used in the last solve.
+
+		Returns
+		-------
+		int
+			Cumulative oracle call count.
+		"""
 		return self.mod[0].qtg_applications
 
 	@property
 	def runtime(self):
+		"""Wall-clock time of the last solve in seconds.
+
+		Returns
+		-------
+		float
+			Elapsed time in seconds.
+		"""
 		return self.mod[0].runtime
 
 	@property
 	def solution(self):
+		"""Best solution found by the solver.
+
+		.. note::
+			This legacy property returns 0. Use the ``solution`` field
+			of the ``OptimizeResult`` returned by ``solve()`` or
+			``local_search()`` instead.
+
+		Returns
+		-------
+		int
+			Always returns 0 (deprecated).
+		"""
 		return 0
 
 	# ============================================================
@@ -646,10 +1038,21 @@ or {self.runtime}s sampling
 
 	@property
 	def seed(self):
-		"""Get/set the random seed for reproducibility.
+		"""Random seed for reproducibility.
 
-		Set before calling solve(). If None (default), a random seed is generated.
-		After solve(), use seed_used to get the actual seed that was used.
+		Set before calling ``solve()``. If ``None`` (the default), a
+		random seed is generated automatically. After solving, inspect
+		``seed_used`` to retrieve the actual seed for reproducibility.
+
+		Returns
+		-------
+		int or None
+			The configured seed, or None for auto-generation.
+
+		Raises
+		------
+		TypeError
+			If set to a non-integer, non-None value.
 		"""
 		return self._seed
 
@@ -661,20 +1064,37 @@ or {self.runtime}s sampling
 
 	@property
 	def seed_used(self):
-		"""Get the actual seed used in the most recent solve() call.
+		"""Actual random seed used in the most recent solve call.
 
-		This is especially useful when no seed was set (auto-generated),
-		as it allows reproducing results by setting seed = seed_used.
-		Returns None if solve() has not been called.
+		Useful for reproducing results when no explicit seed was set:
+		save ``seed_used`` after a run, then set ``seed = seed_used``
+		before re-running.
+
+		Returns
+		-------
+		int or None
+			The seed that was used, or None if ``solve()`` has not
+			been called.
 		"""
 		return self._seed_used
 
 	@property
 	def num_threads(self):
-		"""Get/set the number of threads for parallel solving.
+		"""Number of threads for parallel solving.
 
-		Set before calling solve(). If None (default), auto-detects CPU cores.
-		Can also be set via CBQS_THREADS environment variable.
+		Set before calling ``solve()``. If ``None`` (the default),
+		auto-detects the number of CPU cores. Can also be configured
+		via the ``CBQS_THREADS`` environment variable.
+
+		Returns
+		-------
+		int or None
+			The configured thread count, or None for auto-detection.
+
+		Raises
+		------
+		ValueError
+			If set to a non-positive integer.
 		"""
 		return self._num_threads
 
@@ -691,11 +1111,18 @@ or {self.runtime}s sampling
 
 	def verify_solution(self):
 		"""Verify that the current solution satisfies all constraints
-		and the reported objective value matches recomputation.
+		and that the reported objective value matches recomputation.
 
-		Returns True if the solution is valid, False otherwise.
-		Emits UserWarning on violations but does not raise exceptions.
-		Sets self._verified to True or False accordingly.
+		Checks constraint feasibility via the C evaluation engine and
+		independently recomputes the objective value. Emits
+		``UserWarning`` for each detected violation but does not raise
+		exceptions.
+
+		Returns
+		-------
+		bool
+			True if the solution passes all checks, False otherwise.
+			Also sets the internal ``_verified`` flag.
 		"""
 		if self.mod[0].global_opt is NULL:
 			warnings.warn(
