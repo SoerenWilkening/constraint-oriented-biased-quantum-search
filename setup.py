@@ -119,6 +119,7 @@ setup(
     extras_require={
         "test": ["pytest>=7.0"],
         "dev": ["pytest>=7.0", "Cython>=3.0"],
+        "ml": ["scikit-learn>=1.2"],
     },
     libraries=[lib_cbqs_core],
     ext_modules=cythonize(extensions, language_level=3),
