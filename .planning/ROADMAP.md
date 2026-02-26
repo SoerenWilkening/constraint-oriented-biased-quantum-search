@@ -5,7 +5,7 @@
 - ✅ **v1.0 Stabilization & Optimization** — Phases 1-8 (shipped 2026-02-06) — [archive](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 Bug Fixes & Polish** — Phases 9-13 (shipped 2026-02-08) — [archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v2.0 API Cleanup** — Phases 14-17 (shipped 2026-02-14) — [archive](milestones/v2.0-ROADMAP.md)
-- 🚧 **v2.1 Code Audit & Optimization** — Phases 18-22 (in progress)
+- 🚧 **v2.1 Code Audit & Optimization** — Phases 18-24 (in progress)
 
 ## Phases
 
@@ -53,6 +53,8 @@
 - [x] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers (completed 2026-02-25)
 - [x] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version (completed 2026-02-26)
 - [x] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel (completed 2026-02-26)
+- [ ] **Phase 23: Fix C Test API Rename** - Update tests/test_branching.c to use renamed look_ahead_factor API from Phase 20
+- [ ] **Phase 24: Phase Verification** - Create missing VERIFICATION.md for Phases 18, 19, and 22
 
 ## Phase Details
 
@@ -131,6 +133,36 @@ Plans:
 - [x] 22-02: Expression and Constraint class docstrings (DOC-02) (completed 2026-02-26)
 - [x] 22-03: C kernel algorithm block comments (DOC-03) (completed 2026-02-26)
 
+### Phase 23: Fix C Test API Rename
+**Goal**: tests/test_branching.c compiles and passes against the current API after the Phase 20 look_ahead_factor rename
+**Depends on**: Phase 20 (API Consistency)
+**Requirements**: API-01
+**Gap Closure:** Closes integration gap (Phase 20 → test_branching.c) and flow gap (look_ahead_factor rename E2E step 8/8)
+**Success Criteria** (what must be TRUE):
+  1. All 11 calls to solver_ctx_set_look_factor() in tests/test_branching.c are replaced with solver_ctx_set_look_ahead_factor()
+  2. The 1 access to ctx->branching_stats.look_factor is replaced with ctx->branching_stats.look_ahead_factor
+  3. tests/test_branching.c compiles without errors against current headers
+**Plans**: 0/1
+
+Plans:
+- [ ] 23-01: Rename look_factor → look_ahead_factor in tests/test_branching.c (API-01)
+
+### Phase 24: Phase Verification
+**Goal**: VERIFICATION.md exists for Phases 18, 19, and 22, confirming all 11 partial requirements are fully satisfied
+**Depends on**: Phase 23 (API fix before final verification)
+**Requirements**: DEAD-01, DEAD-02, DEAD-03, DEAD-04, INCR-01, INCR-02, INCR-03, DOC-01, DOC-02, DOC-03, DOC-04
+**Gap Closure:** Closes 11 partial requirement gaps (missing VERIFICATION.md)
+**Success Criteria** (what must be TRUE):
+  1. .planning/phases/18-dead-code-removal/VERIFICATION.md exists and confirms DEAD-01 through DEAD-04
+  2. .planning/phases/19-incremental-evaluation/VERIFICATION.md exists and confirms INCR-01 through INCR-03
+  3. .planning/phases/22-documentation/VERIFICATION.md exists and confirms DOC-01 through DOC-04
+**Plans**: 0/3
+
+Plans:
+- [ ] 24-01: Verify Phase 18 — Dead Code Removal (DEAD-01, DEAD-02, DEAD-03, DEAD-04)
+- [ ] 24-02: Verify Phase 19 — Incremental Evaluation (INCR-01, INCR-02, INCR-03)
+- [ ] 24-03: Verify Phase 22 — Documentation (DOC-01, DOC-02, DOC-03, DOC-04)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -157,3 +189,5 @@ Plans:
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
 | 21. Build & Packaging | 2/2 | Complete    | 2026-02-26 | - |
 | 22. Documentation | v2.1 | Complete    | 2026-02-26 | 2026-02-26 |
+| 23. Fix C Test API Rename | v2.1 | 0/1 | Pending | - |
+| 24. Phase Verification | v2.1 | 0/3 | Pending | - |

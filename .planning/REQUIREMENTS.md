@@ -9,20 +9,20 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### Dead Code Removal
 
-- [x] **DEAD-01**: All 4 orphaned model_t fields removed (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) from model.h, model.c, and Model.pxd
-- [x] **DEAD-02**: Orphaned Cython declarations for removed fields removed from Model.pxd
-- [x] **DEAD-03**: Commented-out function signature in solver.h removed
-- [x] **DEAD-04**: Commented-out code blocks in local_search.c removed
+- [ ] **DEAD-01**: All 4 orphaned model_t fields removed (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) from model.h, model.c, and Model.pxd
+- [ ] **DEAD-02**: Orphaned Cython declarations for removed fields removed from Model.pxd
+- [ ] **DEAD-03**: Commented-out function signature in solver.h removed
+- [ ] **DEAD-04**: Commented-out code blocks in local_search.c removed
 
 ### Incremental Evaluation
 
-- [x] **INCR-01**: Current full-recalculation paths benchmarked with before/after metrics
-- [x] **INCR-02**: Incremental objective evaluation adopted in local_search using adjusted_constraint_violation() pattern
-- [x] **INCR-03**: Benchmark confirms no correctness regression after incremental adoption
+- [ ] **INCR-01**: Current full-recalculation paths benchmarked with before/after metrics
+- [ ] **INCR-02**: Incremental objective evaluation adopted in local_search using adjusted_constraint_violation() pattern
+- [ ] **INCR-03**: Benchmark confirms no correctness regression after incremental adoption
 
 ### API Consistency
 
-- [x] **API-01**: Parameter naming unified across C/Cython/Python layers (look_factor/look_ahead_factor/depth_look_ahead resolved to single consistent name)
+- [ ] **API-01**: Parameter naming unified across C/Cython/Python layers (look_factor/look_ahead_factor/depth_look_ahead resolved to single consistent name)
 - [x] **API-02**: Unused or disconnected _PARAM_DEFS entries audited and either connected or removed
 - [x] **API-03**: Cython type declarations aligned with C headers (uint32_t vs unsigned int consistency)
 
@@ -35,10 +35,10 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### Documentation
 
-- [x] **DOC-01**: All public Python methods on Model class have docstrings
-- [x] **DOC-02**: All public Python methods on Expression and Constraint classes have docstrings
-- [x] **DOC-03**: C algorithm documentation added for branching formula, preprocessing, and look-ahead logic
-- [x] **DOC-04**: _PARAM_DEFS entries documented with descriptions and acceptable ranges
+- [ ] **DOC-01**: All public Python methods on Model class have docstrings
+- [ ] **DOC-02**: All public Python methods on Expression and Constraint classes have docstrings
+- [ ] **DOC-03**: C algorithm documentation added for branching formula, preprocessing, and look-ahead logic
+- [ ] **DOC-04**: _PARAM_DEFS entries documented with descriptions and acceptable ranges
 
 ## Future Requirements
 
@@ -69,24 +69,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEAD-01 | Phase 18 | Complete |
-| DEAD-02 | Phase 18 | Complete |
-| DEAD-03 | Phase 18 | Complete |
-| DEAD-04 | Phase 18 | Complete |
-| INCR-01 | Phase 19 | Complete |
-| INCR-02 | Phase 19 | Complete |
-| INCR-03 | Phase 19 | Complete |
-| API-01 | Phase 20 | Complete |
+| DEAD-01 | Phase 18, 24 | Pending |
+| DEAD-02 | Phase 18, 24 | Pending |
+| DEAD-03 | Phase 18, 24 | Pending |
+| DEAD-04 | Phase 18, 24 | Pending |
+| INCR-01 | Phase 19, 24 | Pending |
+| INCR-02 | Phase 19, 24 | Pending |
+| INCR-03 | Phase 19, 24 | Pending |
+| API-01 | Phase 20, 23 | Pending |
 | API-02 | Phase 20 | Complete |
 | API-03 | Phase 20 | Complete |
 | BUILD-01 | Phase 21 | Complete |
 | BUILD-02 | Phase 21 | Complete |
 | BUILD-03 | Phase 21 | Complete |
 | BUILD-04 | Phase 21 | Complete |
-| DOC-01 | Phase 22 | Complete |
-| DOC-02 | Phase 22 | Complete |
-| DOC-03 | Phase 22 | Complete |
-| DOC-04 | Phase 22 | Complete |
+| DOC-01 | Phase 22, 24 | Pending |
+| DOC-02 | Phase 22, 24 | Pending |
+| DOC-03 | Phase 22, 24 | Pending |
+| DOC-04 | Phase 22, 24 | Pending |
 
 **Coverage:**
 - v2.1 requirements: 18 total
@@ -95,4 +95,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-25*
-*Last updated: 2026-02-26 after Phase 22 completion*
+*Last updated: 2026-02-26 after gap closure phases 23-24 added*
