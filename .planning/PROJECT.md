@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, per-thread history tracking with concurrent solve isolation, and a unified branching model with all solver configuration via set_param()/get_param().
+A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, per-thread history tracking with concurrent solve isolation, a unified branching model with all solver configuration via set_param()/get_param(), incremental constraint evaluation in local search, and full API documentation.
 
 ## Core Value
 
@@ -53,18 +53,15 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - ✓ set_param('branching_weights', array) API for per-variable branching values — v2.0
 - ✓ All 14 former solve() params available via set_param() with _PARAM_DEFS registry — v2.0
 
+- ✓ All orphaned model_t fields and dead/commented-out code removed from C/Cython/Python — v2.1
+- ✓ Incremental constraint evaluation adopted in local_search with benchmark infrastructure — v2.1
+- ✓ look_ahead_factor naming unified across C/Cython/Python, _PARAM_DEFS audited, Cython types aligned — v2.1
+- ✓ Build system deduplicated (build_clib), pandas removed, version 2.1.0 — v2.1
+- ✓ NumPy-style docstrings on all public Python methods, C kernel algorithm comments — v2.1
+
 ### Active
 
-## Current Milestone: v2.1 Code Audit & Optimization
-
-**Goal:** Comprehensive codebase cleanup — eliminate dead code, enforce API consistency, fix build/packaging, fill documentation gaps, and verify+adopt incremental evaluation for performance.
-
-**Target features:**
-- Remove orphaned model_t fields and all dead code across C/Cython/Python
-- Verify and adopt incremental evaluation from constraint.c (replace full recalc in solver/local_search), benchmark before/after
-- Audit API consistency across Python/Cython/C layers
-- Clean up build & packaging (setup.py, deps, warnings, CI)
-- Fill documentation gaps (docstrings, comments, README)
+(No active requirements — use `/gsd:new-milestone` to define next milestone)
 
 ### Out of Scope
 
@@ -79,13 +76,14 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ## Context
 
-Shipped v2.0 with C/Python/Cython codebase.
+Shipped v2.1 with C/Python/Cython codebase.
 Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), CMocka, pytest, GitHub Actions CI.
 Test suite: 56 C tests, 390 Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
-v1.0 audit: 15/15 satisfied. v1.1 audit: 21/21 satisfied. v2.0 audit: 17/17 satisfied.
-First breaking release — removed all deprecated APIs, unified branching model, zero-arg solve().
+v1.0 audit: 15/15. v1.1 audit: 21/21. v2.0 audit: 17/17. v2.1 audit: 18/18.
+Package version 2.1.0. Build uses build_clib static library for C source deduplication.
+All public Python methods have docstrings. C kernel has algorithm block comments.
 
-Known tech debt: 4 orphaned model_t fields (manual_bias, bias_factor, manual_bias_factor, look_ahead_factor) — initialized/freed but never read. Cosmetic commented-out import in state_sampler.pxd.
+Known tech debt: SearchLib.pyx local vars retain old `param_look_factor` naming (cosmetic only). Expression.c/dyn_expr.c compiled in both lib and extension (documented intentional).
 
 ## Git Workflow
 
@@ -132,6 +130,12 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | _PARAM_DEFS registry | Dict-of-dicts replacing flat _KNOWN_PARAMS set; coercion, validation, defaults | ✓ Good — extensible parameter system |
 | Remove set_seed from public API | srand() called directly from libc.stdlib; branching.pyx wrapper eliminated | ✓ Good — v2.0 breaking change, simpler |
 | Remove deprecated global BranchingStats | All state in solver_ctx_t; backward compatibility period complete | ✓ Good — clean C layer |
+| Dead code removal first | Low-risk, foundational — cleans codebase before behavior changes | ✓ Good — stable baseline for all v2.1 work |
+| Caller-owns-baseline pattern | local_search() manages remainings[] and ful_con, passes to accept_best_routine() | ✓ Good — clear ownership semantics |
+| Full-recalc refresh after accepted moves | Simpler than tracking exact flipped bits from threaded results | ✓ Good — correctness over micro-optimization |
+| build_clib static library | 15 C sources compiled once, linked into 5 extensions | ✓ Good — eliminated duplicate compilation |
+| Single-source version in __init__.py | pyproject.toml reads dynamically; one place to update | ✓ Good — no version drift |
+| NumPy-style docstrings | Standard format with Parameters/Returns/Raises/Examples | ✓ Good — pydoc/help() readable output |
 
 ---
-*Last updated: 2026-02-25 after v2.1 milestone start*
+*Last updated: 2026-02-26 after v2.1 milestone completion*

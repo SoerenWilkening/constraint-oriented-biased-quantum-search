@@ -92,3 +92,34 @@
 
 ---
 
+
+## v2.1 Code Audit & Optimization (Shipped: 2026-02-26)
+
+**Delivered:** Comprehensive codebase cleanup — eliminated all dead code, unified API naming across C/Cython/Python, adopted incremental evaluation, modernized build system, and filled all documentation gaps.
+
+**Phases completed:** 18-24 (14 plans total)
+
+**Key accomplishments:**
+
+- Removed all 4 orphaned model_t fields and dead/commented-out code across C, Cython, and Python layers
+- Adopted incremental constraint evaluation in local_search using adjusted_constraint_violation() with benchmark infrastructure
+- Unified look_ahead_factor naming across all C/Cython/Python layers, audited _PARAM_DEFS, aligned Cython types
+- Deduplicated C sources via build_clib static library, removed pandas dependency, bumped to v2.1.0
+- Added NumPy-style docstrings to all public Python methods and algorithm block comments to C kernel
+- Created VERIFICATION.md for all phases with 18/18 requirements confirmed
+
+**Stats:**
+
+- 81 files modified, 8,109 insertions, 674 deletions
+- 7 phases, 14 plans
+- 2 days (2026-02-25 → 2026-02-26), 48 commits
+- 446 tests passing (390 Python + 56 C), 100% pass rate
+
+**Git range:** `feat(18)` → `docs(v2.1)`
+
+**Audit:** 18/18 requirements satisfied, 0 gaps, 5 tech debt items (0 blockers, all cosmetic)
+
+**What's next:** Next milestone TBD — ML-based branching, adaptive branching, multi-heuristic solver, or solver extensions
+
+---
+
