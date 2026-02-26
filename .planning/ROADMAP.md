@@ -53,7 +53,7 @@
 - [x] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers (completed 2026-02-25)
 - [x] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version (completed 2026-02-26)
 - [x] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel (completed 2026-02-26)
-- [ ] **Phase 23: Fix C Test API Rename** - Update tests/test_branching.c to use renamed look_ahead_factor API from Phase 20
+- [x] **Phase 23: Fix C Test API Rename** - Update tests/test_branching.c to use renamed look_ahead_factor API from Phase 20 (completed 2026-02-26)
 - [ ] **Phase 24: Phase Verification** - Create missing VERIFICATION.md for Phases 18, 19, and 22
 
 ## Phase Details
@@ -189,5 +189,5 @@ Plans:
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
 | 21. Build & Packaging | 2/2 | Complete    | 2026-02-26 | - |
 | 22. Documentation | v2.1 | Complete    | 2026-02-26 | 2026-02-26 |
-| 23. Fix C Test API Rename | v2.1 | 0/1 | Pending | - |
+| 23. Fix C Test API Rename | v2.1 | 1/1 | Complete | 2026-02-26 |
 | 24. Phase Verification | v2.1 | 0/3 | Pending | - |
