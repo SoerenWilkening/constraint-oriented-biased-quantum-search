@@ -44,20 +44,37 @@ def test_ml_subpackage_structure():
 
 def test_ml_import_error_message():
     """Importing cbqs.ml without sklearn raises ImportError with install instructions."""
+    # Ensure sklearn is imported first so we can restore it
+    import sklearn
+    sklearn_module = sys.modules['sklearn']
+
+    # Save cbqs.ml modules for later restoration
+    saved_ml_modules = {
+        key: sys.modules[key]
+        for key in list(sys.modules)
+        if key.startswith('cbqs.ml')
+    }
+
     # Remove cbqs.ml and its submodules from sys.modules to force re-import
-    modules_to_remove = [key for key in sys.modules if key.startswith('cbqs.ml')]
-    for key in modules_to_remove:
-        del sys.modules[key]
+    for key in list(sys.modules):
+        if key.startswith('cbqs.ml'):
+            del sys.modules[key]
 
-    with patch.dict('sys.modules', {'sklearn': None}):
-        with pytest.raises(ImportError, match="pip install cbqs\\[ml\\]"):
-            importlib.import_module('cbqs.ml')
+    try:
+        with patch.dict('sys.modules', {'sklearn': None}):
+            with pytest.raises(ImportError, match="pip install cbqs\\[ml\\]"):
+                importlib.import_module('cbqs.ml')
+    finally:
+        # Clean up any partially loaded cbqs.ml modules
+        for key in list(sys.modules):
+            if key.startswith('cbqs.ml'):
+                del sys.modules[key]
 
-    # Restore cbqs.ml by re-importing (cleanup)
-    modules_to_remove = [key for key in sys.modules if key.startswith('cbqs.ml')]
-    for key in modules_to_remove:
-        del sys.modules[key]
-    importlib.import_module('cbqs.ml')
+        # Restore sklearn
+        sys.modules['sklearn'] = sklearn_module
+
+        # Restore cbqs.ml modules
+        sys.modules.update(saved_ml_modules)
 
 
 def test_feature_extractor_has_expected_interface():
