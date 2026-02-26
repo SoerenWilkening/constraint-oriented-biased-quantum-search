@@ -52,7 +52,7 @@
 - [x] **Phase 19: Incremental Evaluation** - Benchmark and adopt incremental constraint evaluation in local_search, replacing full recalculation (completed 2026-02-25)
 - [x] **Phase 20: API Consistency** - Unify parameter naming, audit _PARAM_DEFS, and align Cython type declarations with C headers (completed 2026-02-25)
 - [x] **Phase 21: Build & Packaging** - Eliminate source duplication in setup.py, remove unused deps, clean artifacts, bump version (completed 2026-02-26)
-- [ ] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel
+- [x] **Phase 22: Documentation** - Fill all docstring gaps across Python classes and add algorithmic comments to C kernel (completed 2026-02-26)
 
 ## Phase Details
 
@@ -124,10 +124,12 @@ Plans:
   2. Every public method on the Expression and Constraint classes has a docstring — pydoc/help() produces readable output for all methods
   3. The C source for branching formula, preprocessing, and look-ahead logic has block comments explaining the algorithm (what it computes and why, not just what the code does line-by-line)
   4. Each entry in _PARAM_DEFS includes a description string and documents the acceptable value range or valid options
-**Plans**: TBD
+**Plans**: 3/3 complete
 
 Plans:
-- [ ] 22-01: TBD
+- [x] 22-01: Model class docstrings and _PARAM_DEFS documentation (DOC-01, DOC-04) (completed 2026-02-26)
+- [x] 22-02: Expression and Constraint class docstrings (DOC-02) (completed 2026-02-26)
+- [x] 22-03: C kernel algorithm block comments (DOC-03) (completed 2026-02-26)
 
 ## Progress
 
@@ -154,4 +156,4 @@ Plans:
 | 19. Incremental Evaluation | v2.1 | 2/2 | Complete | 2026-02-25 |
 | 20. API Consistency | 2/2 | Complete    | 2026-02-25 | - |
 | 21. Build & Packaging | 2/2 | Complete    | 2026-02-26 | - |
-| 22. Documentation | v2.1 | 0/TBD | Not started | - |
+| 22. Documentation | v2.1 | Complete    | 2026-02-26 | 2026-02-26 |

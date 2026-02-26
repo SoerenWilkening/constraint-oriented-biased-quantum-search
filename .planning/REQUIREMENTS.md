@@ -35,10 +35,10 @@ Requirements for Code Audit & Optimization milestone. Each maps to roadmap phase
 
 ### Documentation
 
-- [ ] **DOC-01**: All public Python methods on Model class have docstrings
-- [ ] **DOC-02**: All public Python methods on Expression and Constraint classes have docstrings
-- [ ] **DOC-03**: C algorithm documentation added for branching formula, preprocessing, and look-ahead logic
-- [ ] **DOC-04**: _PARAM_DEFS entries documented with descriptions and acceptable ranges
+- [x] **DOC-01**: All public Python methods on Model class have docstrings
+- [x] **DOC-02**: All public Python methods on Expression and Constraint classes have docstrings
+- [x] **DOC-03**: C algorithm documentation added for branching formula, preprocessing, and look-ahead logic
+- [x] **DOC-04**: _PARAM_DEFS entries documented with descriptions and acceptable ranges
 
 ## Future Requirements
 
@@ -83,10 +83,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUILD-02 | Phase 21 | Complete |
 | BUILD-03 | Phase 21 | Complete |
 | BUILD-04 | Phase 21 | Complete |
-| DOC-01 | Phase 22 | Pending |
-| DOC-02 | Phase 22 | Pending |
-| DOC-03 | Phase 22 | Pending |
-| DOC-04 | Phase 22 | Pending |
+| DOC-01 | Phase 22 | Complete |
+| DOC-02 | Phase 22 | Complete |
+| DOC-03 | Phase 22 | Complete |
+| DOC-04 | Phase 22 | Complete |
 
 **Coverage:**
 - v2.1 requirements: 18 total
@@ -95,4 +95,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-25*
-*Last updated: 2026-02-25 after roadmap creation*
+*Last updated: 2026-02-26 after Phase 22 completion*

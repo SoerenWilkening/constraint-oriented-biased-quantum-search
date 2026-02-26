@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Code Audit & Optimization
 status: unknown
-last_updated: "2026-02-26T09:14:25.962Z"
+last_updated: "2026-02-26T10:12:40.137Z"
 progress:
-  total_phases: 21
-  completed_phases: 21
-  total_plans: 59
-  completed_plans: 59
+  total_phases: 22
+  completed_phases: 22
+  total_plans: 62
+  completed_plans: 62
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v2.1 Code Audit & Optimization -- Phase 21 Build & Packaging complete
+**Current focus:** v2.1 Code Audit & Optimization -- All phases complete
 
 ## Current Position
 
-Phase: 21 of 22 (Build & Packaging)
-Plan: 2 of 2 (all complete)
-Status: Phase 21 complete
-Last activity: 2026-02-26 - Completed quick task 3: Update example code in README.md — fix outdated solve() method arguments
+Phase: 22 of 22 (Documentation)
+Plan: 3 of 3 (all complete)
+Status: Phase 22 complete -- v2.1 milestone complete
+Last activity: 2026-02-26 - Completed Phase 22 Documentation (all 3 plans: Model docstrings, Expression/Constraint docstrings, C kernel algorithm comments)
 
-Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 #######░░░]
+Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########]
 
 ## Performance Metrics
 
@@ -35,8 +35,8 @@ Progress: [v1.0 ########] [v1.1 ##########] [v2.0 ##########] [v2.1 #######░�
 - v1.0: 8 phases, 35 plans
 - v1.1: 5 phases, 10 plans
 - v2.0: 4 phases, 8 plans
-- v2.1: 5 phases, 5 plans complete
-- Total: 22 phases, 59 plans complete
+- v2.1: 5 phases, 8 plans complete
+- Total: 22 phases, 62 plans complete
 
 ## Accumulated Context
 
@@ -55,6 +55,9 @@ Recent decisions affecting v2.1:
 - [Phase 21]: Version bumped to 2.1.0 -- single source of truth in cbqs/__init__.py
 - [Phase 21]: C source deduplication via build_clib static library -- 15 sources compiled once, linked into 5 extensions
 - [Phase 21]: pyproject.toml modernized with dynamic version, full metadata, PEP 621 compliance
+- [Phase 22]: NumPy-style docstrings for all public Python methods across Model, Expression, and Constraint classes
+- [Phase 22]: _PARAM_DEFS entries documented with description, range, default, and mutability
+- [Phase 22]: C kernel algorithm comments added for branching formula, preprocessing, look-ahead, local search, and approximate state sampling
 
 ### Pending Todos
 
@@ -75,5 +78,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed quick task 3 (README example code fix)
-Next action: Phase 21 complete -- advance to Phase 22 (Documentation)
+Stopped at: Completed Phase 22 Documentation (all 3 plans)
+Next action: v2.1 milestone complete -- all 22 phases done
