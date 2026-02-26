@@ -8,7 +8,10 @@ version = "1.0.1"
 description = "Constraint-Oriented Biased Quantum Search"
 requires-python = ">=3.9"
 dependencies = [
-    "numpy",
-    "pandas",
-    "joblib",
+    "numpy>=1.20",
+    "joblib>=1.0",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "Cython>=3.0"]

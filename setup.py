@@ -62,6 +62,13 @@ setup(
 	version = "1.0.1",
 	packages = find_packages(),
 	include_package_data = True,  # Include package data
-	install_requires = ["numpy", "pandas"],  # TODO: verify pandas is still needed
+	install_requires = [
+		"numpy>=1.20",
+		"joblib>=1.0",
+	],
+	extras_require = {
+		"test": ["pytest>=7.0"],
+		"dev": ["pytest>=7.0", "Cython>=3.0"],
+	},
 	ext_modules = cythonize(extensions, language_level = 3),
 )
