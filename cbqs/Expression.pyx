@@ -51,6 +51,40 @@ def _warn_expression_immutability():
 
 
 class Variable:
+	"""A binary or integer decision variable.
+
+	Variables are the building blocks of expressions. They are created
+	via ``Model.add_variable()`` or ``Model.add_variables()`` rather than
+	instantiated directly. Arithmetic operators (``+``, ``*``) on
+	variables produce ``Expression`` objects.
+
+	Parameters
+	----------
+	index : int
+		Non-negative integer index uniquely identifying this variable.
+	name : str
+		Display name (auto-generated as ``"x{index}"`` if ``"__"``).
+	lb : int
+		Lower bound (typically 0 for binary variables).
+	ub : int
+		Upper bound (typically 1 for binary variables).
+	vtype : int
+		Variable type constant (e.g., ``INTEGER``).
+
+	Attributes
+	----------
+	index : int
+		Variable index.
+	name : str
+		Display name.
+	lb : int
+		Lower bound.
+	ub : int
+		Upper bound.
+	vtype : int
+		Variable type.
+	"""
+
 	def __init__(self, index = 0, name = "__", lb = 0, ub = 1, vtype = INTEGER):
 		if not isinstance(index, int) or isinstance(index, bool):
 			raise TypeError(f"Variable index must be int, got {type(index).__name__}")
@@ -74,6 +108,18 @@ class Variable:
 		return f"{self.name}"
 
 	def __add__(self, other):
+		"""Create an Expression by adding this variable to another operand.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to add.
+
+		Returns
+		-------
+		Expression
+			A new expression representing ``self + other``.
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
@@ -90,6 +136,18 @@ class Variable:
 			return other + self
 
 	def __radd__(self, other):
+		"""Create an Expression by adding another operand to this variable.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to add.
+
+		Returns
+		-------
+		Expression
+			A new expression representing ``other + self``.
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
@@ -106,6 +164,18 @@ class Variable:
 			return other + self
 
 	def __mul__(self, other):
+		"""Create an Expression by multiplying this variable by a coefficient.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The multiplier.
+
+		Returns
+		-------
+		Expression
+			A new expression representing ``self * other``.
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
@@ -122,6 +192,18 @@ class Variable:
 			return other * self
 
 	def __rmul__(self, other):
+		"""Create an Expression by multiplying a coefficient by this variable.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The multiplier.
+
+		Returns
+		-------
+		Expression
+			A new expression representing ``other * self``.
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			expr = Expression()
@@ -139,6 +221,26 @@ class Variable:
 
 
 cdef class Expression:
+	"""A linear or polynomial expression over binary decision variables.
+
+	Expressions represent mathematical formulas used as objectives and
+	constraints in the ``Model``. They are built using Python arithmetic
+	operators on ``Variable`` objects:
+
+	- ``x[0] + x[1]`` creates a sum expression
+	- ``3 * x[0]`` creates a scaled variable term
+	- ``x[0] * x[1]`` creates a product (quadratic) term
+	- ``expr <= 5`` converts to a less-than-or-equal constraint
+
+	Binary operators (``+``, ``*``) return **new** Expression objects
+	without modifying the originals. In-place operators (``+=``, ``*=``)
+	mutate the expression for efficiency.
+
+	The underlying data is stored in a C ``expression_t`` struct for
+	performance. Expressions should not be created directly; use
+	``Variable`` arithmetic or ``Model.add_variable()`` instead.
+	"""
+
 	def __cinit__(self):
 		self.expr = <expression_t *> init_expression()
 		self.sense = -2
@@ -152,6 +254,17 @@ cdef class Expression:
 		return ""
 
 	def __copy__(self):
+		"""Create a copy of this expression.
+
+		Copies the expression terms by adding them to a new Expression.
+		The copy is independent and can be modified without affecting
+		the original.
+
+		Returns
+		-------
+		Expression
+			A new Expression with the same terms.
+		"""
 		ne = Expression()
 		ne.add_expr(self)
 		return ne
@@ -165,7 +278,22 @@ cdef class Expression:
 		return new_expr
 
 	def __deepcopy__(self, memo):
-		"""Support copy.deepcopy() - creates fully independent Expression."""
+		"""Create a fully independent deep copy of this expression.
+
+		Copies the underlying C ``expression_t`` data so the new
+		expression shares no memory with the original. Also preserves
+		the constraint sense and right-hand side if set.
+
+		Parameters
+		----------
+		memo : dict
+			Memo dictionary for the copy module.
+
+		Returns
+		-------
+		Expression
+			A new, fully independent Expression.
+		"""
 		new_expr = self._deep_copy()
 		memo[id(self)] = new_expr
 		return new_expr
@@ -184,6 +312,17 @@ cdef class Expression:
 		free_expression(new)
 
 	def merge(self):
+		"""Merge duplicate terms in this expression by summing coefficients.
+
+		Scans all terms and combines any that reference the same variable
+		indices. For example, ``3*x0 + 5*x0`` becomes ``8*x0``. Operates
+		on the underlying C structure in place.
+
+		Returns
+		-------
+		Expression
+			Returns self for method chaining.
+		"""
 		merge_expression(self.expr)
 		return self
 
@@ -200,7 +339,21 @@ cdef class Expression:
 		return self.c_liste().__iter__()
 
 	def __add__(self, other):
-		"""Return new Expression with other added. Does not modify self."""
+		"""Return a new Expression representing ``self + other``.
+
+		Does not modify the original expression. Supported operand types
+		are ``int``, ``Variable``, and ``Expression``.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to add.
+
+		Returns
+		-------
+		Expression
+			A new expression representing the sum.
+		"""
 		_validate_numeric(other)
 
 		cdef Expression result = self._deep_copy()
@@ -217,7 +370,21 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __radd__(self, other):
-		"""Return new Expression with other added (reverse). Does not modify self."""
+		"""Return a new Expression representing ``other + self``.
+
+		Called when the left operand does not support addition with
+		an Expression. Does not modify the original expression.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to add.
+
+		Returns
+		-------
+		Expression
+			A new expression representing the sum.
+		"""
 		_validate_numeric(other)
 
 		cdef Expression result = self._deep_copy()
@@ -234,10 +401,20 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __iadd__(self, other):
-		"""Mutate self in place by adding other. Returns self.
+		"""Add *other* to this expression in place.
 
-		Matches Python int behavior: x += 3 mutates x.
-		Use this for performance when you don't need the original.
+		Mutates the expression directly, avoiding a copy. Use ``+=``
+		for efficiency when the original is no longer needed.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to add.
+
+		Returns
+		-------
+		Expression
+			Returns self (mutated).
 		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
@@ -252,10 +429,20 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __isub__(self, other):
-		"""Mutate self in place by subtracting other. Returns self.
+		"""Subtract *other* from this expression in place.
 
-		Matches Python int behavior: x -= 3 mutates x.
-		Use this for performance when you don't need the original.
+		Mutates the expression directly, avoiding a copy. Use ``-=``
+		for efficiency when the original is no longer needed.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The value to subtract.
+
+		Returns
+		-------
+		Expression
+			Returns self (mutated).
 		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
@@ -270,7 +457,22 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __mul__(self, other):
-		"""Return new Expression with other multiplied. Does not modify self."""
+		"""Return a new Expression representing ``self * other``.
+
+		Does not modify the original expression. For scalar (int)
+		multiplication, all term coefficients are scaled. For
+		variable multiplication, creates product terms.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The multiplier.
+
+		Returns
+		-------
+		Expression
+			A new expression representing the product.
+		"""
 		cdef Expression result
 		_validate_numeric(other)
 
@@ -290,7 +492,21 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __rmul__(self, other):
-		"""Return new Expression with other multiplied (reverse). Does not modify self."""
+		"""Return a new Expression representing ``other * self``.
+
+		Called when the left operand does not support multiplication
+		with an Expression. Does not modify the original expression.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The multiplier.
+
+		Returns
+		-------
+		Expression
+			A new expression representing the product.
+		"""
 		cdef Expression result
 		_validate_numeric(other)
 
@@ -310,9 +526,20 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __imul__(self, other):
-		"""Mutate self in place by multiplying other. Returns self.
+		"""Multiply this expression by *other* in place.
 
-		Use this for performance when you don't need the original.
+		Mutates the expression directly, avoiding a copy. Use ``*=``
+		for efficiency when the original is no longer needed.
+
+		Parameters
+		----------
+		other : int, Variable, or Expression
+			The multiplier.
+
+		Returns
+		-------
+		Expression
+			Returns self (mutated).
 		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
@@ -331,6 +558,27 @@ cdef class Expression:
 		raise TypeError(f"Unsupported operand type: {type(other)}")
 
 	def __le__(self, other):
+		"""Create a less-than-or-equal constraint: ``expr <= rhs``.
+
+		Converts this expression into a constraint that can be passed
+		to ``Model.add_constraint()``. Modifies the expression in place
+		by setting its sense and right-hand side.
+
+		Parameters
+		----------
+		other : int
+			The right-hand side value.
+
+		Returns
+		-------
+		Expression
+			This expression with constraint metadata attached.
+
+		Examples
+		--------
+		>>> x = model.add_variables(3)
+		>>> model.add_constraint(x[0] + x[1] + x[2] <= 2)
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			potential = 0
@@ -345,6 +593,27 @@ cdef class Expression:
 			return self
 
 	def __ge__(self, other):
+		"""Create a greater-than-or-equal constraint: ``expr >= rhs``.
+
+		Converts this expression into a constraint by negating coefficients
+		and adjusting the right-hand side. The result can be passed to
+		``Model.add_constraint()``.
+
+		Parameters
+		----------
+		other : int
+			The right-hand side value.
+
+		Returns
+		-------
+		Expression
+			This expression with constraint metadata attached.
+
+		Examples
+		--------
+		>>> x = model.add_variables(3)
+		>>> model.add_constraint(x[0] + x[1] >= 1)
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			potential = 0
@@ -361,6 +630,26 @@ cdef class Expression:
 			return self
 
 	def __eq__(self, other):
+		"""Create an equality constraint: ``expr == rhs``.
+
+		Converts this expression into an equality constraint. The result
+		can be passed to ``Model.add_constraint()``.
+
+		Parameters
+		----------
+		other : int
+			The right-hand side value.
+
+		Returns
+		-------
+		Expression
+			This expression with constraint metadata attached.
+
+		Examples
+		--------
+		>>> x = model.add_variables(3)
+		>>> model.add_constraint(x[0] + x[1] + x[2] == 2)
+		"""
 		_validate_numeric(other)
 		if isinstance(other, int):
 			add_sense_to_expression(self.expr, EQUAL)
