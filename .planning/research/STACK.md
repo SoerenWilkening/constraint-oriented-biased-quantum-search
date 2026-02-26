@@ -1,361 +1,252 @@
-# Stack Research: v1.1 Bug Fixes and Code Polish
+# Stack Research: v3.0 ML-Based Adaptive Branching Weights
 
-**Project:** CBQS v1.1
-**Researched:** 2026-02-06
-**Scope:** Stack additions/changes needed for GCC 15 warnings, Cython callback rework, VLA cleanup, dead code removal
-**Confidence:** HIGH (verified against official GCC docs, Cython docs, C standard references)
-
----
-
-## 1. GCC 15 Type Mismatch Warnings
-
-### What Changed
-
-GCC 15 defaults to `-std=gnu23` (C23) instead of `-std=gnu17`. This is the root cause of all new warnings/errors. Three specific C23 changes affect this codebase.
-
-**Confidence:** HIGH -- verified via [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) and [trofi's analysis](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html).
-
-### Issue 1: `callback_t` Empty Parameter List
-
-**File:** `cbqs/src/definitions.h:31`
-```c
-typedef void (*callback_t)();  // <-- Problem
-```
-
-In C17, `()` means "unspecified parameters" (accepts anything). In C23, `()` means `(void)` -- zero parameters. Every function that takes a `callback_t` and calls it with zero arguments technically works, but the Cython-generated code casts a `void (*)(void)` to this type when the actual C callback `my_callback_c` is declared `cdef void my_callback_c() with gil:` -- which Cython compiles into a function taking no arguments. So the types happen to match, but GCC 15 may still warn during intermediate casts.
-
-**The real problem:** If the callback_t typedef is ever used to pass functions that DO take parameters (e.g., future callbacks with context), the C23 interpretation breaks that. The typedef should be explicit.
-
-**Fix:**
-```c
-typedef void (*callback_t)(void);  // Explicit: takes no arguments
-```
-
-This is a one-line change. It matches the actual usage (all callbacks in this codebase take zero arguments). No behavioral change.
-
-**Impact:** All files using `callback_t` -- `SearchLib.c`, `SearchLib.h`, `local_search.c`, `local_search.h`, `solver.c`, `solver.h`, `definitions.h`.
-
-### Issue 2: `#define false 0` / `#define true 1`
-
-**File:** `cbqs/src/definitions.h:45-46`
-```c
-#define false 0
-#define true 1
-```
-
-In C23, `bool`, `true`, and `false` are **keywords** (not macros from `<stdbool.h>`). `#define true 1` redefines a keyword, which is an error in C23.
-
-**Confidence:** HIGH -- verified via [OpenSSL issue #27516](https://github.com/openssl/openssl/issues/27516) and [open-simh issue #490](https://github.com/open-simh/simh/issues/490).
-
-**Fix:**
-```c
-// Remove the #define false 0 and #define true 1 lines entirely.
-// C23 provides them as keywords.
-// For C11/C17 compatibility, use a version guard:
-#if __STDC_VERSION__ < 202311L
-#include <stdbool.h>
-#endif
-```
-
-Or simpler: just `#include <stdbool.h>` and remove the defines. `<stdbool.h>` in C11 defines `bool`, `true`, `false` as macros; in C23 the header is a no-op (keywords already exist). Both ways work.
-
-**Note:** The codebase also uses `atomic_bool` in `solver_ctx.h` via `<stdatomic.h>`, which already implies `bool` support. The `#define` macros in `definitions.h` are technically conflicting even in C11 if `<stdbool.h>` is included transitively.
-
-### Issue 3: Operator Precedence Warnings
-
-GCC 15 has improved diagnostic coloring and may surface new `-Wparentheses` warnings for expressions like:
-
-```c
-// local_search.c:545
-if (time > mod->stopping_time || (cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1)) break;
-```
-
-The `&&` binds tighter than `||`, so this may not behave as intended. GCC 15's enhanced diagnostics will flag this more visibly.
-
-**Fix:** Add explicit parentheses:
-```c
-if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
-```
-
-Several similar patterns exist in `SearchLib.c:194` and `solver.c` with mixed `&&`/`||` without parentheses.
-
-### Recommended Approach
-
-**Do NOT add `-std=gnu17` to suppress warnings.** That is a workaround, not a fix, and delays the inevitable.
-
-**Instead:**
-1. Fix `callback_t` typedef to use `(void)` -- 1 line
-2. Remove `#define true/false`, add `#include <stdbool.h>` -- 3 lines
-3. Add parentheses to ambiguous `&&`/`||` expressions -- ~5 locations
-4. Optionally add `-std=gnu11` explicitly to `setup.py` compiler_args and CMakeLists.txt to document the intentional standard choice, since the codebase uses C11 features (`_Atomic`, `<stdatomic.h>`). This pins the standard explicitly rather than relying on compiler defaults.
-
-**CI consideration:** `ubuntu-latest` currently ships GCC 13 or 14. When it upgrades to GCC 15 (likely Ubuntu 25.10), these will become build failures if not fixed. Fix proactively.
+**Domain:** ML-augmented combinatorial optimization solver
+**Researched:** 2026-02-26
+**Confidence:** HIGH (scikit-learn versions verified via PyPI/official docs; integration points verified via codebase inspection)
 
 ---
 
-## 2. Cython Callback Concurrency Rework
+## Recommended Stack
 
-### Current Problem
+### Core ML Library
 
-`SearchLib.pyx` uses four module-level `cdef` variables for history callback state:
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| scikit-learn | >=1.6,<2.0 | Offline training + online adaptation of branching weight vectors | Already the project's stated target (PROJECT.md). Supports Python 3.13.7. Provides both batch `fit()` and incremental `partial_fit()` on same estimator classes. No GPU dependency. Pure Python/C/Cython internals match CBQS architecture. |
+
+**Version rationale:** scikit-learn 1.6+ supports Python 3.13. The latest stable is 1.8.0 (released 2025-12-10). Pin `>=1.6,<2.0` for forward compatibility without risking a major-version break. PassiveAggressiveRegressor was deprecated in 1.8 (removed in 1.10), so do not use it -- use SGDRegressor instead.
+
+**Dependency pattern:** Optional, matching the existing gurobipy pattern. The solver must work without sklearn installed. ML features are additive.
+
+### Specific Estimators
+
+| Estimator | Module | Purpose | Why This One |
+|-----------|--------|---------|--------------|
+| `SGDRegressor` | `sklearn.linear_model` | Online weight adaptation during solve | Only regression estimator with `partial_fit()` that is not deprecated. Supports L2/L1/ElasticNet penalties. Single-sample updates with O(n_features) cost -- fast enough for mid-solve callback. |
+| `ExtraTreesRegressor` | `sklearn.ensemble` | Offline training: problem features to weight vectors | Natively supports multi-output regression (predicts full n-dimensional weight vector in one call). Faster training than RandomForestRegressor because splits are random rather than optimized. Handles mixed feature scales without normalization. |
+| `StandardScaler` | `sklearn.preprocessing` | Feature normalization for SGDRegressor | SGDRegressor is sensitive to feature scale. StandardScaler supports `partial_fit()` for incremental normalization. Required for online adaptation path; optional for tree-based offline path. |
+
+### Supporting Libraries (Already Present -- No New Installs)
+
+| Library | Version | Purpose | Why No Change |
+|---------|---------|---------|---------------|
+| numpy | >=1.20 (already required) | Feature arrays, weight vectors, L1 normalization | Already a hard dependency. scikit-learn requires numpy anyway. Feature vectors and weight vectors are numpy arrays. |
+| joblib | >=1.0 (already required) | Model persistence (save/load trained models) | Already a hard dependency. scikit-learn uses joblib internally for model persistence (`joblib.dump`/`joblib.load`). No need for a separate persistence library. |
+
+### What Is NOT Needed
+
+| Technology | Why Not | What to Use Instead |
+|------------|---------|---------------------|
+| scipy | Not needed for this milestone. Feature extraction uses numpy array operations only. Constraint structure features are already accessible via the C-level `new_constraints_t` struct. | numpy for all array math |
+| pandas | Was removed in v2.1 for good reason. Training data is simple (feature vectors + weight vectors), not tabular with heterogeneous types. | numpy arrays directly |
+| PyTorch / TensorFlow | Massive overkill. The branching weight vector is n-dimensional (problem size), features are ~10-20 dimensional. This is a classic sklearn regression problem, not a deep learning problem. Adds 500MB+ dependency. | scikit-learn |
+| XGBoost / LightGBM | Marginal accuracy gain over ExtraTreesRegressor for this problem size, but adds a binary dependency with build complexity. ExtraTrees is built into sklearn. | `sklearn.ensemble.ExtraTreesRegressor` |
+| ONNX / skl2onnx | Model serialization for deployment. CBQS is a research solver, not a production service. joblib persistence is sufficient. | `joblib.dump` / `joblib.load` |
+| dask-ml | Distributed training. Training data for branching weights is small (hundreds to low thousands of instances). Single-machine sklearn is sufficient. | `sklearn` directly |
+| MLPRegressor | Has `partial_fit()` but neural networks are harder to tune, less interpretable, and overkill for this feature dimension. If a nonlinear online model is needed later, upgrade then. | SGDRegressor for online; ExtraTreesRegressor for offline |
+
+---
+
+## Integration Points with Existing System
+
+### 1. branching_weights Array (Primary Output)
+
+The ML model's output is a numpy array that feeds directly into the existing `set_param('branching_weights', array)` API. The array:
+- Must be 1D, non-negative, length n (number of variables)
+- Is L1-normalized at set-time inside `solver_ctx_set_branching_weights()` in C
+- Flows through `BranchingFunction()` as `stats->branching_weights[index]`
+
+**No C kernel changes needed for the weight vector itself.** The existing pipeline handles normalization and integration into the 3-term branching formula.
+
+### 2. Feature Extraction (New Python Module)
+
+Features come from problem structure accessible via the Model object:
+- `model.n` -- number of variables
+- `model.con_expr` -- constraint expressions (Python-level)
+- `model.mod.con` -- C-level `new_constraints_t` with constraint statistics
+- `model.mod.obj` -- C-level `new_constraints_t` with objective structure
+
+Feature extraction should be a pure Python module (`cbqs/ml/features.py`) that operates on the Model after `close()` is called. No Cython or C code needed for feature extraction -- the existing Python/Cython accessors expose everything required.
+
+### 3. Online Adaptation via Callback (Reward Signal)
+
+The existing callback mechanism (`set_param('callback', fn)`) fires after each sampling iteration. The `_SolveState` per-thread dict in `SearchLib.pyx` already tracks:
+- `mod.mod[0].global_opt[0].tot_profit` -- current best objective
+- `mod.mod[0].con[0].num_constraints` -- constraint count
+- Elapsed time via `time_mod.monotonic() - state.start_time`
+
+**Online adaptation flow:**
+1. Callback fires with current solve state
+2. Python-level adapter computes reward signal (objective improvement rate + constraint satisfaction delta)
+3. `SGDRegressor.partial_fit()` updates the model with one sample
+4. New weight vector is predicted and set via `set_param('branching_weights', new_weights)`
+5. Next sampling iteration uses updated weights (propagated to `solver_ctx_t` at worker creation)
+
+**Critical constraint:** `set_param('branching_weights', ...)` currently only takes effect when a new `solver_ctx_t` is created (at the start of `run_sampling`). For mid-solve adaptation, the weights would need to be updated on the active `solver_ctx_t`. This requires a new Cython function to update weights on a live context, or restructuring the sampling loop to re-read weights periodically. This is an architectural decision, not a stack decision.
+
+### 4. Model Persistence
+
+Trained models are saved/loaded using joblib (already a dependency):
+```python
+import joblib
+joblib.dump(trained_model, 'branching_model.joblib')
+loaded_model = joblib.load('branching_model.joblib')
+```
+
+No new persistence library needed. The `.joblib` files should live in a user-specified directory, not bundled with the package.
+
+---
+
+## Installation
+
+### Production (optional ML features)
 
 ```python
-cdef object _history_list = None
-cdef object _history_prev_best = None
-cdef object _history_original_callback = None
-cdef Model _history_mod = None
-```
-
-These are shared across ALL concurrent workers spawned by `joblib.Parallel(n_jobs=num_workers, backend="threading")`. When `run_sampling` is called by 12 threads simultaneously (the default `num_workers=12`), every thread overwrites the same globals. The history captured is from whichever thread wrote last, not from all threads.
-
-**Why it exists:** Cython `cdef` functions cannot capture closures, and the C callback signature `void (*)()` has no `void *user_data` parameter to pass context through. The module-level globals were the path of least resistance.
-
-### Recommended Pattern: Per-Thread Dict Keyed by Thread ID
-
-**Confidence:** MEDIUM -- pattern derived from Cython docs and general Python threading practices. Not verified in an identical codebase.
-
-**Approach:** Replace the four module-level variables with a single thread-safe dict, keyed by `threading.get_ident()`:
-
-```python
-import threading
-
-# Single module-level dict, protected by the GIL
-cdef dict _callback_state = {}
-
-cdef void my_callback_c() with gil:
-    tid = threading.get_ident()
-    state = _callback_state.get(tid)
-    if state is not None:
-        state['callback']()
-
-def _history_callback_fn():
-    tid = threading.get_ident()
-    state = _callback_state.get(tid)
-    if state is None:
-        return
-    mod = state['mod']
-    history_list = state['history']
-    # ... rest of callback logic using state dict ...
-
-cpdef run_sampling(Model mod, object callback, not_stop):
-    tid = threading.get_ident()
-    _callback_state[tid] = {
-        'history': [],
-        'prev_best': None,
-        'original_callback': callback,
-        'mod': mod,
-    }
-    try:
-        # ... existing solve logic ...
-        history = list(_callback_state[tid]['history'])
-    finally:
-        del _callback_state[tid]  # Clean up
-```
-
-**Why this works:** The GIL protects Python dict operations. The `with gil` on `my_callback_c` ensures the GIL is held when accessing `_callback_state`. Each thread gets its own history list.
-
-**Why NOT a C-level `void *user_data` approach:** That would require changing the `callback_t` signature throughout the C kernel to `void (*callback_t)(void *user_data)`, which is a larger refactor affecting `ctg()`, `local_search()`, `quantum_local_search()`, and all callers. Save that for v2.0 if needed.
-
-**Why NOT `threading.local()`:** `threading.local()` is a Python-level construct. Accessing it inside a `cdef` function that was called from C (via `with gil`) works but adds overhead from the descriptor protocol. A plain dict lookup by `threading.get_ident()` is faster and more explicit.
-
-### Alternative: Callback Context Struct (v2.0)
-
-For a future clean architecture, change the C callback signature:
-
-```c
-typedef void (*callback_t)(void *ctx);
-```
-
-Then pass a `solver_ctx_t *` as the callback context. This is the "correct" pattern used by most C libraries (pthreads, libevent, etc.) but requires touching every callback call site in the C kernel. Not appropriate for a bug-fix milestone.
-
-### No New Dependencies
-
-This rework uses only `threading.get_ident()` from the Python standard library. No new packages needed.
-
----
-
-## 3. VLA Replacement for Remaining Instance
-
-### Current State
-
-Most VLAs were already replaced in v1.0 Phase 5. One remains:
-
-**File:** `cbqs/src/local_search.c:332`
-```c
-int64_t remainings[C];  // C = con->num_constraints (user-controlled)
-```
-
-This is inside `accept_best_routine()`, which runs on the main thread (not inside the pthread workers). The VLA is stack-allocated with a size determined by the number of constraints, which is user input.
-
-### Why It Must Go
-
-1. **Stack overflow risk:** If `C` is large (hundreds of constraints), `C * sizeof(int64_t)` = `C * 8` bytes on the stack. At 1000 constraints, that's 8KB. Default thread stack is 2-8MB, so this is unlikely to overflow for the main thread, but it is unbounded.
-2. **MSVC incompatibility:** VLAs are not supported by MSVC, blocking any future Windows build.
-3. **C23 status:** VLAs are optional in C11 and remain optional in C23. The `__STDC_NO_VLA__` macro may be defined on some compilers.
-4. **Consistency:** The rest of the codebase was already converted to heap allocation. This one instance is an oversight.
-
-**Confidence:** HIGH -- VLA status in C standards verified via [cppreference](https://en.cppreference.com/w/c/language/array) and [Wikipedia VLA article](https://en.wikipedia.org/wiki/Variable-length_array).
-
-### Recommended Fix
-
-Replace with heap allocation, matching the pattern already used elsewhere in the same file:
-
-```c
-// Before:
-int64_t remainings[C];
-
-// After:
-int64_t *remainings = malloc(C * sizeof(int64_t));
-if (remainings == NULL) {
-    // Handle allocation failure - clean up and return error
-    free_state(cur_best, 1);
-    free_state(cur_best_tabu, 1);
-    return -1;
+# In setup.py extras_require:
+extras_require={
+    "test": ["pytest>=7.0"],
+    "dev": ["pytest>=7.0", "Cython>=3.0"],
+    "ml": ["scikit-learn>=1.6,<2.0"],       # NEW
 }
-// ... use remainings ...
-free(remainings);  // Before each return path
 ```
 
-This matches the exact pattern used at `local_search.c:572` for the same purpose in `quantum_local_search_states()`.
+```bash
+# User installs ML features explicitly:
+pip install cbqs[ml]
 
-### Alternative Considered: Arena Allocation
-
-The `solver_ctx_t` already contains an arena allocator. Could use:
-```c
-int64_t *remainings = (int64_t*)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
+# Or: pip install scikit-learn>=1.6
 ```
 
-However, `accept_best_routine()` already has a well-defined lifecycle (allocate at start, free at end), so a simple `malloc/free` is clearer and sufficient. Arena is better for the hot inner loop (which already uses it).
+### Development
 
-### No Other VLAs Remain
+```bash
+# Add to requirements-dev.txt:
+scikit-learn>=1.6,<2.0
+```
 
-Grep confirms:
-- `local_search.c:332` -- the one remaining VLA (`int64_t remainings[C]`)
-- `local_search.c:496` -- already commented out (dead code, should be deleted)
-- All other former VLA sites already converted to heap or arena allocation
-
----
-
-## 4. Dead/Commented-Out Code Cleanup
-
-### Scale of the Problem
-
-A grep for comment patterns resembling code (commented `printf`, `for`, `if`, assignments) found **260 occurrences across 15 files** in `cbqs/src/`. This is substantial noise.
-
-### Cleanup Strategy: No New Tools Needed
-
-**Do NOT add cppcheck, clang-tidy, or other static analysis tools just for this.** The problem is well-defined and can be solved with manual review.
-
-**Approach:**
-1. **Remove all `//` commented-out code blocks** -- These are debug artifacts, old algorithm attempts, and disabled features. They add cognitive overhead, confuse grep searches, and make diffs noisier.
-2. **Preserve `/* ... */` documentation comments** -- Block comments explaining WHY something works should stay.
-3. **Use `git blame` before deleting** -- If a commented block was recently added (v1.0), verify it is not a deliberate "keep for reference" note.
-
-### Files with the Most Commented-Out Code
-
-| File | Commented Lines | Nature |
-|------|----------------|--------|
-| `local_search.c` | ~52 | Old VLA code, disabled aspiration criterion, debug printf |
-| `Branching.c` | ~42 | Disabled branching strategies |
-| `solver.c` | ~40 | Old objective computation, disabled constraints paths |
-| `SearchLib.c` | ~5 | Old iteration tracking |
-| `constraint.c` | ~33 | Old constraint evaluation methods |
-
-### GCC Warning Flags for Dead Code
-
-Already available in the toolchain, no installation needed:
-
-| Flag | What It Catches |
-|------|----------------|
-| `-Wunused-function` | Static functions never called |
-| `-Wunused-variable` | Variables declared but never used |
-| `-Wunused-parameter` | Function parameters never used |
-| `-Wunused-but-set-variable` | Variables set but never read |
-| `-Wunreachable-code` | Code after unconditional return/break |
-
-**Recommendation:** Add `-Wall -Wextra` to both `setup.py` `compiler_args` and the CMake test build. This captures all of the above. Currently only `-O3 -flto -pthread` is specified. Adding warnings does not change runtime behavior.
+### Import Guard Pattern
 
 ```python
-# setup.py
-compiler_args = ["-O3", "-flto", "-pthread", "-Wall", "-Wextra", "-Wno-unused-parameter"]
+# cbqs/ml/__init__.py
+try:
+    import sklearn
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
+def require_sklearn():
+    if not HAS_SKLEARN:
+        raise ImportError(
+            "scikit-learn is required for ML features. "
+            "Install with: pip install cbqs[ml]"
+        )
 ```
 
-The `-Wno-unused-parameter` exception is needed because many callback and API functions have intentionally unused parameters (e.g., `direction` in some solver paths).
-
-### Python-Side Bare Except
-
-The milestone description mentions a "bare except clause." Grep found none in the current `.py` or `.pyx` files. This may have already been fixed, or it may be in a file not yet checked. If it exists, the fix is:
-
+This matches the existing pattern for gurobipy:
 ```python
-# Before:
-except:
-    pass
-
-# After:
-except Exception:
-    pass
+# cbqs/Model.pyx line 11-14
+try:
+    from .CircuitBackendBinder import circuit
+except ImportError:
+    circuit = None
 ```
-
-Or more specifically, catch only the expected exception type.
 
 ---
 
-## 5. What NOT to Add
+## Estimator Selection Rationale
 
-| Temptation | Why Avoid | Instead |
-|------------|-----------|---------|
-| clang-tidy or cppcheck for this milestone | Overkill for a targeted cleanup. These tools produce hundreds of findings, most irrelevant to the v1.1 goals. | Manual review guided by GCC warnings |
-| Linting CI job (flake8/pylint) | Not in scope for a C-focused bug fix milestone. Would require significant configuration to avoid noise. | Defer to v2.0 |
-| `-std=gnu23` flag | The codebase uses `_Atomic` (C11) but not C23 features. Explicitly targeting C23 invites more breakage with no benefit. | Keep C11, fix only the forward-compatibility issues |
-| PyCapsule-based callback architecture | Requires rewriting the entire callback chain through C. Correct but too much churn for a cleanup milestone. | Thread-ID dict for v1.1, C-level context for v2.0 |
-| alloca() for VLA replacement | Non-standard, not portable, same stack overflow risk as VLAs | malloc/free (already the codebase pattern) |
-| Free-threaded Python (3.13t) | Experimental. Cython support for free-threading is incomplete. Would introduce new concurrency bugs. | Stay on GIL-based Python 3.13.7 |
+### Offline Training: ExtraTreesRegressor
 
----
+**Problem:** Given problem features (constraint density, variable count, objective structure, etc.), predict a good initial branching weight vector (n-dimensional output).
 
-## 6. Compiler/Standard Recommendations
+**Why ExtraTreesRegressor:**
+1. **Native multi-output:** Predicts the full weight vector in one `fit()`/`predict()` call. The criterion computation at tree splits takes into account all outputs by summing the criterion for each output. This naturally captures correlations between weight components.
+2. **No feature scaling required:** Tree-based models are invariant to feature scale and monotonic transformations. Problem features (constraint count, density ratio, variable count) have very different scales.
+3. **Fast training:** Faster than RandomForestRegressor because splits are chosen randomly rather than optimally. For the training set size expected (hundreds to low thousands of instances), training completes in seconds.
+4. **Non-negative output:** Post-process with `np.maximum(predictions, 0)` to ensure non-negative weights before L1 normalization (done in C).
 
-### Explicit Standard Pin
+**Why not RandomForestRegressor:** Slower training with marginal accuracy gain for this problem size. ExtraTrees has slightly higher variance but the L1 normalization downstream absorbs small prediction differences.
 
-Add `-std=gnu11` to compiler flags in both `setup.py` and `CMakeLists.txt`. This:
-- Documents the intended standard
-- Prevents GCC 15's default-to-C23 from causing surprise failures
-- Still allows all C11 features used (`_Atomic`, `<stdatomic.h>`, designated initializers)
+**Why not MultiOutputRegressor wrapper:** Wrapping a single-output model in MultiOutputRegressor learns each weight independently, losing correlations. ExtraTreesRegressor handles multi-output natively and is better.
 
-```python
-# setup.py
-compiler_args = ["-std=gnu11", "-O3", "-flto", "-pthread", "-Wall", "-Wextra", "-Wno-unused-parameter"]
-```
+### Online Adaptation: SGDRegressor
 
-```cmake
-# CMakeLists.txt - already has set(CMAKE_C_STANDARD 11)
-# Add warning flags:
-add_compile_options(-Wall -Wextra -Wno-unused-parameter)
-```
+**Problem:** During solve, update weight predictions based on observed reward signals (objective improvement, constraint satisfaction).
 
-### Forward Compatibility
+**Why SGDRegressor:**
+1. **`partial_fit()` support:** The only non-deprecated sklearn regression estimator with true online learning. One call updates the model with O(n_features) cost.
+2. **Low latency:** A `partial_fit()` call on 10-20 features takes microseconds. This is called inside the solve callback, so speed matters.
+3. **Regularization control:** L2 penalty (`penalty='l2'`) prevents weight explosion during online updates. ElasticNet available if sparse solutions are needed.
+4. **Learning rate scheduling:** `learning_rate='invscaling'` naturally reduces updates as more data is seen, stabilizing weights over the solve.
 
-Even with `-std=gnu11`, fix the three C23 issues (`callback_t`, `true`/`false` defines, parentheses) anyway. This way:
-- The fixes are correct under any standard
-- When the project eventually moves to C23, there is no breakage
-- The code is cleaner regardless of compiler version
+**Why not PassiveAggressiveRegressor:** Deprecated in sklearn 1.8, removed in 1.10. The sklearn team recommends SGDRegressor with `loss="epsilon_insensitive", penalty=None, learning_rate="pa1"` as a replacement.
+
+**Single-output limitation:** SGDRegressor predicts one output. For multi-output online adaptation, use `sklearn.multioutput.MultiOutputRegressor(SGDRegressor(...))` which wraps n independent SGDRegressors -- each predicting one weight component. The `partial_fit()` call propagates to all sub-estimators. This is acceptable because:
+- Online updates are incremental corrections, not full predictions
+- The overhead of n independent models is still O(n * n_features) per update
+- Correlation between weights matters less for small corrections than for initial predictions
 
 ---
 
-## Summary of Changes Required
+## Alternatives Considered
 
-| Change | Files Affected | Risk | Effort |
-|--------|---------------|------|--------|
-| `callback_t` typedef: `()` to `(void)` | `definitions.h` | None | 1 line |
-| Remove `#define true/false`, add `<stdbool.h>` | `definitions.h` | Low (test all builds) | 3 lines |
-| Add parentheses to `&&`/`||` expressions | `local_search.c`, `SearchLib.c`, `solver.c` | None | ~5 locations |
-| Replace VLA `remainings[C]` with malloc | `local_search.c` | Low | ~10 lines |
-| Rework history callback to per-thread dict | `SearchLib.pyx` | Medium (needs testing) | ~40 lines |
-| Delete commented-out code | 15 C files | Low | ~260 lines deleted |
-| Add `-Wall -Wextra` to build flags | `setup.py`, `CMakeLists.txt` | Low (may surface warnings to fix) | 2 lines |
-| Add `-std=gnu11` to build flags | `setup.py`, `CMakeLists.txt` | None | 2 lines |
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| ExtraTreesRegressor (offline) | RandomForestRegressor | If variance in weight predictions is too high and you need more stable predictions. RF is slightly more biased but lower variance. |
+| ExtraTreesRegressor (offline) | GradientBoostingRegressor | If training data is large (>10K instances) and you need maximum accuracy. GBR with early stopping would outperform, but requires careful tuning. |
+| SGDRegressor (online) | Direct weight perturbation (no ML) | If the overhead of sklearn import and partial_fit is measurable in the solve loop. A simple exponential moving average of reward-weighted perturbations would work with zero dependencies. |
+| scikit-learn (whole library) | Custom numpy-only implementation | If the optional dependency is unacceptable. A basic linear regression with online SGD update is ~50 lines of numpy code. Loses cross-validation, pipelines, and model persistence convenience. |
 
-**No new dependencies. No new tools. No new packages.**
+---
+
+## Version Compatibility
+
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| scikit-learn >=1.6,<2.0 | Python 3.13.7 | sklearn 1.6 supports 3.9-3.13; 1.7 supports 3.10-3.13; 1.8 supports 3.11-3.14. All work with project's Python 3.13.7. |
+| scikit-learn >=1.6 | numpy >=1.20 | sklearn requires numpy. Project already pins numpy>=1.20. Compatible. |
+| scikit-learn >=1.6 | joblib >=1.0 | sklearn uses joblib internally. Project already pins joblib>=1.0. No version conflict. |
+| scikit-learn >=1.6 | Cython 3 | No interaction. sklearn is a pure Python dependency; Cython builds the C extensions. |
+
+**Zero conflicts with existing dependencies.** scikit-learn's transitive dependencies (numpy, scipy, joblib, threadpoolctl) are either already present or are non-conflicting additions. Note: sklearn does pull in scipy as a transitive dependency, but this is managed by pip and does not need to be listed as a direct dependency.
+
+---
+
+## Stack Patterns by Variant
+
+**If training data is very small (<50 instances):**
+- Use `ExtraTreesRegressor(n_estimators=50)` with reduced forest size
+- Skip cross-validation; use leave-one-out instead
+- Because small data means overfitting risk is high with large forests
+
+**If online adaptation proves too slow in the callback:**
+- Replace SGDRegressor with direct numpy-based exponential moving average
+- `weights = alpha * reward_weighted_features + (1 - alpha) * weights`
+- Because this eliminates the sklearn import overhead and function call overhead
+
+**If weight predictions need to be non-negative (they do):**
+- Post-process: `weights = np.maximum(model.predict(features), 0.0)`
+- The existing L1 normalization in `solver_ctx_set_branching_weights()` handles the rest
+- Because tree regressors can predict negative values for out-of-distribution inputs
+
+**If the project later needs per-constraint weights (not just per-variable):**
+- The 3-term `BranchingFunction` formula would need extension in `Branching.h`
+- ExtraTreesRegressor output dimension changes but the sklearn pipeline stays the same
+- Because the stack is independent of the weight vector's semantic meaning
+
+---
+
+## Sources
+
+- [scikit-learn 1.8.0 official documentation](https://scikit-learn.org/stable/) -- estimator APIs, version support
+- [scikit-learn PyPI page](https://pypi.org/project/scikit-learn/) -- version 1.8.0 confirmed as latest stable
+- [SGDRegressor documentation](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.SGDRegressor.html) -- partial_fit API, parameter details
+- [ExtraTreesRegressor documentation](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.ExtraTreesRegressor.html) -- multi-output support, native behavior
+- [RandomForestRegressor multi-output comparison](https://scikit-learn.org/stable/auto_examples/ensemble/plot_random_forest_regression_multioutput.html) -- native vs wrapper multi-output
+- [scikit-learn scaling strategies](https://scikit-learn.org/stable/computing/scaling_strategies.html) -- partial_fit incremental learning guide
+- [scikit-learn model persistence](https://scikit-learn.org/stable/model_persistence.html) -- joblib.dump/load as recommended approach
+- [PassiveAggressiveRegressor deprecation (1.8)](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.PassiveAggressiveRegressor.html) -- deprecated, use SGDRegressor instead
+- Codebase inspection: `Branching.h` (BranchingFunction formula), `solver_ctx.h` (BranchingStats_t struct), `solver_ctx.c` (L1 normalization in solver_ctx_set_branching_weights), `Model.pyx` (_PARAM_DEFS registry, set_param validation), `SearchLib.pyx` (solver_ctx creation and weight propagation, _SolveState callback mechanism)
 
 ---
 
@@ -363,28 +254,15 @@ Even with `-std=gnu11`, fix the three C23 issues (`callback_t`, `true`/`false` d
 
 | Item | Confidence | Source |
 |------|------------|--------|
-| GCC 15 C23 default change | HIGH | [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) |
-| Empty `()` meaning `(void)` in C23 | HIGH | [trofi's blog](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html), GCC docs |
-| `bool`/`true`/`false` as C23 keywords | HIGH | [OpenSSL #27516](https://github.com/openssl/openssl/issues/27516), C23 standard |
-| Thread-ID dict pattern for Cython callbacks | MEDIUM | Derived from Cython threading docs and Python stdlib; not verified in identical codebase |
-| VLA replacement with malloc | HIGH | Standard C practice, matches existing codebase pattern |
-| 260 commented-out code lines count | HIGH | Direct grep of source tree |
-| `-Wall -Wextra` safety | HIGH | GCC official documentation |
-
-## Sources
-
-- [GCC 15 Porting Guide](https://gcc.gnu.org/gcc-15/porting_to.html) -- official migration guide
-- [gcc-15 switched to C23 (trofi)](https://trofi.github.io/posts/326-gcc-15-switched-to-c23.html) -- detailed analysis of C23 breaking changes
-- [6 usability improvements in GCC 15 (Red Hat)](https://developers.redhat.com/articles/2025/04/10/6-usability-improvements-gcc-15) -- diagnostic improvements
-- [OpenSSL C23 bool keyword issue #27516](https://github.com/openssl/openssl/issues/27516) -- real-world bool breakage example
-- [open-simh C23 bool issue #490](https://github.com/open-simh/simh/issues/490) -- another bool breakage example
-- [Cython free threading docs](https://cython.readthedocs.io/en/latest/src/userguide/freethreading.html) -- Cython concurrency model
-- [Cython external C code docs](https://cython.readthedocs.io/en/latest/src/userguide/external_C_code.html) -- callback GIL handling
-- [SciPy LowLevelCallable pattern](https://github.com/scipy/scipy/blob/main/scipy/_lib/_ccallback.py) -- reference for callback architecture
-- [Wikipedia: Variable-length array](https://en.wikipedia.org/wiki/Variable-length_array) -- VLA standard status
-- [CERT C: VLA size validation](https://wiki.sei.cmu.edu/confluence/x/AdcxBQ) -- security implications of VLAs
-- [GCC Warning Options](https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html) -- `-Wunused-*` flag reference
+| scikit-learn version compatibility with Python 3.13.7 | HIGH | Official docs, PyPI |
+| SGDRegressor as only non-deprecated online regressor | HIGH | sklearn 1.8 deprecation notice for PassiveAggressiveRegressor |
+| ExtraTreesRegressor native multi-output support | HIGH | Official docs, comparison example |
+| Integration with existing set_param('branching_weights') | HIGH | Direct codebase inspection of Model.pyx and solver_ctx.c |
+| Online adaptation via callback mechanism | MEDIUM | Codebase inspection shows the path is feasible, but mid-solve weight update to live solver_ctx_t needs new Cython code |
+| No scipy needed as direct dependency | HIGH | Feature extraction uses numpy arrays; scipy comes transitively via sklearn |
+| joblib sufficient for model persistence | HIGH | Official sklearn docs recommend joblib; already a dependency |
+| Feature extraction feasible from Python level | HIGH | Model.con_expr, model.n, and Cython-accessible C struct fields provide all needed data |
 
 ---
-*Stack research for: CBQS v1.1 bug fixes and code polish*
-*Researched: 2026-02-06*
+*Stack research for: CBQS v3.0 ML-based adaptive branching weight learning*
+*Researched: 2026-02-26*

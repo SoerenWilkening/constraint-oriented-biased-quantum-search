@@ -1,585 +1,795 @@
-# Architecture Research: v1.1 Bug Fixes and Code Polish
+# Architecture Research: v3.0 ML-Based Adaptive Branching
 
-**Domain:** C/Cython/Python solver (CBQS) -- cleanup milestone targeting history callback, local_search API, SATISFY mode crash, VLA removal, and deprecated BranchingStats
-**Researched:** 2026-02-06
-**Confidence:** HIGH (direct codebase analysis of every relevant source file)
+**Domain:** ML integration into existing Python/Cython/C combinatorial optimization solver (CBQS)
+**Researched:** 2026-02-26
+**Confidence:** HIGH (direct codebase analysis + domain research)
 
 ---
 
 ## Executive Summary
 
-The v1.0 milestone delivered the `solver_ctx_t` architecture, arena allocator, per-thread PRNG, and an `OptimizeResult` return type. However, five cleanup items remain that intersect with the existing architecture in non-trivial ways. This document maps each cleanup item onto the current code, identifies the root cause, analyzes dependencies between fixes, and recommends a fix order.
+The v3.0 milestone adds ML-based learning of branching weights to the CBQS solver. The existing architecture already has the exact hook point needed: `branching_weights` is a float array on `solver_ctx_t.branching_stats` that directly feeds `BranchingFunction()` in the C kernel. The ML system needs to (a) extract features from problem instances, (b) predict branching weights, and (c) adapt weights during solve based on feedback. This document maps each capability onto the existing codebase and recommends new components, integration points, and build order.
 
-The key architectural insight: four of the five items (history callback, local_search API, SATISFY mode, deprecated BranchingStats) share a common pattern -- they are remnants of pre-`solver_ctx_t` global/module-level state that was left in place for backward compatibility during the v1.0 migration. The fifth (VLA replacement) is a portability fix already partially addressed by pre-allocated per-thread buffers.
-
----
-
-## Item 1: History Callback Rework
-
-### Current Architecture
-
-The history callback is implemented as module-level `cdef` state in `SearchLib.pyx` (lines 134-159):
-
-```python
-# Module-level state for history callback wrapper.
-cdef object _history_list = None
-cdef object _history_prev_best = None
-cdef object _history_original_callback = None
-cdef Model _history_mod = None
-```
-
-The callback function `_history_callback_fn()` (line 143) reads from these module-level variables. It is set as the global `python_callback` before the solve loop starts (lines 201-206 in `run_sampling`, lines 297-302 in `run_local_search`).
-
-**Call chain:**
-
-```
-Model.solve() [Python]
-  -> joblib.Parallel(n_jobs=N, backend="threading")
-    -> run_sampling(Model, callback, not_stop) [Cython, per-worker]
-      1. Sets module-level: _history_list = [], _history_mod = mod, etc.
-      2. Sets module-level: python_callback = _history_callback_fn
-      3. Calls ctg(ctx, mod_ptr, stt, cb_ptr, inc.incumbent) [C, nogil]
-        4. On improvement: callback() [C, acquires GIL]
-          5. my_callback_c() [Cython, with gil]
-            6. python_callback() -> _history_callback_fn() [Python]
-              7. Reads _history_mod.mod[0].global_opt[0].tot_profit
-              8. Appends to _history_list
-```
-
-### The Concurrency Problem
-
-When `Model.solve()` uses `joblib.Parallel(backend="threading")` with `num_workers > 1`, all N workers execute `run_sampling()` in separate threads. Each thread:
-
-1. **Overwrites** the same module-level `_history_list`, `_history_mod`, `_history_prev_best`, `_history_original_callback`
-2. **Overwrites** the same module-level `python_callback`
-
-This is a data race on Python objects. Because of the GIL, it does not cause memory corruption, but it causes logical corruption: one worker's history setup overwrites another's. The last worker to set up wins; earlier workers' callback state is lost.
-
-**Observed behavior:** All workers share the same `_history_list` and `_history_mod`, so history entries from all workers end up in one list. The `_history_prev_best` deduplication check races between workers. The merged history in `Model.solve()` (lines 333-336) then collects from all workers' `res[6]`, but each worker returns the same shared `_history_list` at that point.
-
-### Why Module-Level State Was Used
-
-Cython imposes a constraint: `cpdef` functions cannot capture closures. A regular Python class cannot access `cdef` attributes on Cython extension types. The workaround was module-level `cdef` variables that act as a manual closure.
-
-### Recommended Rework: Per-Worker History via Thread-Local Dictionary
-
-**Approach:** Replace the four module-level `cdef` variables with a thread-keyed dictionary. Each worker stores its own history state under `threading.get_ident()`.
-
-```python
-import threading
-
-# Thread-keyed history state (replaces module-level cdef variables)
-cdef dict _history_state = {}  # {thread_id: (list, prev_best, original_callback, Model)}
-
-def _history_callback_fn():
-    tid = threading.get_ident()
-    state = _history_state.get(tid)
-    if state is None:
-        return
-    hist_list, prev_best, orig_cb, mod = state
-    obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
-    elapsed_ms = mod.mod[0].runtime * 1000.0
-    is_feasible = bool(mod.mod[0].global_opt[0].feasible)
-    iteration = mod.mod[0].qtg_applications
-    if prev_best is None or obj_val != prev_best:
-        hist_list.append((iteration, obj_val, elapsed_ms, is_feasible))
-        _history_state[tid] = (hist_list, obj_val, orig_cb, mod)
-    if orig_cb is not None:
-        orig_cb()
-```
-
-**Setup in run_sampling (replaces lines 200-206):**
-
-```python
-tid = threading.get_ident()
-hist = []
-_history_state[tid] = (hist, None, callback, mod)
-python_callback = _history_callback_fn
-```
-
-**Teardown after solve loop:**
-
-```python
-history = list(_history_state.get(tid, ([], None, None, None))[0])
-_history_state.pop(tid, None)
-```
-
-**Why this works:**
-- `threading.get_ident()` is fast (no syscall on CPython, just reads a cached value)
-- The GIL protects dictionary writes, so `_history_state[tid] = ...` is atomic from Python's perspective
-- Each worker gets its own history list, preventing cross-worker corruption
-- The `python_callback` module-level variable is still shared, but it points to the same function -- the function itself dispatches per-thread. This is safe because the callback is always `_history_callback_fn` for all workers.
-
-**Remaining issue with `python_callback`:** The module-level `python_callback` variable is still shared. If `run_quantum_local_search` sets it to a different callback while sampling is running, there is a race. However, `run_quantum_local_search` is not called concurrently with `run_sampling` in practice. To be safe, the `python_callback` global could also be keyed by thread, but this requires changing `my_callback_c()` which acquires the GIL -- adding `threading.get_ident()` there is acceptable since the GIL is already held.
-
-**Alternative approach (not recommended):** Embed callback pointer and user data in `solver_ctx_t` at the C level. This would require changing the C `callback_t` typedef from `void (*)()` to `void (*)(void *userdata)` and threading `userdata` through `ctg()`, `local_search()`, etc. This is cleaner architecturally but touches many C function signatures and is a larger change than v1.1 scope warrants.
-
-### Impact on solver_ctx_t
-
-No changes needed to `solver_ctx_t`. The history callback operates entirely at the Python/Cython level, above the nogil boundary. The C kernel just calls `callback()` which acquires the GIL and enters Python code.
+The key architectural decision: feature extraction and ML inference happen in Python, weight updates flow through the existing `set_param('branching_weights', ...)` API, and online adaptation hooks into the existing callback mechanism. No C-level changes are needed for the core ML integration. The C kernel remains a pure computation engine that consumes weights; the Python layer owns all learning logic.
 
 ---
 
-## Item 2: SATISFY Mode Crash Analysis
+## Existing Architecture (Reference)
 
-### Current Architecture: OPTIMIZE vs SATISFY Code Paths
+### Current Weight Flow
 
-The `mod.solver` field determines the code path at two levels:
+```
+Python (Model.set_param)
+    |
+    v
+Model._params['branching_weights'] = np.array(...)  (validated, stored)
+    |
+    v
+Cython (SearchLib.run_sampling)
+    |  copies np.array -> C double* via calloc + memcpy
+    v
+C (solver_ctx_set_branching_weights)
+    |  L1-normalizes, stores in ctx->branching_stats.branching_weights
+    v
+C (BranchingFunction, inline in Branching.h)
+    |  reads ctx->branching_stats.branching_weights[index]
+    |  combines with assignment_bias + look_ahead in 3-term formula
+    v
+Per-variable branching probability -> sampling decision
+```
 
-**C level (SearchLib.c, `ctg()` function, lines 110-122):**
+### Current Callback Flow
+
+```
+C (ctg main loop, SearchLib.c line 198-204)
+    |  on improvement: callback() [with GIL]
+    v
+Cython (my_callback_c, with gil)
+    |
+    v
+Python (_history_callback_fn via _SolveState per-thread dict)
+    |  reads mod.mod[0].global_opt[0].tot_profit
+    |  reads mod.mod[0].con[0].num_constraints
+    |  appends (value, elapsed) to history
+    v
+History list returned in OptimizeResult
+```
+
+### Key Existing Integration Points
+
+| Existing Component | What It Provides for ML | Location |
+|---|---|---|
+| `set_param('branching_weights', arr)` | Entry point for setting learned weights | Model.pyx line 275 |
+| `solver_ctx_set_branching_weights()` | C-level weight injection with L1 normalization | solver_ctx.c line 139 |
+| `BranchingFunction()` | Consumes weights per variable in 3-term formula | Branching.h line 73 |
+| `_SolveState` callback dict | Per-thread callback state during solve | SearchLib.pyx line 139 |
+| `callback` param in `_PARAM_DEFS` | User callback invoked on improvement | Model.pyx line 94 |
+| `OptimizeResult.history` | Post-solve improvement trajectory | result.py |
+| `new_constraints_t` | Constraint structure (coefficients, RHS, sparsity) | constraint.h |
+| `model_t` | Objective/constraint data accessible from Cython | model.h |
+
+---
+
+## Recommended Architecture for v3.0
+
+### System Overview
+
+```
++=========================================================================+
+|  New Python Layer: cbqs/ml/                                              |
+|                                                                          |
+|  +------------------+  +-------------------+  +----------------------+   |
+|  | FeatureExtractor |  | WeightPredictor   |  | AdaptiveController   |   |
+|  | (features.py)    |  | (predictor.py)    |  | (adaptive.py)        |   |
+|  +--------+---------+  +---------+---------+  +----------+-----------+   |
+|           |                      |                       |               |
+|           | np.array features    | np.array weights      | callback      |
+|           v                      v                       v               |
+|  +--------------------------------------------------------------------+  |
+|  | TrainingPipeline (pipeline.py)                                      |  |
+|  | Orchestrates: collect data -> extract features -> train -> persist  |  |
+|  +--------------------------------------------------------------------+  |
++=========================================================================+
+           |                      |                       |
+           | features             | set_param(weights)    | set_param(callback)
+           v                      v                       v
++=========================================================================+
+|  Existing Python/Cython Layer                                            |
+|  Model.set_param() -> SearchLib.run_sampling() -> solver_ctx_t           |
++=========================================================================+
+           |
+           v (nogil)
++=========================================================================+
+|  Existing C Kernel (UNCHANGED)                                           |
+|  BranchingFunction() reads ctx->branching_stats.branching_weights[i]     |
++=========================================================================+
+```
+
+### New Component Responsibilities
+
+| Component | Responsibility | Communicates With |
+|---|---|---|
+| `FeatureExtractor` | Extract per-variable and per-instance features from Model | Model (reads constraints, objective, structure) |
+| `WeightPredictor` | Map features -> branching weights using trained ML model | FeatureExtractor (input), Model.set_param (output) |
+| `AdaptiveController` | Online weight adjustment during solve via callback | Model callback mechanism, WeightPredictor |
+| `TrainingPipeline` | Offline training: run instances, collect results, fit model | FeatureExtractor, WeightPredictor, Model.solve() |
+| `TrainingData` | Storage/serialization of training examples | TrainingPipeline (writes), WeightPredictor (reads) |
+
+---
+
+## Component Design
+
+### Component 1: FeatureExtractor (cbqs/ml/features.py)
+
+**Purpose:** Extract numerical features from a closed Model that characterize the problem instance and individual variables. These features become the input to the ML model.
+
+**Where extraction happens: Python, not C.** The constraint and objective data is accessible from Cython/Python via `mod.mod[0].con` and `mod.mod[0].obj`. Feature extraction runs once before solve (at close time or before solve), not during the hot loop. There is no performance benefit to doing this in C -- it runs once per instance.
+
+**Feature categories:**
+
+| Category | Features | Source | Per-Variable? |
+|---|---|---|---|
+| **Instance-level** | num_variables, num_constraints, constraint density, avg_clause_length | `model_t`, `new_constraints_t` | No |
+| **Variable-constraint** | num_constraints_containing_var, avg_coefficient_magnitude, constraint_tightness | `new_constraints_t.variables`, `factors`, `rhs` | Yes |
+| **Objective** | coefficient_in_objective, relative_obj_coefficient | `new_constraints_t` (obj) | Yes |
+| **Structural** | variable_degree (in constraint graph), constraint_degree_of_neighbors | Derived from constraint matrix | Yes |
+
+**Interface:**
+
+```python
+class FeatureExtractor:
+    """Extract features from a closed CBQS Model for ML-based weight prediction."""
+
+    def extract(self, model: Model) -> np.ndarray:
+        """Extract per-variable feature matrix from a closed model.
+
+        Parameters
+        ----------
+        model : Model
+            A closed model (close() has been called).
+
+        Returns
+        -------
+        np.ndarray
+            Feature matrix of shape (n_variables, n_features).
+        """
+        ...
+
+    def extract_instance_features(self, model: Model) -> np.ndarray:
+        """Extract instance-level features (for transfer learning).
+
+        Returns
+        -------
+        np.ndarray
+            Feature vector of shape (n_instance_features,).
+        """
+        ...
+
+    @property
+    def feature_names(self) -> list[str]:
+        """Names of per-variable features for interpretability."""
+        ...
+```
+
+**Data access pattern:** The FeatureExtractor needs to iterate over `model.con_expr` (Python list of constraint expressions) and access the underlying C data via Cython. Two approaches:
+
+- **Option A (recommended):** Build a helper Cython function in SearchLib.pyx (or a new `features.pyx`) that extracts raw constraint matrix data into numpy arrays. FeatureExtractor then works with pure numpy.
+- **Option B:** Access `mod.mod[0].con[0].*` fields directly from Cython within the Python class. This is possible because Model.pyx exposes `mod` as a typed attribute.
+
+Option A is recommended because it keeps the ML module as pure Python (easier to test, no Cython compilation for the ML layer).
+
+### Component 2: WeightPredictor (cbqs/ml/predictor.py)
+
+**Purpose:** Map extracted features to branching weights using a trained sklearn model.
+
+**ML model choice: GradientBoostingRegressor with warm_start=True.** This is the recommended model because:
+
+1. Gradient boosting handles tabular feature data well (constraint structure is inherently tabular)
+2. `warm_start=True` allows incremental training -- add more trees when new data arrives
+3. sklearn's GradientBoostingRegressor supports `warm_start` natively (verified in sklearn 1.8 docs)
+4. It produces feature importances for interpretability
+5. It handles the per-variable regression task naturally (predict one weight per variable)
+
+**Alternative considered:** Random Forest with `warm_start=True` -- simpler but typically less accurate on structured prediction tasks. Neural networks -- overkill for this feature space, adds PyTorch dependency.
+
+**Interface:**
+
+```python
+class WeightPredictor:
+    """Predict branching weights from problem features."""
+
+    def __init__(self, model_path: str | None = None):
+        """Load a trained model or initialize a new one."""
+        ...
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        """Predict branching weights for each variable.
+
+        Parameters
+        ----------
+        features : np.ndarray
+            Feature matrix of shape (n_variables, n_features).
+
+        Returns
+        -------
+        np.ndarray
+            Non-negative weight array of shape (n_variables,).
+        """
+        ...
+
+    def fit(self, X: np.ndarray, y: np.ndarray, warm_start: bool = False):
+        """Train or incrementally update the model.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Feature matrix of shape (n_samples, n_features).
+        y : np.ndarray
+            Target weights of shape (n_samples,).
+        warm_start : bool
+            If True, add trees to existing model instead of retraining.
+        """
+        ...
+
+    def save(self, path: str): ...
+    def load(self, path: str): ...
+```
+
+**Weight target construction:** The target `y` for training is derived from solve performance. For a given instance, the "ideal" branching weights are those that led to the best solve performance. This is computed retrospectively from successful solve runs (see TrainingPipeline below).
+
+### Component 3: AdaptiveController (cbqs/ml/adaptive.py)
+
+**Purpose:** Adjust branching weights during solve based on real-time feedback from the callback mechanism.
+
+**Where online adaptation hooks in: Python-level callback.** The existing callback mechanism (`_SolveState` per-thread dict in SearchLib.pyx) fires on every improvement. The AdaptiveController wraps the user callback and adjusts weights between solve iterations.
+
+**Critical constraint:** Branching weights are set ONCE per solve context creation (in `run_sampling()` before the `ctg()` call). The C kernel reads `ctx->branching_stats.branching_weights` throughout the solve but there is no mechanism to update weights mid-solve without modifying C code.
+
+**Two adaptation strategies:**
+
+**Strategy A: Inter-solve adaptation (recommended first).** Run multiple shorter solves, adjusting weights between each based on performance feedback. This requires no C changes.
+
+```python
+class AdaptiveController:
+    """Adapt branching weights across multiple solve calls."""
+
+    def __init__(self, predictor: WeightPredictor, feature_extractor: FeatureExtractor,
+                 learning_rate: float = 0.1, reward_blend: float = 0.5):
+        ...
+
+    def initial_weights(self, model: Model) -> np.ndarray:
+        """Get initial weights from predictor for a model."""
+        features = self.feature_extractor.extract(model)
+        return self.predictor.predict(features)
+
+    def adapt(self, model: Model, result: OptimizeResult) -> np.ndarray:
+        """Compute updated weights based on solve result.
+
+        Uses a combined reward signal:
+        - Objective improvement rate: delta_obj / solve_time
+        - Constraint satisfaction rate: num_feasible_improvements / total_improvements
+
+        Returns updated weights to use for next solve call.
+        """
+        ...
+
+    def run_adaptive_solve(self, model: Model, num_rounds: int = 5,
+                           time_per_round: int = 60) -> OptimizeResult:
+        """Run multiple solve rounds with weight adaptation between rounds.
+
+        Parameters
+        ----------
+        model : Model
+            Closed model ready to solve.
+        num_rounds : int
+            Number of adaptive solve rounds.
+        time_per_round : int
+            Seconds per round.
+
+        Returns
+        -------
+        OptimizeResult
+            Best result across all rounds.
+        """
+        ...
+```
+
+**Strategy B: Intra-solve adaptation (deferred).** Modify `solver_ctx_t` to support weight updates during solve via a flag or function pointer. This requires adding a C-level "weight update" hook but enables more responsive adaptation. Deferred because it requires C kernel changes and careful thread-safety analysis.
+
+**Reward signal design:**
+
+```
+reward = alpha * objective_improvement_rate + (1 - alpha) * constraint_satisfaction_rate
+
+where:
+  objective_improvement_rate = (best_obj_start - best_obj_end) / solve_time
+  constraint_satisfaction_rate = num_feasible_in_history / len(history)
+  alpha = reward_blend parameter (default 0.5)
+```
+
+**Weight update rule (exponential moving average):**
+
+```
+new_weights[i] = (1 - lr) * old_weights[i] + lr * gradient_estimate[i]
+
+where gradient_estimate is derived from:
+  - Variables that appeared in improving solutions get positive gradient
+  - Variables that appeared in worsening moves get negative gradient
+  - Computed from the difference between current solution and best solution
+```
+
+### Component 4: TrainingPipeline (cbqs/ml/pipeline.py)
+
+**Purpose:** Orchestrate offline training: run solver on a set of instances, collect performance data, extract features, construct training targets, and fit the WeightPredictor.
+
+**Interface:**
+
+```python
+class TrainingPipeline:
+    """Offline training pipeline for branching weight learning."""
+
+    def __init__(self, feature_extractor: FeatureExtractor,
+                 predictor: WeightPredictor):
+        ...
+
+    def collect_training_data(self, instances: list[Model],
+                              solves_per_instance: int = 10,
+                              time_per_solve: int = 30) -> TrainingData:
+        """Run solver on instances and collect performance data.
+
+        For each instance, runs multiple solves with different random weights
+        and records which weight configurations led to better performance.
+        """
+        ...
+
+    def construct_targets(self, data: TrainingData) -> tuple[np.ndarray, np.ndarray]:
+        """Convert raw performance data into (X, y) training pairs.
+
+        X: per-variable features from each instance
+        y: target weights derived from best-performing solves
+        """
+        ...
+
+    def train(self, instances: list[Model], **kwargs) -> WeightPredictor:
+        """Full pipeline: collect data, extract features, train model."""
+        data = self.collect_training_data(instances, **kwargs)
+        X, y = self.construct_targets(data)
+        self.predictor.fit(X, y)
+        return self.predictor
+```
+
+**Training data collection strategy:**
+
+1. For each training instance, run N solves with varied branching weights (random perturbations around uniform)
+2. Record: (instance_features, branching_weights_used, solve_quality)
+3. solve_quality = combined metric of time-to-best, final objective, feasibility
+4. Best-performing weight configurations become positive training examples
+5. Worst-performing become negative examples
+6. This generates supervised regression data: features -> optimal weights
+
+### Component 5: TrainingData (cbqs/ml/data.py)
+
+**Purpose:** Structured storage for training examples with serialization.
+
+```python
+@dataclass
+class SolveRecord:
+    """Record of a single solve run for training."""
+    instance_id: str
+    features: np.ndarray           # (n_vars, n_features)
+    weights_used: np.ndarray       # (n_vars,)
+    objective: float | None
+    feasible: bool
+    solve_time: float
+    history: list[tuple]
+    quality_score: float           # derived reward metric
+
+@dataclass
+class TrainingData:
+    """Collection of solve records for training."""
+    records: list[SolveRecord]
+
+    def save(self, path: str): ...
+
+    @classmethod
+    def load(cls, path: str) -> 'TrainingData': ...
+
+    def to_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        """Convert to (X, y) arrays for sklearn."""
+        ...
+```
+
+---
+
+## Data Flow
+
+### Offline Training Flow
+
+```
+Training Instances (list[Model])
+    |
+    v
+TrainingPipeline.collect_training_data()
+    |  For each instance:
+    |    1. FeatureExtractor.extract(model) -> features
+    |    2. Generate N random weight perturbations
+    |    3. For each perturbation:
+    |       a. model.set_param('branching_weights', weights)
+    |       b. model.solve() -> OptimizeResult
+    |       c. Record (features, weights, result)
+    |
+    v
+TrainingData (list of SolveRecords)
+    |
+    v
+TrainingPipeline.construct_targets()
+    |  For each instance:
+    |    1. Rank solves by quality_score
+    |    2. Best-performing weights become targets
+    |    3. Features -> target weights pairs
+    |
+    v
+(X, y) arrays
+    |
+    v
+WeightPredictor.fit(X, y)
+    |
+    v
+Trained GradientBoostingRegressor
+    |
+    v
+predictor.save('model.pkl')
+```
+
+### Online Prediction Flow (Single Solve)
+
+```
+New Instance (Model, closed)
+    |
+    v
+FeatureExtractor.extract(model) -> features
+    |
+    v
+WeightPredictor.predict(features) -> weights
+    |
+    v
+model.set_param('branching_weights', weights)
+    |
+    v
+model.solve() -> OptimizeResult
+```
+
+### Online Adaptive Flow (Multi-Round)
+
+```
+New Instance (Model, closed)
+    |
+    v
+AdaptiveController.run_adaptive_solve(model, num_rounds=5)
+    |
+    +-- Round 1:
+    |     features = extract(model)
+    |     weights = predictor.predict(features)
+    |     model.set_param('branching_weights', weights)
+    |     model.set_param('stopping_time', time_per_round)
+    |     result = model.solve()
+    |
+    +-- Round 2..N:
+    |     weights = controller.adapt(model, previous_result)
+    |     model.reset()
+    |     model.set_param('branching_weights', weights)
+    |     result = model.solve()
+    |
+    v
+Best OptimizeResult across all rounds
+```
+
+---
+
+## Project Structure
+
+```
+cbqs/
+    ml/                        # NEW: ML module (pure Python)
+        __init__.py            # Public API exports
+        features.py            # FeatureExtractor
+        predictor.py           # WeightPredictor (sklearn wrapper)
+        adaptive.py            # AdaptiveController
+        pipeline.py            # TrainingPipeline
+        data.py                # TrainingData, SolveRecord
+        _cython_helpers.pyx    # OPTIONAL: fast feature extraction helpers
+    src/                       # EXISTING: C kernel (UNCHANGED)
+        Branching.h            # BranchingFunction (reads weights, no changes)
+        solver_ctx.h           # solver_ctx_t (no changes needed)
+        solver_ctx.c           # Weight setter (no changes needed)
+        ...
+    SearchLib.pyx              # EXISTING: minor change for feature data export
+    Model.pyx                  # EXISTING: no changes needed
+    result.py                  # EXISTING: no changes needed
+    __init__.py                # EXISTING: add ml imports
+
+tests/
+    test_ml/                   # NEW: ML-specific tests
+        test_features.py       # Feature extraction tests
+        test_predictor.py      # Predictor tests
+        test_adaptive.py       # Adaptive controller tests
+        test_pipeline.py       # Pipeline integration tests
+    ...
+```
+
+### Structure Rationale
+
+- **cbqs/ml/ as pure Python:** The ML module does not need Cython compilation. It consumes data from the existing Cython layer via the public Model API. This keeps the build simple and allows rapid iteration on the ML components without recompiling Cython/C.
+- **Optional _cython_helpers.pyx:** If feature extraction on the constraint matrix proves slow in pure Python (unlikely for n < 10000), a Cython helper can provide fast iteration over the C constraint data.
+- **Tests in test_ml/:** Isolates ML tests from existing solver tests. ML tests can use small synthetic instances for fast iteration.
+
+---
+
+## Integration Points: New vs Modified Components
+
+### New Components (6 files)
+
+| File | Type | Purpose |
+|---|---|---|
+| `cbqs/ml/__init__.py` | Python | Package init, public exports |
+| `cbqs/ml/features.py` | Python | FeatureExtractor class |
+| `cbqs/ml/predictor.py` | Python | WeightPredictor class (sklearn) |
+| `cbqs/ml/adaptive.py` | Python | AdaptiveController class |
+| `cbqs/ml/pipeline.py` | Python | TrainingPipeline class |
+| `cbqs/ml/data.py` | Python | TrainingData, SolveRecord dataclasses |
+
+### Modified Components (2 files, minimal changes)
+
+| File | Change | Reason |
+|---|---|---|
+| `cbqs/__init__.py` | Add conditional import of `ml` subpackage | Make `from cbqs.ml import ...` work |
+| `pyproject.toml` / `setup.py` | Add `scikit-learn` as optional dependency | sklearn needed for ML components |
+
+### Unchanged Components (everything else)
+
+| Component | Why Unchanged |
+|---|---|
+| C kernel (all .c/.h files) | ML inference happens in Python; weights flow through existing `set_param` API |
+| Cython bindings (all .pyx/.pxd) | No new C functions to wrap; existing API sufficient |
+| Model.pyx | `set_param('branching_weights')` already validates and stores weights |
+| SearchLib.pyx | `run_sampling()` already copies weights to solver_ctx_t |
+| result.py | OptimizeResult already captures all needed feedback data |
+
+---
+
+## Architectural Patterns
+
+### Pattern 1: Python-Only ML Layer Above Cython Boundary
+
+**What:** All ML logic (feature extraction, inference, training) lives in pure Python. The only interaction with the solver is through `Model.set_param()`, `Model.solve()`, and `OptimizeResult`.
+
+**When to use:** When the ML component does not need to run in the hot loop. Feature extraction runs once per instance. Weight prediction runs once per solve (or once per adaptation round).
+
+**Trade-offs:**
+- Pro: No Cython recompilation for ML changes. Easy to test. Easy to swap ML backends.
+- Pro: Clean separation -- ML team does not need to understand C kernel.
+- Con: Cannot adapt weights mid-solve without C changes (deferred to Strategy B).
+- Con: Feature extraction from constraint data requires traversing Python/Cython boundary.
+
+**This is the right pattern because:** Branching weights are set before solve and remain constant during solve. The ML model only needs to make one prediction per solve call. The performance-critical path (BranchingFunction called millions of times) is already in C and unchanged.
+
+### Pattern 2: Multi-Round Adaptive Solve
+
+**What:** Instead of modifying the C kernel for intra-solve adaptation, run multiple shorter solves with weight updates between them.
+
+**When to use:** When the existing callback mechanism cannot modify solver state mid-solve (which is the current case -- `solver_ctx_t.branching_stats` is not updated during `ctg()`).
+
+**Trade-offs:**
+- Pro: Zero C changes. Uses existing `Model.reset()` + `Model.solve()` cycle.
+- Pro: Each round benefits from a warm start (previous best solution via `manual_initial()`).
+- Con: Overhead of context creation/teardown per round.
+- Con: Short rounds may not explore enough to generate useful feedback.
+
+**Example:**
+
+```python
+controller = AdaptiveController(predictor, extractor, learning_rate=0.1)
+
+for round_num in range(5):
+    weights = controller.adapt(model, last_result) if round_num > 0 else controller.initial_weights(model)
+    model.set_param('branching_weights', weights)
+    model.set_param('stopping_time', 60)
+
+    if round_num > 0:
+        # Warm-start from previous best
+        model.manual_initial(last_result.objective, list(last_result.solution))
+
+    model.reset()
+    last_result = model.solve()
+```
+
+### Pattern 3: sklearn as Optional Dependency
+
+**What:** The ML module checks for sklearn at import time and provides clear error messages if missing.
+
+**When to use:** Always -- sklearn should not be a required dependency for the core solver.
+
+```python
+# cbqs/ml/__init__.py
+try:
+    import sklearn
+    _HAS_SKLEARN = True
+except ImportError:
+    _HAS_SKLEARN = False
+
+def _require_sklearn():
+    if not _HAS_SKLEARN:
+        raise ImportError(
+            "scikit-learn is required for cbqs.ml. "
+            "Install it with: pip install scikit-learn"
+        )
+```
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Feature Extraction in C
+
+**What people do:** Write feature extraction in C for "performance."
+**Why it's wrong:** Feature extraction runs once per instance, not in the hot loop. C feature extraction would require new C functions, new Cython wrappers, and complex memory management for variable-length feature arrays. The development cost far exceeds the negligible runtime benefit.
+**Do this instead:** Extract features in pure Python using the data already accessible through Model's Python attributes and Cython properties.
+
+### Anti-Pattern 2: Modifying BranchingFunction() for ML
+
+**What people do:** Add ML inference calls inside `BranchingFunction()` in C.
+**Why it's wrong:** `BranchingFunction()` is a `static inline` function called millions of times per solve (once per variable per sample). Adding any overhead here -- even a pointer indirection to a callback -- would measurably impact performance. It already reads `branching_weights[index]` which is the correct integration point.
+**Do this instead:** Compute weights before solve, store them in `branching_weights[]`. The function already uses them via the 3-term formula.
+
+### Anti-Pattern 3: Tight Coupling Between ML and Solver State
+
+**What people do:** Have the ML module directly access `mod.mod[0]` C-level fields.
+**Why it's wrong:** Creates fragile coupling to C struct layout. Any C refactoring breaks the ML module. Violates the Python/Cython/C layer boundaries.
+**Do this instead:** Access data through the Python API (`model.n`, `model.con_expr`, etc.) or create explicit Cython helper functions that export constraint data as numpy arrays.
+
+### Anti-Pattern 4: Training on Predicted Weights
+
+**What people do:** Use the model's own predictions as training targets (circular learning).
+**Why it's wrong:** Creates a feedback loop where the model reinforces its own biases. Degenerates to a fixed point that may be far from optimal.
+**Do this instead:** Generate training targets from actual solve performance: run multiple solves with varied weights, measure quality, use the best-performing configurations as targets.
+
+---
+
+## Scaling Considerations
+
+| Instance Size | Feature Extraction | Prediction | Adaptation |
+|---|---|---|---|
+| n < 100 vars | < 1ms (negligible) | < 1ms | 5 rounds * 10s = 50s total |
+| n < 1000 vars | < 10ms (constraint matrix iteration) | < 5ms | 5 rounds * 30s = 150s total |
+| n < 10000 vars | < 100ms (may benefit from Cython helper) | < 10ms | 5 rounds * 60s = 300s total |
+| n > 10000 vars | Consider Cython helper for constraint graph | < 50ms | Time-limited, 3-5 rounds |
+
+**First bottleneck:** Training data collection (running many solves per instance). Mitigate with joblib parallelism across instances.
+
+**Second bottleneck:** Feature extraction on large instances. Mitigate with optional Cython helper if needed.
+
+**Not a bottleneck:** ML inference (single sklearn predict call), weight injection (single `set_param` call), BranchingFunction overhead (zero -- weights are pre-computed).
+
+---
+
+## Suggested Build Order
+
+The build order follows dependency chains. Each phase produces a testable, standalone component.
+
+### Phase 1: FeatureExtractor (foundation, no ML dependency)
+
+**Build:** `cbqs/ml/features.py`, `cbqs/ml/__init__.py`, `tests/test_ml/test_features.py`
+
+**Why first:** All other ML components depend on features. This can be tested with existing solver infrastructure (create a Model, close it, extract features, verify shape and values). Zero external dependencies beyond numpy (already required).
+
+**Dependencies:** None (uses existing Model API).
+
+**Testable output:** Given a Model with known constraints, verify feature values match expected calculations.
+
+### Phase 2: WeightPredictor (core ML component)
+
+**Build:** `cbqs/ml/predictor.py`, `cbqs/ml/data.py`, `tests/test_ml/test_predictor.py`
+
+**Why second:** The predictor wraps sklearn and provides the predict/fit/save/load interface. Can be tested with synthetic feature data (no need for real solver runs yet).
+
+**Dependencies:** Phase 1 (feature format), sklearn (optional dependency).
+
+**Testable output:** Given synthetic features, predict weights, verify shape and non-negativity. Fit on synthetic data, verify loss decreases.
+
+### Phase 3: TrainingPipeline (offline training)
+
+**Build:** `cbqs/ml/pipeline.py`, `tests/test_ml/test_pipeline.py`
+
+**Why third:** Connects FeatureExtractor + WeightPredictor + Model.solve() into a complete offline training workflow. This is where we validate that learned weights actually improve solve performance.
+
+**Dependencies:** Phase 1 + Phase 2 + existing solver.
+
+**Testable output:** Train on small benchmark instances, verify learned weights improve objective over uniform weights on held-out instances.
+
+### Phase 4: AdaptiveController (online adaptation)
+
+**Build:** `cbqs/ml/adaptive.py`, `tests/test_ml/test_adaptive.py`
+
+**Why fourth:** Most complex component -- requires both a trained predictor AND the ability to interpret solve results as feedback. The multi-round adaptive loop is the culmination of all prior components.
+
+**Dependencies:** Phase 1 + Phase 2 + Phase 3 (needs a pre-trained model to start from).
+
+**Testable output:** Run adaptive solve on benchmark instance, verify objective improves across rounds (weights converge toward better configuration).
+
+### Phase 5: Integration and Documentation
+
+**Build:** Update `cbqs/__init__.py`, `pyproject.toml`, integration tests, user documentation.
+
+**Why last:** All components are individually tested. This phase wires them together and ensures the public API is clean.
+
+**Dependencies:** All prior phases.
+
+**Testable output:** End-to-end: `from cbqs.ml import AdaptiveController; controller.run_adaptive_solve(model)` works and produces better results than baseline.
+
+---
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| Pure Python ML layer | No Cython build complexity for ML. Clean layer separation. |
+| GradientBoostingRegressor | Best sklearn model for tabular features. warm_start for incremental training. |
+| Inter-solve adaptation (not intra-solve) | Zero C changes. Uses existing Model.reset() + solve() cycle. |
+| Feature extraction in Python | Runs once per instance. C extraction adds complexity for negligible speedup. |
+| sklearn as optional dependency | Core solver should not require ML libraries. |
+| Per-variable features -> per-variable weights | Direct mapping matches the existing branching_weights array structure. |
+| Combined reward signal | Balances objective improvement and constraint satisfaction for robust adaptation. |
+| Multi-round with warm start | Previous best solution seeds next round via manual_initial(). |
+
+---
+
+## Deferred Architecture (Future Milestones)
+
+### Intra-Solve Weight Updates (v3.1+)
+
+Would require adding to `solver_ctx_t`:
 
 ```c
-if (mod->solver == SATISFY) search_function = CSearch_sat;
-if (mod->solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat;
-if (mod->solver == OPTIMIZE && feasible) {
-    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
-    stage = 3;
-    search_function = CSearch_opt;
+typedef struct solver_ctx {
+    // ... existing fields ...
+    int weights_dirty;                    // flag: 1 = weights updated, 0 = no change
+    double *pending_weights;              // new weights to swap in
+    int pending_weights_n;                // length of pending array
+} solver_ctx_t;
+```
+
+And a check in the `ctg()` main loop (after the improvement check):
+
+```c
+if (ctx->weights_dirty) {
+    // Swap pending_weights into branching_stats.branching_weights
+    solver_ctx_set_branching_weights(ctx, ctx->pending_weights, ctx->pending_weights_n);
+    ctx->weights_dirty = 0;
 }
 ```
 
-For SATISFY mode:
-- Uses `CSearch_sat` only (no objective function involved)
-- `tot_profit` represents negative constraint violation count (not objective value)
-- Stop condition: `cur_sol->tot_profit == -(int64_t)mod->con->num_constraints` (all constraints satisfied)
-- `mod->global_opt->tot_profit` comparison: `> cur_sol->tot_profit` (lower is better, since values are negative)
+The Python callback would write to `ctx->pending_weights` (via a new Cython function), and the C loop would pick it up on the next iteration. This is thread-safe because the callback holds the GIL, and the C loop checks the flag after releasing the GIL.
 
-For OPTIMIZE mode:
-- Uses `CSearch_opt_sat` then transitions to `CSearch_opt`
-- `tot_profit` represents actual objective value
-- Different stop conditions based on `stop_val`
-
-**Cython level (SearchLib.pyx, `run_sampling()` lines 213-239):**
-
-OPTIMIZE path (line 213-216): calls `ctg()` once.
-
-SATISFY path (lines 217-239): calls `ctg()` in a loop with increasing delta, adjusting M and bias each iteration. Signals SIGINT when solution found.
-
-**Python level (Model.pyx, `solve()` lines 327-367):**
-
-After workers complete, `solve()`:
-1. `self.final_state = self.global_opt` (line 330) -- but `self.global_opt` is a Python attribute that is `None` unless set; not the C `mod->global_opt`
-2. Extracts solution from `self.mod[0].global_opt[0].vector` (lines 339-340)
-3. Reads `self.objective_value` which is `self.mod[0].global_opt[0].tot_profit * self.sense` (line 467-468)
-
-### Root Cause of SATISFY Mode Crash
-
-**Location of crash:** The crash occurs in the history callback (`_history_callback_fn`, line 151) or in the `objective_value` property (line 468) when the model is in SATISFY mode.
-
-**The problem chain:**
-
-1. When `Model.__init__` runs, `self.mod.solver = SATISFY` (line 103) and `self.sense = MAXIMIZE` (line 96), which is `-1`.
-
-2. If the user never calls `set_objective()`, `self.sense` remains `MAXIMIZE = -1`.
-
-3. In `_history_callback_fn()` (line 151):
-   ```python
-   obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
-   ```
-   In SATISFY mode, `tot_profit` is a negative violation count (e.g., `-3`). Multiplying by `sense = -1` gives `3`, which is meaningless as an objective value.
-
-4. More critically, `self.objective_value` (line 467-468) does the same multiplication. For SATISFY mode, there is no meaningful "objective value" -- the solver is finding feasibility, not optimizing.
-
-5. **The actual crash:** In SATISFY mode in `run_sampling`, the code at line 220:
-   ```python
-   stpvl = -len(mod.mod[0].con[0].num_constraints)
-   ```
-   This accesses `mod.mod[0].con[0].num_constraints` as if it were a Python object with `len()`. But `num_constraints` is a C `size_t` (integer), not a sequence. `len()` on an integer raises `TypeError`.
-
-   **Wait -- looking more carefully:** In the Cython `.pxd` declarations, `new_constraints_t` has `num_constraints` as `size_t`. In Cython, `len()` on a `size_t` would indeed fail. However, this code has been working for OPTIMIZE mode because the SATISFY branch is only entered when `mod.mod[0].solver != OPTIMIZE`.
-
-   **Actually, re-reading line 220:** `mod.mod[0].con[0].num_constraints` -- this dereferences `con[0]` which is a `new_constraints_t` struct. The `.num_constraints` field is a `size_t`. Wrapping it in `-len(...)` treats it as if it had a length. This is likely the crash: **`len()` called on a C integer type**.
-
-   The correct code should be: `stpvl = -mod.mod[0].con[0].num_constraints` (without `len()`).
-
-6. **Secondary crash path:** Even if line 220 is fixed, `Model.solve()` unconditionally accesses `self.mod[0].global_opt[0].vector` (lines 339-340) and `self.objective_value` (line 356). In SATISFY mode without an objective function, `objective_value` returns `tot_profit * sense` which is a constraint violation count times -1 -- semantically wrong.
-
-### How SATISFY Differs Architecturally from OPTIMIZE
-
-| Aspect | OPTIMIZE | SATISFY |
-|--------|----------|---------|
-| `mod->solver` | `2` | `3` |
-| `tot_profit` semantics | Objective value (lower is better internally) | Negative constraint violation count |
-| `global_opt` semantics | Best objective found so far | Most-feasible solution found so far |
-| Stop condition (C) | `tot_profit <= stop_val` | `tot_profit == -num_constraints` |
-| Stop condition (Cython) | Single `ctg()` call | Loop over delta values, SIGINT on solve |
-| Objective function | Required (set via `set_objective()`) | Not required |
-| `self.sense` | Set by `set_objective()` | Remains `MAXIMIZE = -1` (default) |
-| History callback meaning | Objective improvement events | Feasibility improvement events |
-
-### Recommended Fix
-
-**Fix 1 (Critical): Line 220 in SearchLib.pyx:**
-```python
-# BEFORE (crashes):
-stpvl = -len(mod.mod[0].con[0].num_constraints)
-# AFTER (correct):
-stpvl = -<int>mod.mod[0].con[0].num_constraints
-```
-
-**Fix 2: Guard objective_value for SATISFY mode in Model.pyx:**
-```python
-@property
-def objective_value(self):
-    if self.mod[0].solver == SATISFY:
-        # In SATISFY mode, tot_profit is constraint violation count, not objective
-        return None
-    return self.mod[0].global_opt[0].tot_profit * self.sense
-```
-
-**Fix 3: Guard history callback for SATISFY mode:**
-In `_history_callback_fn()`, check solver mode. For SATISFY, report constraint satisfaction progress instead of objective value:
-```python
-if mod.mod[0].solver == SATISFY:
-    obj_val = mod.mod[0].global_opt[0].tot_profit  # raw violation count
-else:
-    obj_val = mod.mod[0].global_opt[0].tot_profit * mod.sense
-```
-
-**Fix 4: Guard OptimizeResult construction in Model.pyx solve():**
-```python
-if self.mod[0].solver == SATISFY:
-    objective = None  # or number of satisfied constraints
-else:
-    objective = self.objective_value
-```
-
-### SATISFY Mode Signal Handling Concern
-
-In SATISFY mode, `run_sampling()` raises `SIGINT` (line 236) when a solution is found:
-```python
-signal.raise_signal(signal.SIGINT)
-```
-
-This is architecturally problematic because:
-- `SIGINT` is process-global; it will interrupt ALL threads, not just the current worker
-- When run inside joblib, this can cause the entire parallel pool to tear down
-- The signal handler in SearchLib.c (`handle_signal`, lines 53-56) sets `solver_ctx_request_stop(g_active_ctx)`, but `g_active_ctx` is a global pointing to the last worker's context
-
-This is a pre-existing issue but should be noted for the fix: the SATISFY mode stop mechanism should use `solver_ctx_request_stop()` directly instead of `SIGINT`.
-
----
-
-## Item 3: local_search() API Layer Mismatch
-
-### Current Call Chain
-
-```
-Model.local_search() [Python, Model.pyx line 371]
-  -> Parameters: distance, callback, stop_time, max_worse_acceptances, stopping_condition, verify
-  -> Sets: mod.distance, mod.stopping_time, mod.stop_val=-1, mod.max_worse_acceptances, mod.stopping_condition
-  -> Calls: run_local_search(self, callback) [Cython]
-
-run_local_search() [Cython, SearchLib.pyx line 269]
-  -> Creates solver_ctx_t
-  -> Sets up history callback
-  -> Calls: local_search(ctx, st, mod.mod, cb_ptr) [C, nogil]
-
-local_search() [C, local_search.c line 478]
-  -> Signature: int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback)
-  -> Reads: mod->distance, mod->con, mod->obj, mod->stopping_time, mod->stop_val
-  -> Reads: mod->max_worse_acceptances, mod->stopping_condition
-  -> Writes: mod->runtime, mod->global_opt (via accept_move)
-  -> Calls: accept_best_routine(ctx, cur_sol, mod->global_opt, mod->con, mod->obj, ...)
-```
-
-### The Mismatch
-
-The `local_search()` C function reads parameters from `model_t` and also writes to `model_t.runtime` and `model_t.global_opt`. This creates two problems:
-
-1. **Parameter bundling:** `local_search()` takes the entire `model_t*` to access 7+ parameters. The `model_t` was designed as a flat bag for all solver parameters. `local_search()` only needs a subset: `{distance, con, obj, stopping_time, stop_val, max_worse_acceptances, stopping_condition, global_opt}`.
-
-2. **Mutable shared state through model_t:** `local_search()` writes `mod->runtime` on every iteration (line 538) and writes `mod->global_opt` via `accept_move()`. If `local_search()` were ever called from multiple workers (like `ctg` is via joblib), this would be a data race.
-
-### Current State: Is This Actually Broken?
-
-**No, `local_search()` is currently single-threaded at the Python level.** `Model.local_search()` does NOT use joblib. It calls `run_local_search()` once, not in parallel. The parallelism happens INSIDE `local_search.c` via pthreads in `accept_best_routine()`.
-
-However, `local_search.c` internally spawns `num_threads` pthreads for neighborhood exploration, and those threads share `mod->global_opt` via `accept_move()` called from `accept_best_routine()` (lines 445-446). The `accept_move()` on `global_opt` is NOT protected by a mutex in the local_search path (unlike `ctg()` which has `pthread_mutex_lock(&update_lock)` on line 184).
-
-### Recommended Cleanup
-
-**Approach: Extract parameter struct for local_search (LOW priority)**
-
-Since `local_search()` is single-threaded at the Python level, the main cleanup is cosmetic: make the API clearer about what it reads and writes. Options:
-
-**Option A (Minimal, recommended for v1.1):** Keep `model_t*` parameter. Add a comment documenting which fields are read and which are written. Add mutex protection to `global_opt` writes inside `accept_best_routine`.
-
-**Option B (Cleaner, deferred to v1.2):** Create a `local_search_params_t` struct with just the needed fields, and pass that instead of the full `model_t*`. This decouples local_search from the model layer.
-
-For v1.1, Option A is sufficient. The key safety fix is ensuring `accept_move()` on `global_opt` in `accept_best_routine()` (line 445) uses the `update_lock` mutex, matching the pattern already used in `ctg()`:
-
-```c
-// In accept_best_routine(), line 445:
-// BEFORE:
-int accepted = accept_move(new_sol, cur_best, global_opt);
-// AFTER:
-pthread_mutex_lock(&update_lock);
-int accepted = accept_move(new_sol, cur_best, global_opt);
-pthread_mutex_unlock(&update_lock);
-```
-
-### Integration Point: Callback in local_search
-
-The `callback` parameter flows through `local_search()` to line 542:
-```c
-if (callback) callback();
-```
-
-This callback is the same `my_callback_c` that acquires the GIL and calls `python_callback`. It is called from the main thread of `local_search()` (after `accept_best_routine()` joins all pthreads), so there is no concurrency issue with the callback in the local_search path.
-
----
-
-## Item 4: VLA Replacement in accept_best_routine
-
-### Current State
-
-The VLA has already been partially addressed. Looking at `accept_best_routine()` (local_search.c line 332):
-
-```c
-int64_t remainings[C];  // <-- THIS IS THE REMAINING VLA
-```
-
-**What has already been fixed:**
-- `totals[C]` in `explore_neighbourhood()` replaced with `data[i].thread_totals = malloc(C * sizeof(int64_t))` (line 377)
-- `bits[d]` in `explore_neighbourhood()` replaced with `data[i].thread_bits = malloc(d * sizeof(int))` (line 378)
-- Per-thread scratch buffers properly allocated and freed
-
-**What remains:**
-- `int64_t remainings[C]` in `accept_best_routine()` at line 332 is still a VLA on the stack
-
-### Risk Assessment
-
-`C` is `con->num_constraints`. For typical problem sizes (C < 100), this is 800 bytes on the stack -- not a problem. For large problems (C > 10000), this could cause stack overflow (80KB+). VLAs are also not standard in C11 (they are optional) and not supported at all in MSVC.
-
-### Recommended Fix
-
-Replace with heap allocation:
-
-```c
-int64_t *remainings = malloc(C * sizeof(int64_t));
-if (remainings == NULL) {
-    // ... cleanup and return -1
-}
-for (int i = 0; i < C; ++i) remainings[i] = constraint_violation(con, new_sol, i);
-// ... use remainings ...
-free(remainings);  // before every return path
-```
-
-Or use arena allocation since `ctx` is available:
-
-```c
-int64_t *remainings = (int64_t*)arena_alloc(ctx->arena, C * sizeof(int64_t), 8);
-// No free needed -- arena_reset handles it
-```
-
-The arena approach is preferred since `accept_best_routine()` already calls `solver_ctx_arena_reset(ctx)` at line 437. The `remainings` array's lifetime fits within one call to `accept_best_routine()`, and the arena is reset at the end.
-
-### Dependency
-
-This fix is independent of all other items. It can be done first or last.
-
----
-
-## Item 5: Deprecated BranchingStats Global
-
-### Current Architecture
-
-The global `BranchingStats` in `Branching.c` (line 6) coexists with the per-context `ctx->branching_stats` in `solver_ctx_t`. The migration status:
-
-| Function | Uses Global | Uses ctx | Status |
-|----------|------------|----------|--------|
-| `BranchingFunction()` | No (takes `const BranchingStats_t *stats`) | Via caller | Migrated |
-| `StateProbability()` | No (uses `&ctx->branching_stats`) | Yes | Migrated |
-| `set_bias()` | Yes (writes `BranchingStats.bias`) | No | DEPRECATED |
-| `set_factors()` | Yes (writes `BranchingStats.*`) | No | DEPRECATED |
-| `set_obj_dependence()` | Yes (writes `BranchingStats.obj_dependent`) | No | DEPRECATED |
-| `set_constraint_dependence()` | Yes (writes `BranchingStats.constraint_dependent`) | No | DEPRECATED |
-| `solver_ctx_set_bias()` | No | Yes | NEW (replacement) |
-| `solver_ctx_set_factors()` | No | Yes | NEW (replacement) |
-
-The deprecated global setters are still called from Python-level wrappers:
-
-```python
-# In Model.pyx solve(), line 309:
-set_bias_wrapper(bias)
-set_factors_wrapper(manual_bias_factor, 0, bias_factor, look_ahead_factor)
-```
-
-These call through to `branching.pxd` wrappers which call `set_bias()` and `set_factors()` -- the **global** versions.
-
-Meanwhile, in `run_sampling()` (SearchLib.pyx), the context is created and configured:
-```python
-cdef solver_ctx_t *ctx = solver_ctx_create()  # line 184
-solver_ctx_set_bias(ctx, cur_sol.state[0].vector.bits / delta - 1)  # line 228 (SATISFY only)
-```
-
-But the bias/factors from `solve()` parameters are set on the GLOBAL, not on the context. The `solver_ctx_create()` initializes `branching_stats` with defaults (bias=5, bias_factor=1, etc.), NOT from the global.
-
-### The Bug
-
-There is an inconsistency: `Model.solve()` calls `set_bias_wrapper(bias)` which sets the global, but the actual solve uses `ctx->branching_stats` which has defaults. The global bias value is never propagated to the context.
-
-**In OPTIMIZE mode:** `run_sampling()` does not call `solver_ctx_set_bias()`, so the context keeps the default bias of 5. The `solve()` method set `bias = self.n / 4` on the global, but the context does not see this.
-
-**In SATISFY mode:** `run_sampling()` calls `solver_ctx_set_bias(ctx, ...)` on each delta iteration (line 228), overriding the context bias. But the factors (objective_factor, constraint_factor, etc.) from `set_factors_wrapper()` are never propagated.
-
-### Recommended Fix for v1.1
-
-**Phase 1: Propagate bias/factors to context in run_sampling():**
-
-Add to `run_sampling()` after context creation (after line 195):
-
-```python
-# Propagate branching parameters from global to context
-# (bridges the gap until Model.solve() is updated to set these on ctx directly)
-solver_ctx_set_bias(ctx, BranchingStats.bias)
-solver_ctx_set_factors(ctx,
-    BranchingStats.objective_factor,
-    BranchingStats.constraint_factor,
-    BranchingStats.bias_factor,
-    BranchingStats.look_factor)
-```
-
-This requires exposing `BranchingStats` fields in the Cython declaration, which `branching.pxd` already does (line 17: `cdef BranchingStats_t BranchingStats`).
-
-**Phase 2 (deferred to v1.2): Remove global setters entirely.**
-
-Move bias/factor configuration from `Model.solve()` into `run_sampling()` where the context is available. Remove `set_bias_wrapper()` and `set_factors_wrapper()` calls from `solve()`. This is a breaking change if any user code calls these wrappers directly.
-
-### Backward Compatibility
-
-The deprecated global setters must remain for v1.1 because:
-1. External code may call `set_bias_wrapper()` directly
-2. `Model.solve()` still uses them
-3. The `branching.py` module exposes them as public API
-
-For v1.1: keep globals, add bridging code to propagate global values to context. Add deprecation warnings to `set_bias_wrapper()` etc. For v1.2: remove globals.
-
----
-
-## Fix Order and Dependencies
-
-```
-                    +--------------------+
-                    | 4. VLA replacement |  (independent, no deps)
-                    +--------------------+
-
-+---------------------+     +-------------------------+
-| 1. SATISFY mode     |---->| 2. History callback     |
-| crash fix (line 220)|     | per-thread rework       |
-+---------------------+     +-------------------------+
-         |                            |
-         v                            v
-+---------------------+     +-------------------------+
-| 3. BranchingStats   |     | 5. local_search API     |
-| global->ctx bridge  |     | mutex + cleanup         |
-+---------------------+     +-------------------------+
-```
-
-### Recommended Order
-
-**Step 1: SATISFY mode crash fix**
-- Fix: `stpvl = -<int>mod.mod[0].con[0].num_constraints` (line 220)
-- Fix: Guard `objective_value` property for SATISFY mode
-- Fix: Guard `OptimizeResult` construction for SATISFY mode
-- Why first: This is a crash bug. Nothing else can be properly tested in SATISFY mode until this is fixed.
-- Risk: LOW. Localized fix, no architectural changes.
-- Files: `SearchLib.pyx`, `Model.pyx`
-
-**Step 2: VLA replacement in accept_best_routine**
-- Fix: Replace `int64_t remainings[C]` with arena allocation
-- Why second: Independent, low risk, easy to verify.
-- Risk: LOW. Single location, arena infrastructure already exists.
-- Files: `local_search.c`
-
-**Step 3: History callback per-thread rework**
-- Fix: Replace module-level `cdef` state with thread-keyed dictionary
-- Why third: Depends on SATISFY crash being fixed (the callback reads `global_opt` which behaves differently in SATISFY mode).
-- Risk: MEDIUM. Changes callback plumbing that all workers use.
-- Files: `SearchLib.pyx`
-
-**Step 4: BranchingStats global-to-context bridge**
-- Fix: Propagate global bias/factors to solver context in `run_sampling()` and `run_local_search()`
-- Why fourth: Requires understanding the callback rework (step 3) since the callback also reads model state.
-- Risk: MEDIUM. Must verify that branching behavior does not change (regression test critical).
-- Files: `SearchLib.pyx`, potentially `branching.pxd`
-
-**Step 5: local_search API mutex + cleanup**
-- Fix: Add `update_lock` mutex around `global_opt` writes in `accept_best_routine()`
-- Fix: Document read/write fields on `local_search()` signature
-- Why last: Lowest priority, not a user-facing bug.
-- Risk: LOW. Adding mutex is additive.
-- Files: `local_search.c`
-
-### Dependency Justification
-
-- Steps 1 and 2 are **fully independent** of each other and can be done in parallel.
-- Step 3 depends on Step 1 because the history callback must handle SATISFY mode correctly (no objective value), and testing it requires the SATISFY crash to be fixed.
-- Step 4 is logically independent but should follow Step 3 because both touch `run_sampling()` and `run_local_search()` setup code; doing them together would cause merge conflicts.
-- Step 5 is fully independent and can be done at any point, but is lowest priority.
-
----
-
-## Component Boundary Map
-
-```
-+------------------------------------------------------------------+
-|  Model.pyx                                                        |
-|  +-- solve()       : sets params on model_t, launches joblib     |
-|  +-- local_search(): sets params on model_t, calls run_local_search|
-|  +-- objective_value: reads global_opt.tot_profit * sense         |
-|  TOUCHES: Items 1 (SATISFY crash), 3 (BranchingStats via set_bias)|
-+--------+-----------------------+---------------------------------+
-         |                       |
-         v                       v
-+------------------+    +------------------+
-| SearchLib.pyx    |    | branching.pxd    |
-| run_sampling()   |    | set_bias_wrapper |
-| run_local_search |    | set_factors_wrap |
-| _history_callback|    | (DEPRECATED)     |
-| TOUCHES: Items   |    | TOUCHES: Item 4  |
-| 1, 2, 3, 4       |    +------------------+
-+--------+---------+
-         |
-         v (nogil)
-+------------------------------------------------------------------+
-|  C Kernel                                                         |
-|  +-- SearchLib.c: ctg() -- OPTIMIZE/SATISFY dispatch             |
-|  +-- local_search.c: local_search(), accept_best_routine()       |
-|  +-- Branching.c: BranchingStats global, StateProbability()      |
-|  +-- solver_ctx.c: solver_ctx_t lifecycle                        |
-|  TOUCHES: Items 1 (SATISFY C path), 2 (VLA), 4 (global), 5 (mutex)|
-+------------------------------------------------------------------+
-```
-
----
-
-## Risks and Mitigations
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| History callback rework breaks existing callback behavior | MEDIUM | Test with user-supplied callback that counts invocations; verify count matches before/after |
-| SATISFY mode fix changes stop semantics | LOW | Test SATISFY problems that have known solutions; verify solution found |
-| BranchingStats bridge changes solve results | MEDIUM | Run existing benchmarks, compare objective values and iteration counts before/after |
-| VLA removal changes behavior | NONE | Pure memory allocation change; identical behavior guaranteed |
-| Mutex in local_search adds overhead | NEGLIGIBLE | Mutex is only taken once per neighborhood scan (not per move), and only for a pointer copy |
+**Why deferred:** Adds complexity to the C kernel. The multi-round approach (Strategy A) may be sufficient. Only pursue if benchmarks show inter-solve adaptation is too coarse.
 
 ---
 
 ## Sources
 
-- Direct codebase analysis of all listed source files (HIGH confidence)
-- `SearchLib.pyx` lines 126-159: history callback implementation
-- `SearchLib.pyx` line 220: SATISFY mode crash location
-- `local_search.c` line 332: remaining VLA
-- `Branching.c` lines 6-21: deprecated global
-- `solver_ctx.h/c`: current solver_ctx_t architecture
-- `Model.pyx` lines 277-369: solve() method (SATISFY/OPTIMIZE dispatch)
-- `Model.pyx` lines 371-417: local_search() method
-- `SearchLib.c` lines 89-217: ctg() function (OPTIMIZE/SATISFY C-level dispatch)
+- Direct codebase analysis of all files listed in the architecture walkthrough (HIGH confidence)
+- `Branching.h` lines 73-116: BranchingFunction inline implementation
+- `solver_ctx.h` lines 31-64: solver_ctx_t struct definition
+- `solver_ctx.c` lines 139-174: solver_ctx_set_branching_weights implementation
+- `Model.pyx` lines 238-307: set_param/get_param with branching_weights validation
+- `SearchLib.pyx` lines 185-334: run_sampling with ctx creation and weight propagation
+- `SearchLib.pyx` lines 139-183: _SolveState callback mechanism
+- `SearchLib.c` lines 108-230: ctg() main loop with callback invocation
+- [ML for Combinatorial Optimization survey](https://github.com/Thinklab-SJTU/awesome-ml4co) (ML4CO approaches)
+- [sklearn ensemble documentation](https://scikit-learn.org/stable/modules/ensemble.html) (warm_start for GradientBoosting)
+- [Influence branching for online MIP solving](https://arxiv.org/html/2510.04273v1) (online adaptation approaches)
+- [Learning to Branch in Combinatorial Optimization](https://arxiv.org/pdf/2307.01434) (feature extraction from constraint structure)
 
 ---
 
-*Architecture research for: CBQS v1.1 bug fixes and code polish*
-*Researched: 2026-02-06*
+*Architecture research for: CBQS v3.0 ML-based adaptive branching*
+*Researched: 2026-02-26*
