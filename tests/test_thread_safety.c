@@ -210,7 +210,7 @@ static void test_debug_output(void **state) {
     /* Set some branching stats */
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 3.0);
-    solver_ctx_set_look_factor(ctx, 4.0);
+    solver_ctx_set_look_ahead_factor(ctx, 4.0);
     solver_ctx_set_bias(ctx, 5.0);
 
     /* Call debug_stats - this writes to stderr
