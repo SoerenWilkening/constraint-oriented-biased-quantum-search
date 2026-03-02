@@ -63,7 +63,7 @@
 **Milestone Goal:** Add ML-based learning of branching weights — train on small/medium instances, generalize to larger ones, with real-time online adaptation during solve.
 
 - [x] **Phase 25: Feature Extraction & ML Foundation** - Package skeleton, optional dependency wiring, per-variable and instance-level feature extraction (completed 2026-02-26)
-- [ ] **Phase 26: Offline Training Pipeline** - Weight predictor training from collected solve data, model persistence, baseline evaluation
+- [x] **Phase 26: Offline Training Pipeline** - Weight predictor training from collected solve data, model persistence, baseline evaluation (completed 2026-03-02)
 - [ ] **Phase 27: Online Adaptive Solve** - Multi-round adaptive solve loop with EMA weight updates, combined reward signal, determinism and thread safety
 - [ ] **Phase 28: Transfer Learning & Diagnostics** - Small-to-large generalization validation, weight evaluation utilities, diagnostic reporting
 
@@ -162,6 +162,6 @@ Phases execute in numeric order: 25 -> 26 -> 27 -> 28
 | 23. Fix C Test API Rename | v2.1 | 1/1 | Complete | 2026-02-26 |
 | 24. Phase Verification | v2.1 | 3/3 | Complete | 2026-02-26 |
 | 25. Feature Extraction & ML Foundation | v3.0 | Complete    | 2026-02-26 | - |
-| 26. Offline Training Pipeline | 1/2 | In Progress|  | - |
+| 26. Offline Training Pipeline | 2/2 | Complete   | 2026-03-02 | - |
 | 27. Online Adaptive Solve | v3.0 | 0/0 | Not started | - |
 | 28. Transfer Learning & Diagnostics | v3.0 | 0/0 | Not started | - |

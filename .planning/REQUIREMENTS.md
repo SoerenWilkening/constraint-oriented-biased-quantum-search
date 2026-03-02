@@ -18,8 +18,8 @@ Requirements for ML-based adaptive branching weight learning. Each maps to roadm
 - [x] **TRAIN-01**: User can train a weight predictor from a collection of (Model, best_weights) pairs via fit()
 - [x] **TRAIN-02**: User can predict branching weights for a new Model via predict(), returning a numpy array compatible with set_param()
 - [x] **TRAIN-03**: User can save and load a trained predictor via joblib serialization
-- [ ] **TRAIN-04**: User can collect training data automatically via a utility that runs short solves with diverse weight strategies
-- [ ] **TRAIN-05**: Training pipeline includes uniform-weights baseline in evaluation
+- [x] **TRAIN-04**: User can collect training data automatically via a utility that runs short solves with diverse weight strategies
+- [x] **TRAIN-05**: Training pipeline includes uniform-weights baseline in evaluation
 
 ### Online Adaptation
 
@@ -83,8 +83,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TRAIN-01 | Phase 26 | Complete |
 | TRAIN-02 | Phase 26 | Complete |
 | TRAIN-03 | Phase 26 | Complete |
-| TRAIN-04 | Phase 26 | Pending |
-| TRAIN-05 | Phase 26 | Pending |
+| TRAIN-04 | Phase 26 | Complete |
+| TRAIN-05 | Phase 26 | Complete |
 | ADAPT-01 | Phase 27 | Pending |
 | ADAPT-02 | Phase 27 | Pending |
 | ADAPT-03 | Phase 27 | Pending |
