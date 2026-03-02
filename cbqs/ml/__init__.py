@@ -13,5 +13,13 @@ except ImportError:
 
 from .features import FeatureExtractor
 from .training import WeightPredictor, collect_training_data, evaluate
+from .adaptation import adaptive_solve, AdaptiveResult
 
-__all__ = ["FeatureExtractor", "WeightPredictor", "collect_training_data", "evaluate"]
+__all__ = [
+    "FeatureExtractor",
+    "WeightPredictor",
+    "collect_training_data",
+    "evaluate",
+    "adaptive_solve",
+    "AdaptiveResult",
+]
