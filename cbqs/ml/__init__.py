@@ -12,6 +12,6 @@ except ImportError:
     ) from None
 
 from .features import FeatureExtractor
-from .training import WeightPredictor
+from .training import WeightPredictor, collect_training_data, evaluate
 
-__all__ = ["FeatureExtractor", "WeightPredictor"]
+__all__ = ["FeatureExtractor", "WeightPredictor", "collect_training_data", "evaluate"]

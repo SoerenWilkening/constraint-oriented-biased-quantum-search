@@ -211,3 +211,180 @@ class WeightPredictor:
         predictor._n_training_instances = artifact['n_training_instances']
 
         return predictor
+
+
+# ---------------------------------------------------------------------------
+# Data collection and evaluation utilities
+# ---------------------------------------------------------------------------
+
+def _rank_result(result):
+    """Sort key for solver results: feasibility first, then best objective.
+
+    Parameters
+    ----------
+    result : OptimizeResult
+        A CBQS solve result.
+
+    Returns
+    -------
+    tuple
+        (feasible: bool, objective: int/float) for max-sort ranking.
+    """
+    return (result.feasible, result.objective)
+
+
+def collect_training_data(models, n_strategies=10, stopping_time=5,
+                          num_workers=2, random_state=None):
+    """Solve each model with diverse weight strategies, return (Model, best_weights) pairs.
+
+    For each model, generates ``n_strategies`` random weight vectors using an
+    exponential distribution, solves with each, and selects the best by
+    feasibility-first / objective-tiebreak ranking.
+
+    Parameters
+    ----------
+    models : list of Model
+        Closed Model instances to collect training data from.
+    n_strategies : int
+        Number of random weight strategies to try per model.
+    stopping_time : float
+        Solve time budget in seconds per strategy.
+    num_workers : int
+        Number of solver threads per solve call.
+    random_state : int or None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    list of (Model, numpy.ndarray)
+        Training pairs where each ndarray is the best weight vector found.
+
+    Raises
+    ------
+    ValueError
+        If models list is empty.
+    """
+    if len(models) == 0:
+        raise ValueError("Models list must not be empty")
+
+    rng = np.random.RandomState(random_state)
+    training_pairs = []
+
+    for model in models:
+        n_vars = len(model.variables)
+        best_result = None
+        best_weights = None
+
+        for _ in range(n_strategies):
+            weights = rng.exponential(1.0, size=n_vars)
+
+            model.set_param('branching_weights', weights)
+            model.set_param('stopping_time', stopping_time)
+            model.set_param('num_workers', num_workers)
+
+            result = model.solve()
+
+            if best_result is None or _rank_result(result) > _rank_result(best_result):
+                best_result = result
+                best_weights = weights.copy()
+
+        # Reset branching_weights after done with this model
+        model.set_param('branching_weights', None)
+
+        if best_weights is not None:
+            training_pairs.append((model, best_weights))
+
+    return training_pairs
+
+
+def _print_comparison_table(results):
+    """Print a human-readable comparison table of evaluation results.
+
+    Parameters
+    ----------
+    results : dict
+        Strategy results: {name: {'mean_objective': float, 'feasibility_rate': float}}.
+    """
+    # Determine column widths
+    name_width = max(len(name) for name in results)
+    name_width = max(name_width, len("Strategy"))
+
+    header = f"{'Strategy':<{name_width}}  {'Mean Objective':>15}  {'Feasibility Rate':>17}"
+    separator = "-" * len(header)
+
+    print(separator)
+    print(header)
+    print(separator)
+
+    for name, metrics in results.items():
+        obj_str = f"{metrics['mean_objective']:.4f}"
+        feas_str = f"{metrics['feasibility_rate']:.4f}"
+        print(f"{name:<{name_width}}  {obj_str:>15}  {feas_str:>17}")
+
+    print(separator)
+
+
+def evaluate(predictor, test_models, stopping_time=5, num_workers=2,
+             baselines=None):
+    """Compare predicted weights against uniform and optional baselines.
+
+    Solves each test model with predicted weights and uniform weights (plus any
+    additional baselines), then reports mean objective and feasibility rate.
+
+    Parameters
+    ----------
+    predictor : WeightPredictor
+        A fitted weight predictor.
+    test_models : list of Model
+        Closed Model instances to evaluate on.
+    stopping_time : float
+        Solve time budget in seconds per evaluation solve.
+    num_workers : int
+        Number of solver threads per solve call.
+    baselines : dict or None
+        Additional weight strategies: ``{name: callable(model) -> weights_array}``.
+
+    Returns
+    -------
+    dict
+        Strategy results: ``{name: {'mean_objective': float, 'feasibility_rate': float}}``.
+    """
+    strategies = {
+        'predicted': lambda m: predictor.predict(m),
+        'uniform': lambda m: np.ones(len(m.variables)),
+    }
+
+    if baselines is not None:
+        strategies.update(baselines)
+
+    results = {}
+
+    for strategy_name, weight_fn in strategies.items():
+        objectives = []
+        feasible_count = 0
+
+        for model in test_models:
+            weights = weight_fn(model)
+
+            model.set_param('branching_weights', np.asarray(weights, dtype=np.float64))
+            model.set_param('stopping_time', stopping_time)
+            model.set_param('num_workers', num_workers)
+
+            result = model.solve()
+
+            objectives.append(result.objective)
+            if result.feasible:
+                feasible_count += 1
+
+            # Reset weights to avoid polluting next strategy
+            model.set_param('branching_weights', None)
+
+        n_models = len(test_models)
+        results[strategy_name] = {
+            'mean_objective': float(np.mean(objectives)) if objectives else 0.0,
+            'feasibility_rate': feasible_count / n_models if n_models > 0 else 0.0,
+        }
+
+    _print_comparison_table(results)
+
+    return results
