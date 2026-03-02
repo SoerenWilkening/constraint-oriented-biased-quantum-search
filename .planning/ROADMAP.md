@@ -162,6 +162,6 @@ Phases execute in numeric order: 25 -> 26 -> 27 -> 28
 | 23. Fix C Test API Rename | v2.1 | 1/1 | Complete | 2026-02-26 |
 | 24. Phase Verification | v2.1 | 3/3 | Complete | 2026-02-26 |
 | 25. Feature Extraction & ML Foundation | v3.0 | Complete    | 2026-02-26 | - |
-| 26. Offline Training Pipeline | v3.0 | 0/0 | Not started | - |
+| 26. Offline Training Pipeline | 1/2 | In Progress|  | - |
 | 27. Online Adaptive Solve | v3.0 | 0/0 | Not started | - |
 | 28. Transfer Learning & Diagnostics | v3.0 | 0/0 | Not started | - |
