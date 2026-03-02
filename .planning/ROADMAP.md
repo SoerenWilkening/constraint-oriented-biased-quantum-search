@@ -95,11 +95,11 @@ Plans:
   3. User can save a trained predictor to disk and load it in a new Python session via joblib serialization
   4. User can run an automated data collection utility that solves instances with diverse weight strategies and returns training pairs
   5. Training evaluation always includes a uniform-weights baseline so users can verify the predictor outperforms naive defaults
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 26-01: TBD
-- [ ] 26-02: TBD
+- [ ] 26-01-PLAN.md — WeightPredictor class (fit/predict/save/load) with ExtraTreesRegressor
+- [ ] 26-02-PLAN.md — Data collection utility and evaluation with baseline comparison
 
 ### Phase 27: Online Adaptive Solve
 **Goal**: Users can run a multi-round adaptive solve where branching weights improve between rounds based on observed solver performance
