@@ -3,6 +3,8 @@
 Covers ADAPT-01 (EMA multi-round solve), ADAPT-02 (combined reward signal),
 ADAPT-03 (determinism), ADAPT-04 (thread safety).
 """
+import threading
+
 import numpy as np
 import pytest
 
@@ -235,3 +237,183 @@ class TestVerboseOutput:
         )
         captured = capsys.readouterr()
         assert captured.out == ''
+
+
+# ---------------------------------------------------------------------------
+# Determinism tests (ADAPT-03)
+# ---------------------------------------------------------------------------
+
+class TestDeterminism:
+    """Tests for deterministic behavior with same seed (ADAPT-03).
+
+    Uses separate model instances for each run to avoid solver internal
+    state carryover between runs. The model's C-level solver state may
+    persist across solve() calls on the same object.
+    """
+
+    def test_determinism_same_seed_same_weights(self):
+        """Same seed + num_workers=1 produces identical weights across runs."""
+        model1 = _make_test_model(10)
+        model2 = _make_test_model(10)
+        r1 = adaptive_solve(
+            model1, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        r2 = adaptive_solve(
+            model2, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        assert len(r1.history) == len(r2.history)
+        for h1, h2 in zip(r1.history, r2.history):
+            np.testing.assert_array_equal(h1['weights'], h2['weights'])
+
+    def test_determinism_same_seed_same_objectives(self):
+        """Same seed produces identical objectives and feasibility."""
+        model1 = _make_test_model(10)
+        model2 = _make_test_model(10)
+        r1 = adaptive_solve(
+            model1, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        r2 = adaptive_solve(
+            model2, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        for h1, h2 in zip(r1.history, r2.history):
+            assert h1['objective'] == h2['objective']
+            assert h1['feasible'] == h2['feasible']
+
+    def test_determinism_same_seed_same_best_result(self):
+        """Same seed produces identical best_result and best_weights."""
+        model1 = _make_test_model(10)
+        model2 = _make_test_model(10)
+        r1 = adaptive_solve(
+            model1, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        r2 = adaptive_solve(
+            model2, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        assert r1.best_result.objective == r2.best_result.objective
+        assert r1.best_result.feasible == r2.best_result.feasible
+        np.testing.assert_array_equal(r1.best_weights, r2.best_weights)
+
+    def test_determinism_different_seeds_differ(self):
+        """Different seeds produce different results (determinism is not trivial)."""
+        model1 = _make_test_model(10)
+        model2 = _make_test_model(10)
+        r1 = adaptive_solve(
+            model1, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=42, verbose=False
+        )
+        r2 = adaptive_solve(
+            model2, n_rounds=3, stopping_time=2, num_workers=1,
+            seed=99, verbose=False
+        )
+        # At least one round's weights should differ between the two runs
+        any_differ = False
+        for h1, h2 in zip(r1.history, r2.history):
+            if not np.array_equal(h1['weights'], h2['weights']):
+                any_differ = True
+                break
+        assert any_differ, "Different seeds should produce different weights"
+
+
+# ---------------------------------------------------------------------------
+# Thread safety tests (ADAPT-04)
+# ---------------------------------------------------------------------------
+
+class TestThreadSafety:
+    """Tests for concurrent adaptive_solve on different models (ADAPT-04)."""
+
+    def test_concurrent_different_models_no_error(self):
+        """Concurrent adaptive_solve on different models completes without errors."""
+        model1 = _make_test_model(5)
+        model2 = _make_test_model(8)
+        results = [None, None]
+        errors = [None, None]
+
+        def run(idx, model):
+            try:
+                results[idx] = adaptive_solve(
+                    model, n_rounds=3, stopping_time=2, num_workers=1,
+                    seed=42, verbose=False
+                )
+            except Exception as e:
+                errors[idx] = e
+
+        t1 = threading.Thread(target=run, args=(0, model1))
+        t2 = threading.Thread(target=run, args=(1, model2))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert errors[0] is None, f"Thread 1 error: {errors[0]}"
+        assert errors[1] is None, f"Thread 2 error: {errors[1]}"
+        assert results[0] is not None
+        assert results[1] is not None
+
+    def test_concurrent_correct_shapes(self):
+        """Concurrent results have correct best_weights shapes for their models."""
+        model1 = _make_test_model(5)
+        model2 = _make_test_model(8)
+        results = [None, None]
+        errors = [None, None]
+
+        def run(idx, model):
+            try:
+                results[idx] = adaptive_solve(
+                    model, n_rounds=3, stopping_time=2, num_workers=1,
+                    seed=42, verbose=False
+                )
+            except Exception as e:
+                errors[idx] = e
+
+        t1 = threading.Thread(target=run, args=(0, model1))
+        t2 = threading.Thread(target=run, args=(1, model2))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert errors[0] is None, f"Thread 1 error: {errors[0]}"
+        assert errors[1] is None, f"Thread 2 error: {errors[1]}"
+        assert results[0].best_weights.shape == (5,)
+        assert results[1].best_weights.shape == (8,)
+
+    def test_concurrent_independent_histories(self):
+        """Each concurrent result's history has correct sizes for its model."""
+        model1 = _make_test_model(5)
+        model2 = _make_test_model(8)
+        n_rounds = 3
+        results = [None, None]
+        errors = [None, None]
+
+        def run(idx, model):
+            try:
+                results[idx] = adaptive_solve(
+                    model, n_rounds=n_rounds, stopping_time=2, num_workers=1,
+                    seed=42, verbose=False
+                )
+            except Exception as e:
+                errors[idx] = e
+
+        t1 = threading.Thread(target=run, args=(0, model1))
+        t2 = threading.Thread(target=run, args=(1, model2))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert errors[0] is None, f"Thread 1 error: {errors[0]}"
+        assert errors[1] is None, f"Thread 2 error: {errors[1]}"
+
+        # Each history should have correct length and weight sizes
+        assert len(results[0].history) == n_rounds
+        assert len(results[1].history) == n_rounds
+        for entry in results[0].history:
+            assert entry['weights'].shape == (5,)
+        for entry in results[1].history:
+            assert entry['weights'].shape == (8,)
