@@ -23,10 +23,10 @@ Requirements for ML-based adaptive branching weight learning. Each maps to roadm
 
 ### Online Adaptation
 
-- [ ] **ADAPT-01**: User can run an adaptive multi-round solve where weights update between rounds via EMA
-- [ ] **ADAPT-02**: Adaptation uses a combined reward signal (objective improvement rate + constraint satisfaction rate)
-- [ ] **ADAPT-03**: Online adaptation preserves solver determinism (same seed + threads = same result)
-- [ ] **ADAPT-04**: Online adaptation preserves thread safety (no shared mutable weight arrays between workers)
+- [x] **ADAPT-01**: User can run an adaptive multi-round solve where weights update between rounds via EMA
+- [x] **ADAPT-02**: Adaptation uses a combined reward signal (objective improvement rate + constraint satisfaction rate)
+- [x] **ADAPT-03**: Online adaptation preserves solver determinism (same seed + threads = same result)
+- [x] **ADAPT-04**: Online adaptation preserves thread safety (no shared mutable weight arrays between workers)
 
 ### Transfer & Diagnostics
 
@@ -85,10 +85,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TRAIN-03 | Phase 26 | Complete |
 | TRAIN-04 | Phase 26 | Complete |
 | TRAIN-05 | Phase 26 | Complete |
-| ADAPT-01 | Phase 27 | Pending |
-| ADAPT-02 | Phase 27 | Pending |
-| ADAPT-03 | Phase 27 | Pending |
-| ADAPT-04 | Phase 27 | Pending |
+| ADAPT-01 | Phase 27 | Complete |
+| ADAPT-02 | Phase 27 | Complete |
+| ADAPT-03 | Phase 27 | Complete |
+| ADAPT-04 | Phase 27 | Complete |
 | DIAG-01 | Phase 28 | Pending |
 | DIAG-02 | Phase 28 | Pending |
 | DIAG-03 | Phase 28 | Pending |
