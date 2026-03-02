@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from cbqs.Model import Model
-from cbqs.ml.training import WeightPredictor
+from cbqs.ml.training import WeightPredictor, collect_training_data, evaluate
 
 
 def _make_test_model(n_vars):
@@ -159,3 +159,125 @@ class TestWeightPredictorPersistence:
         assert 'training_date' in artifact
         assert 'n_training_instances' in artifact
         assert 'cbqs_version' in artifact
+
+
+# ---------------------------------------------------------------------------
+# Tests for collect_training_data (TRAIN-04)
+# ---------------------------------------------------------------------------
+
+class TestCollectTrainingData:
+    """Tests for collect_training_data() utility."""
+
+    def test_collect_training_data_returns_pairs(self):
+        """collect_training_data returns a list of (Model, ndarray) tuples."""
+        model1 = _make_test_model(5)
+        model2 = _make_test_model(5)
+        pairs = collect_training_data(
+            [model1, model2], n_strategies=2, stopping_time=1, num_workers=1
+        )
+
+        assert isinstance(pairs, list)
+        assert len(pairs) <= 2  # At most one pair per input model
+        for m, w in pairs:
+            assert isinstance(w, np.ndarray)
+            assert w.shape == (len(m.variables),)
+
+    def test_collect_training_data_configurable_budget(self):
+        """Call with stopping_time=1 completes without hang."""
+        model = _make_test_model(5)
+        pairs = collect_training_data(
+            [model], n_strategies=2, stopping_time=1, num_workers=1
+        )
+        assert isinstance(pairs, list)
+
+    def test_collect_training_data_reproducible(self):
+        """Two calls with same random_state return identical weight arrays."""
+        model = _make_test_model(5)
+        pairs1 = collect_training_data(
+            [model], n_strategies=3, stopping_time=1,
+            num_workers=1, random_state=42
+        )
+        pairs2 = collect_training_data(
+            [model], n_strategies=3, stopping_time=1,
+            num_workers=1, random_state=42
+        )
+        assert len(pairs1) == len(pairs2)
+        for (_, w1), (_, w2) in zip(pairs1, pairs2):
+            np.testing.assert_allclose(w1, w2)
+
+    def test_collect_training_data_empty_models_raises(self):
+        """collect_training_data([]) raises ValueError."""
+        with pytest.raises(ValueError):
+            collect_training_data([])
+
+    def test_collect_training_data_weights_non_negative(self):
+        """All returned best_weights arrays contain non-negative values."""
+        model = _make_test_model(5)
+        pairs = collect_training_data(
+            [model], n_strategies=3, stopping_time=1, num_workers=1
+        )
+        for _, w in pairs:
+            assert np.all(w >= 0)
+
+
+# ---------------------------------------------------------------------------
+# Tests for evaluate (TRAIN-05)
+# ---------------------------------------------------------------------------
+
+class TestEvaluate:
+    """Tests for evaluate() utility."""
+
+    @pytest.fixture
+    def fitted_predictor(self):
+        """A WeightPredictor fitted on a small model."""
+        model = _make_test_model(5)
+        weights = np.ones(5, dtype=np.float64)
+        return WeightPredictor(random_state=42).fit([(model, weights)])
+
+    def test_evaluate_returns_dict_with_strategies(self, fitted_predictor):
+        """evaluate returns a dict with at least 'predicted' and 'uniform' keys."""
+        test_model = _make_test_model(5)
+        results = evaluate(
+            fitted_predictor, [test_model],
+            stopping_time=1, num_workers=1
+        )
+        assert isinstance(results, dict)
+        assert 'predicted' in results
+        assert 'uniform' in results
+        for key in ('predicted', 'uniform'):
+            assert 'mean_objective' in results[key]
+            assert 'feasibility_rate' in results[key]
+
+    def test_evaluate_prints_table(self, fitted_predictor, capsys):
+        """evaluate prints a multi-line table containing strategy names."""
+        test_model = _make_test_model(5)
+        evaluate(
+            fitted_predictor, [test_model],
+            stopping_time=1, num_workers=1
+        )
+        captured = capsys.readouterr()
+        assert 'predicted' in captured.out
+        assert 'uniform' in captured.out
+        assert captured.out.count('\n') >= 3  # Header + separator + at least 2 rows
+
+    def test_evaluate_custom_baselines(self, fitted_predictor):
+        """Custom baselines appear in the result dict."""
+        test_model = _make_test_model(5)
+        results = evaluate(
+            fitted_predictor, [test_model],
+            stopping_time=1, num_workers=1,
+            baselines={'constant': lambda m: np.full(len(m.variables), 2.0)}
+        )
+        assert 'predicted' in results
+        assert 'uniform' in results
+        assert 'constant' in results
+
+    def test_evaluate_feasibility_rate_range(self, fitted_predictor):
+        """All feasibility_rate values are between 0.0 and 1.0."""
+        test_model = _make_test_model(5)
+        results = evaluate(
+            fitted_predictor, [test_model],
+            stopping_time=1, num_workers=1
+        )
+        for strategy, metrics in results.items():
+            assert 0.0 <= metrics['feasibility_rate'] <= 1.0
