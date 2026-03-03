@@ -70,9 +70,10 @@ None — milestone complete and archived.
 | 1 | Refactor local_search and quantum_local_search to use set_param pattern like solve | 2026-02-14 | 364a2c4 | [1-refactor-local-search-and-quantum-local-](./quick/1-refactor-local-search-and-quantum-local-/) |
 | 2 | Fix _SC_NPROCESSORS_ONLN undeclared identifier in solver_ctx.c | 2026-02-14 | deab932 | [2-fix-sc-nprocessors-onln-undeclared-ident](./quick/2-fix-sc-nprocessors-onln-undeclared-ident/) |
 | 3 | Update README example code to use set_param() + zero-arg solve() | 2026-02-26 | ae81337 | [3-update-example-code-in-readme-md-fix-out](./quick/3-update-example-code-in-readme-md-fix-out/) |
+| 4 | Extend README with ML training guide for branching weight prediction | 2026-03-03 | 66851b4 | [4-extend-readme-with-training-guide-for-be](./quick/4-extend-readme-with-training-guide-for-be/) |
 
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: v3.0 milestone archived
+Stopped at: Completed quick task 4 (extend README with training guide)
 Next action: `/gsd:new-milestone` to start next milestone cycle
