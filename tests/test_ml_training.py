@@ -1,7 +1,8 @@
 """Tests for WeightPredictor class and offline training pipeline.
 
 Covers TRAIN-01 (fit/predict), TRAIN-02 (save/load), TRAIN-03 (edge cases),
-TRAIN-04 (collect_training_data), TRAIN-05 (evaluate).
+TRAIN-04 (collect_training_data), TRAIN-05 (evaluate),
+DIAG-02/DIAG-03 (evaluate_weights), DIAG-01 (validate_transfer).
 """
 import numpy as np
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from cbqs.Model import Model
 from cbqs.ml.training import (
     WeightPredictor, collect_training_data, evaluate,
-    evaluate_weights, _compute_time_to_best,
+    evaluate_weights, _compute_time_to_best, validate_transfer,
 )
 
 
@@ -389,3 +390,71 @@ class TestEvaluateWeights:
         ]
         result = _compute_time_to_best(history, 5.0)
         assert result == 0.5  # First occurrence of max value 3
+
+
+# ---------------------------------------------------------------------------
+# Tests for validate_transfer (DIAG-01)
+# ---------------------------------------------------------------------------
+
+class TestValidateTransfer:
+    """Tests for validate_transfer() orchestration function."""
+
+    def test_validate_transfer_returns_tuple(self):
+        """validate_transfer returns a 2-tuple of (dict, WeightPredictor)."""
+        train_models = [_make_test_model(3) for _ in range(2)]
+        test_models = [_make_test_model(5)]
+        result = validate_transfer(
+            train_models, test_models,
+            n_strategies=2, stopping_time=1, num_workers=1,
+            random_state=42,
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        results, predictor = result
+        assert isinstance(results, dict)
+        assert isinstance(predictor, WeightPredictor)
+
+    def test_validate_transfer_results_format(self):
+        """Results dict has 'learned' and 'uniform' keys with all four metric keys."""
+        train_models = [_make_test_model(3) for _ in range(2)]
+        test_models = [_make_test_model(5)]
+        results, _ = validate_transfer(
+            train_models, test_models,
+            n_strategies=2, stopping_time=1, num_workers=1,
+            random_state=42,
+        )
+        assert 'learned' in results
+        assert 'uniform' in results
+        expected_keys = {'mean_objective', 'feasibility_rate', 'mean_time_to_best', 'speedup_vs_uniform'}
+        for name in ('learned', 'uniform'):
+            assert set(results[name].keys()) == expected_keys
+
+    def test_validate_transfer_predictor_reusable(self):
+        """The returned predictor can predict on a new model."""
+        train_models = [_make_test_model(3) for _ in range(2)]
+        test_models = [_make_test_model(5)]
+        _, predictor = validate_transfer(
+            train_models, test_models,
+            n_strategies=2, stopping_time=1, num_workers=1,
+            random_state=42,
+        )
+        new_model = _make_test_model(7)
+        weights = predictor.predict(new_model)
+        assert isinstance(weights, np.ndarray)
+        assert weights.shape == (7,)
+        assert np.all(weights >= 0)
+
+    def test_validate_transfer_different_sizes(self):
+        """Train on n_vars=3, evaluate on n_vars=8. Completes without error."""
+        train_models = [_make_test_model(3) for _ in range(2)]
+        test_models = [_make_test_model(8)]
+        results, predictor = validate_transfer(
+            train_models, test_models,
+            n_strategies=2, stopping_time=1, num_workers=1,
+            random_state=42,
+        )
+        assert 'learned' in results
+        assert 'uniform' in results
+        # Verify predictor can predict on the larger model size
+        weights = predictor.predict(test_models[0])
+        assert weights.shape == (8,)

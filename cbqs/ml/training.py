@@ -533,3 +533,60 @@ def evaluate_weights(test_models, strategies, stopping_time=5, num_workers=2):
     _print_evaluation_table(results)
 
     return results
+
+
+def validate_transfer(train_models, test_models, n_strategies=10,
+                      stopping_time=5, num_workers=2, random_state=None):
+    """Train on small models and evaluate on larger models in one call.
+
+    Orchestrates the full transfer learning validation pipeline: collects
+    training data from small instances, fits a WeightPredictor, and evaluates
+    the learned weights on larger instances via evaluate_weights().
+
+    Parameters
+    ----------
+    train_models : list of Model
+        Small problem instances for training data collection.
+    test_models : list of Model
+        Larger problem instances for evaluation.
+    n_strategies : int
+        Number of random weight strategies per model for data collection.
+    stopping_time : float
+        Solve time budget in seconds (used for both collection and evaluation).
+    num_workers : int
+        Number of solver threads per solve call.
+    random_state : int or None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    tuple of (dict, WeightPredictor)
+        A 2-tuple where the first element is the evaluation results dict
+        (same format as evaluate_weights output) and the second element is
+        the fitted WeightPredictor that can be saved and reused.
+
+    Examples
+    --------
+    >>> results, predictor = validate_transfer(small_models, large_models)
+    >>> print(results['learned']['speedup_vs_uniform'])
+    >>> predictor.save('my_predictor.joblib')
+    """
+    # Step 1: Collect training data from small models
+    training_pairs = collect_training_data(
+        train_models, n_strategies=n_strategies,
+        stopping_time=stopping_time, num_workers=num_workers,
+        random_state=random_state,
+    )
+
+    # Step 2: Train predictor
+    predictor = WeightPredictor(random_state=random_state)
+    predictor.fit(training_pairs)
+
+    # Step 3: Evaluate on test models via evaluate_weights
+    strategies = {'learned': lambda m: predictor.predict(m)}
+    results = evaluate_weights(
+        test_models, strategies,
+        stopping_time=stopping_time, num_workers=num_workers,
+    )
+
+    return results, predictor
