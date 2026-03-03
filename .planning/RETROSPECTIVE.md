@@ -2,6 +2,54 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v3.0 — Adaptive Branching
+
+**Shipped:** 2026-03-03
+**Phases:** 4 | **Plans:** 8 | **Sessions:** ~3
+
+### What Was Built
+- ML subpackage (cbqs/ml/) with optional sklearn dependency and import isolation
+- FeatureExtractor producing 9 per-variable and 11 instance-level structural features
+- WeightPredictor with ExtraTreesRegressor for offline weight prediction and joblib persistence
+- collect_training_data and evaluate utilities for automated pipeline
+- Multi-round adaptive_solve with EMA weight updates and combined reward signal
+- Deterministic, thread-safe concurrent adaptive solving
+- evaluate_weights with convergence speed metrics and speedup ratios
+- validate_transfer for cross-size transfer learning validation
+- 68 new ML tests (all passing)
+
+### What Worked
+- Pure-Python ML layer required zero C kernel changes — clean separation allowed fast iteration
+- Phase ordering (features -> training -> adaptation -> transfer) was natural and each phase built cleanly on the previous
+- Per-variable feature matrix design enabled size-invariant transfer learning out of the box
+- Expression iteration protocol provided clean data access without needing Cython helpers
+- Milestone audit before completion caught only documentation-level issues — all functional requirements were satisfied
+
+### What Was Inefficient
+- Phase 25 REQUIREMENTS.md checkboxes were not updated at plan completion time (fixed later)
+- ROADMAP.md plan checkboxes were left unchecked for phases 25-27 (documentation debt)
+- SUMMARY.md files lack requirements-completed frontmatter despite convention established in v2.1
+
+### Patterns Established
+- Optional dependency via extras_require with import guard pattern
+- Feature matrix convention: rows in variable index order, columns in feature name order
+- _parse_expression_terms() helper for Expression data access
+- Online adaptation loop: resolve weights -> save state -> loop(set params, solve, reward, EMA update) -> restore state
+- Pipeline orchestration: compose existing functions (collect_training_data + fit + evaluate_weights) rather than reimplement
+
+### Key Lessons
+1. Update requirement checkboxes at plan completion time, not at milestone end — prevents accumulation of stale documentation
+2. Pure-Python layers over C kernels work well for ML features — no build complexity, easy to iterate
+3. Size-invariant transfer learning is achievable with per-row feature matrices (tile instance features per variable)
+4. Combined reward signals should weight feasibility and objective independently for constraint-heavy problems
+
+### Cost Observations
+- Model mix: 100% opus (quality profile)
+- Sessions: ~3 (one for phases 25-26, one for 27, one for 28 + audit + completion)
+- Notable: 4 phases in 5 days — first feature-oriented milestone, slower than cleanup milestones but produced 1,175 LOC of new functionality
+
+---
+
 ## Milestone: v2.1 — Code Audit & Optimization
 
 **Shipped:** 2026-02-26
@@ -59,6 +107,7 @@
 | v1.1 | ~3 | 5 | Bug fixes, C23 migration, callback rework |
 | v2.0 | ~2 | 4 | First breaking release, unified branching model |
 | v2.1 | ~4 | 7 | Milestone audit workflow, VERIFICATION.md standard |
+| v3.0 | ~3 | 4 | First feature milestone, pure-Python ML layer |
 
 ### Cumulative Quality
 
@@ -68,10 +117,12 @@
 | v1.1 | 304+ | 21/21 | 3 (0 blockers) |
 | v2.0 | 446 | 17/17 | 2 (0 blockers) |
 | v2.1 | 446 | 18/18 | 5 (0 blockers) |
+| v3.0 | 514+ | 18/18 | 3 (0 blockers) |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Foundational cleanup before behavior changes prevents cascading regressions (v1.0 tests-first, v2.1 dead-code-first)
 2. Breaking changes are better done in dedicated milestones with clear migration paths (v2.0)
-3. Milestone audits catch gaps that phase-level work misses (v2.1 caught 2 gap-closure phases)
+3. Milestone audits catch gaps that phase-level work misses (v2.1 caught 2 gap-closure phases, v3.0 caught documentation debt)
 4. Incremental progress with frequent verification beats large batched changes (all milestones)
+5. Pure-Python layers over C kernels work well for extensibility — zero build changes, easy iteration (v3.0)

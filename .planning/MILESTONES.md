@@ -1,5 +1,36 @@
 # Project Milestones: CBQS
 
+## v3.0 Adaptive Branching (Shipped: 2026-03-03)
+
+**Delivered:** Added ML-based learning of branching weights with offline training, online adaptation, and cross-size transfer learning — all as a pure-Python layer with zero C kernel changes and optional sklearn dependency.
+
+**Phases completed:** 25-28 (8 plans, 15 tasks total)
+
+**Key accomplishments:**
+
+- ML subpackage with optional sklearn dependency and import isolation — `pip install cbqs[ml]` adds ML features without affecting non-ML workflows
+- FeatureExtractor producing 9 per-variable and 11 instance-level structural features from any Model via pure-Python Expression iteration
+- WeightPredictor with ExtraTreesRegressor wrapping fit/predict/save/load for offline branching weight prediction with size-invariant transfer
+- Multi-round adaptive_solve with EMA weight updates and combined feasibility/objective reward signal
+- Thread-safe concurrent adaptive solving with deterministic seed-based reproducibility
+- Cross-size transfer learning validation pipeline (train on small instances, evaluate on large) via validate_transfer()
+
+**Stats:**
+
+- 37 files modified, 6,276 insertions, 78 deletions
+- 1,175 lines of Python (ML module)
+- 4 phases, 8 plans, 15 tasks
+- 5 days (2026-02-26 -> 2026-03-03)
+- 68 new ML tests, all passing
+
+**Git range:** `feat(25-01)` -> `feat(28-02)`
+
+**Audit:** 18/18 requirements satisfied, 0 gaps, 3 tech debt items (0 blockers, all documentation-only)
+
+**What's next:** v3.1+ — GNN-based prediction, RL training loop, local search adaptation, or multi-solver orchestration
+
+---
+
 ## v1.1 Bug Fixes & Polish (Shipped: 2026-02-08)
 
 **Delivered:** Fixed all known bugs, eliminated tech debt, and cleaned up code quality issues from v1.0 with zero breaking changes.

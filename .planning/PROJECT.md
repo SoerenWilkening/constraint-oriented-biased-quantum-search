@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, per-thread history tracking with concurrent solve isolation, a unified branching model with all solver configuration via set_param()/get_param(), incremental constraint evaluation in local search, and full API documentation.
+A solver for integer programs combining probabilistic sampling and local search heuristics, with quantum search oracle call computation. Built as a Python API backed by Cython bindings over a C computation kernel. Supports binary and integer variables, thread-safe parallel solving with deterministic reproducibility, comprehensive input validation, structured solve diagnostics, per-thread history tracking with concurrent solve isolation, a unified branching model with all solver configuration via set_param()/get_param(), incremental constraint evaluation in local search, full API documentation, and ML-based adaptive branching weight learning with offline training, online adaptation, and cross-size transfer learning.
 
 ## Core Value
 
@@ -59,23 +59,25 @@ A stable, performant, and correct solver engine that researchers can trust for b
 - ✓ Build system deduplicated (build_clib), pandas removed, version 2.1.0 — v2.1
 - ✓ NumPy-style docstrings on all public Python methods, C kernel algorithm comments — v2.1
 
+- ✓ ML subpackage with optional sklearn dependency via pip install cbqs[ml] — v3.0
+- ✓ FeatureExtractor: 9 per-variable + 11 instance-level structural features from any Model — v3.0
+- ✓ WeightPredictor with ExtraTreesRegressor for offline branching weight prediction — v3.0
+- ✓ collect_training_data and evaluate utilities for training pipeline — v3.0
+- ✓ Multi-round adaptive_solve with EMA weight updates and combined reward signal — v3.0
+- ✓ Deterministic, thread-safe concurrent adaptive solving — v3.0
+- ✓ evaluate_weights with convergence speed metrics and speedup ratios — v3.0
+- ✓ validate_transfer for cross-size transfer learning validation — v3.0
+
 ### Active
 
-## Current Milestone: v3.0 Adaptive Branching
-
-**Goal:** Add ML-based learning of branching weights — train on small/medium instances, generalize to larger ones, with real-time online adaptation during solve.
-
-**Target features:**
-- Offline training pipeline: collect performance data across instance sets, learn problem-feature → weight mappings
-- Online adaptation: branching weights adjust during solve based on objective improvement + constraint satisfaction feedback
-- Sampling solver as initial target (local search extension deferred)
-- Combined reward signal: objective improvement rate + constraint satisfaction rate
-- sklearn as optional dependency for ML components
+(None — milestone complete, next milestone TBD)
 
 ### Out of Scope
 
-- ML-based branching strategy selection — moved to v3.0 Active
-- Adaptive branching that learns during search — moved to v3.0 Active
+- GNN-based weight prediction — requires PyTorch and thousands of training instances (deferred to v3.1+)
+- Reinforcement learning training loop for weight optimization (deferred to v3.1+)
+- Custom ML model plugin interface for user-supplied estimators (deferred to v3.1+)
+- Local search solver weight adaptation (deferred to future milestone)
 - Automatic multi-heuristic solver (combining sampling + local search) — deferred to future milestone
 - Branch-and-bound extension — deferred to future milestone
 - Circuit backend / quantum hardware execution — exists as submodule but not active
@@ -85,12 +87,13 @@ A stable, performant, and correct solver engine that researchers can trust for b
 
 ## Context
 
-Shipped v2.1 with C/Python/Cython codebase.
-Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), CMocka, pytest, GitHub Actions CI.
-Test suite: 56 C tests, 390 Python tests, 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
-v1.0 audit: 15/15. v1.1 audit: 21/21. v2.0 audit: 17/17. v2.1 audit: 18/18.
+Shipped v3.0 with C/Python/Cython codebase plus pure-Python ML layer.
+Tech stack: Python 3.13.7, Cython 3, C11 (C23-compatible), scikit-learn (optional), CMocka, pytest, GitHub Actions CI.
+Test suite: 56 C tests, 458+ Python tests (390 core + 68 ML), 7 benchmarks. CI runs ASan, Valgrind, ThreadSanitizer, -Werror.
+v1.0 audit: 15/15. v1.1 audit: 21/21. v2.0 audit: 17/17. v2.1 audit: 18/18. v3.0 audit: 18/18.
 Package version 2.1.0. Build uses build_clib static library for C source deduplication.
 All public Python methods have docstrings. C kernel has algorithm block comments.
+ML module: 1,175 LOC in cbqs/ml/ (features.py, training.py, adaptation.py).
 
 Known tech debt: SearchLib.pyx local vars retain old `param_look_factor` naming (cosmetic only). Expression.c/dyn_expr.c compiled in both lib and extension (documented intentional).
 
@@ -112,7 +115,7 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 
 - **Language**: Must maintain Python/Cython/C architecture — core performance lives in C
 - **Compatibility**: Python 3.13.7, C11 standard (C23-compatible), Cython 3
-- **Dependencies**: Minimal — numpy, joblib required; gurobipy optional
+- **Dependencies**: Minimal — numpy, joblib required; scikit-learn optional via cbqs[ml]; gurobipy optional
 - **Build**: setuptools + Cython.Build with -O3 -flto -pthread flags
 
 ## Key Decisions
@@ -145,6 +148,15 @@ All phase work is done on feature branches. Features merge to `develop`. Release
 | build_clib static library | 15 C sources compiled once, linked into 5 extensions | ✓ Good — eliminated duplicate compilation |
 | Single-source version in __init__.py | pyproject.toml reads dynamically; one place to update | ✓ Good — no version drift |
 | NumPy-style docstrings | Standard format with Parameters/Returns/Raises/Examples | ✓ Good — pydoc/help() readable output |
+| Pure-Python ML subpackage | No C kernel changes needed; all ML in cbqs/ml/ | ✓ Good — clean separation, fast iteration |
+| sklearn as optional dependency | Sufficient for tabular regression; cbqs[ml] extras_require | ✓ Good — zero impact on non-ML users |
+| Inter-solve multi-round adaptation | Not intra-solve C mutation; thread-safe by design | ✓ Good — deterministic, no C changes |
+| Per-variable prediction model | Row-per-variable feature matrix; size-invariant transfer | ✓ Good — train small, predict large |
+| ExtraTreesRegressor for offline | Fast, no hyperparameter tuning, handles mixed features well | ✓ Good — works out of the box |
+| Expression parsing via _parse_expression_terms | Filter list items from int sense/rhs values | ✓ Good — clean data access pattern |
+| Per-column z-score normalization | Zero-variance columns set to zero (not NaN) | ✓ Good — safe numerical behavior |
+| EMA weight updates | Exponential moving average blends current and prior weights | ✓ Good — simple, tunable via learning_rate |
+| Combined reward signal | 0.5 * feasibility + 0.5 * objective improvement | ✓ Good — balances exploration/exploitation |
 
 ---
-*Last updated: 2026-02-26 after v3.0 milestone start*
+*Last updated: 2026-03-03 after v3.0 milestone*

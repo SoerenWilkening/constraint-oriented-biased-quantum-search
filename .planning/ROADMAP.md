@@ -6,7 +6,7 @@
 - ✅ **v1.1 Bug Fixes & Polish** — Phases 9-13 (shipped 2026-02-08) — [archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v2.0 API Cleanup** — Phases 14-17 (shipped 2026-02-14) — [archive](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Code Audit & Optimization** — Phases 18-24 (shipped 2026-02-26) — [archive](milestones/v2.1-ROADMAP.md)
-- ✅ **v3.0 Adaptive Branching** — Phases 25-28 (shipped 2026-03-03)
+- ✅ **v3.0 Adaptive Branching** — Phases 25-28 (shipped 2026-03-03) — [archive](milestones/v3.0-ROADMAP.md)
 
 ## Phases
 
@@ -58,82 +58,17 @@
 
 </details>
 
-### ✅ v3.0 Adaptive Branching (Shipped 2026-03-03)
+<details>
+<summary>✅ v3.0 Adaptive Branching (Phases 25-28) — SHIPPED 2026-03-03</summary>
 
-**Milestone Goal:** Add ML-based learning of branching weights — train on small/medium instances, generalize to larger ones, with real-time online adaptation during solve.
+- [x] Phase 25: Feature Extraction & ML Foundation (2/2 plans) — completed 2026-02-26
+- [x] Phase 26: Offline Training Pipeline (2/2 plans) — completed 2026-03-02
+- [x] Phase 27: Online Adaptive Solve (2/2 plans) — completed 2026-03-02
+- [x] Phase 28: Transfer Learning & Diagnostics (2/2 plans) — completed 2026-03-03
 
-- [x] **Phase 25: Feature Extraction & ML Foundation** - Package skeleton, optional dependency wiring, per-variable and instance-level feature extraction (completed 2026-02-26)
-- [x] **Phase 26: Offline Training Pipeline** - Weight predictor training from collected solve data, model persistence, baseline evaluation (completed 2026-03-02)
-- [x] **Phase 27: Online Adaptive Solve** - Multi-round adaptive solve loop with EMA weight updates, combined reward signal, determinism and thread safety (completed 2026-03-02)
-- [x] **Phase 28: Transfer Learning & Diagnostics** - Small-to-large generalization validation, weight evaluation utilities, diagnostic reporting (completed 2026-03-03)
-
-## Phase Details
-
-### Phase 25: Feature Extraction & ML Foundation
-**Goal**: Users can extract structural features from any Model and import the ML module without breaking existing non-ML workflows
-**Depends on**: Phase 24 (v2.1 complete)
-**Requirements**: FEAT-01, FEAT-02, FEAT-03, INTG-01, INTG-02, INTG-03
-**Success Criteria** (what must be TRUE):
-  1. User can run `pip install cbqs[ml]` and import `cbqs.ml` with sklearn available
-  2. User can `from cbqs import Model` without sklearn installed and receive no import errors
-  3. User receives a clear error message when importing `cbqs.ml` without sklearn installed
-  4. User can call a feature extractor on a closed Model and receive a per-variable feature matrix of shape (n_vars, n_features) where row i corresponds to variable i
-  5. User can extract an instance-level feature vector (constraint density, variable count, coefficient statistics) from any Model regardless of size
-**Plans**: 2 plans
-
-Plans:
-- [x] 25-01: Package skeleton + optional dependency wiring
-- [x] 25-02: Feature extraction (per-variable + instance-level)
-
-### Phase 26: Offline Training Pipeline
-**Goal**: Users can collect training data, train a weight predictor, and use it to predict branching weights for new problem instances
-**Depends on**: Phase 25
-**Requirements**: TRAIN-01, TRAIN-02, TRAIN-03, TRAIN-04, TRAIN-05
-**Success Criteria** (what must be TRUE):
-  1. User can call fit() on a collection of (Model, best_weights) pairs to train a weight predictor
-  2. User can call predict() on a new Model and receive a numpy array directly compatible with set_param('branching_weights', ...)
-  3. User can save a trained predictor to disk and load it in a new Python session via joblib serialization
-  4. User can run an automated data collection utility that solves instances with diverse weight strategies and returns training pairs
-  5. Training evaluation always includes a uniform-weights baseline so users can verify the predictor outperforms naive defaults
-**Plans**: 2 plans
-
-Plans:
-- [x] 26-01-PLAN.md — WeightPredictor class (fit/predict/save/load) with ExtraTreesRegressor
-- [x] 26-02-PLAN.md — Data collection utility and evaluation with baseline comparison
-
-### Phase 27: Online Adaptive Solve
-**Goal**: Users can run a multi-round adaptive solve where branching weights improve between rounds based on observed solver performance
-**Depends on**: Phase 25 (feature extraction); benefits from Phase 26 (pre-trained predictor for initial weights)
-**Requirements**: ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04
-**Success Criteria** (what must be TRUE):
-  1. User can run an adaptive multi-round solve that updates branching weights between rounds using EMA
-  2. Adaptation reward signal combines both objective improvement rate and constraint satisfaction rate
-  3. Running the same adaptive solve with the same seed and thread count produces identical results across runs
-  4. Concurrent adaptive solves on different models do not share or corrupt weight arrays between workers
-**Plans**: 2 plans
-
-Plans:
-- [x] 27-01: Adaptive solve loop with EMA weight updates
-- [x] 27-02: Determinism, thread safety, and combined reward signal
-
-### Phase 28: Transfer Learning & Diagnostics
-**Goal**: Users can validate that learned weights generalize across instance sizes and evaluate weight quality against baselines
-**Depends on**: Phase 26 (trained predictor), Phase 27 (adaptive solve)
-**Requirements**: DIAG-01, DIAG-02, DIAG-03
-**Success Criteria** (what must be TRUE):
-  1. User can train a predictor on small instances (e.g., n=50 variables) and apply the learned weights to larger instances (e.g., n=500) of the same problem type
-  2. User can call an evaluate_weights utility that compares learned weights against uniform and default baselines on a set of test instances
-  3. Evaluation report includes both objective improvement and convergence speed relative to baselines, so users can quantify the ML benefit
-**Plans**: 2 plans
-
-Plans:
-- [x] 28-01-PLAN.md — evaluate_weights() with convergence speed metrics (DIAG-02, DIAG-03)
-- [x] 28-02-PLAN.md — validate_transfer() orchestration for small-to-large transfer validation (DIAG-01)
+</details>
 
 ## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 25 -> 26 -> 27 -> 28
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -161,7 +96,7 @@ Phases execute in numeric order: 25 -> 26 -> 27 -> 28
 | 22. Documentation | v2.1 | 3/3 | Complete | 2026-02-26 |
 | 23. Fix C Test API Rename | v2.1 | 1/1 | Complete | 2026-02-26 |
 | 24. Phase Verification | v2.1 | 3/3 | Complete | 2026-02-26 |
-| 25. Feature Extraction & ML Foundation | v3.0 | Complete    | 2026-02-26 | - |
-| 26. Offline Training Pipeline | 2/2 | Complete    | 2026-03-02 | - |
-| 27. Online Adaptive Solve | v3.0 | Complete    | 2026-03-02 | - |
+| 25. Feature Extraction & ML Foundation | v3.0 | 2/2 | Complete | 2026-02-26 |
+| 26. Offline Training Pipeline | v3.0 | 2/2 | Complete | 2026-03-02 |
+| 27. Online Adaptive Solve | v3.0 | 2/2 | Complete | 2026-03-02 |
 | 28. Transfer Learning & Diagnostics | v3.0 | 2/2 | Complete | 2026-03-03 |

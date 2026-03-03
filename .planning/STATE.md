@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Adaptive Branching
-status: complete
+status: archived
 last_updated: "2026-03-03"
 progress:
   total_phases: 28
@@ -15,17 +15,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-26)
+See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** A stable, performant, and correct solver engine that researchers can trust for benchmarking and publishing results.
-**Current focus:** v3.0 Adaptive Branching — Complete (all 4 phases shipped)
+**Current focus:** v3.0 Adaptive Branching archived. Next milestone TBD.
 
 ## Current Position
 
 Phase: 28 of 28 (Transfer Learning & Diagnostics)
 Plan: 02/02 complete
-Status: Complete
-Last activity: 2026-03-03 — Phase 28 executed (2 plans, 4 tasks)
+Status: Milestone archived
+Last activity: 2026-03-03 — v3.0 milestone archived
 
 Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########] [v3.0 ##########]
 
@@ -61,8 +61,7 @@ None.
 
 ### Blockers/Concerns
 
-- RESOLVED: FeatureExtractor data access path — pure Python attribute access via Expression iteration, no Cython helper needed
-- Research flag: AdaptiveController reward signal may need stage-aware weighting for CBQS's 3-stage solve structure
+None — milestone complete and archived.
 
 ### Quick Tasks Completed
 
@@ -75,5 +74,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Phase 28 executed and verified — v3.0 milestone complete
-Next action: All v3.0 phases complete. Consider v3.1+ planning if desired.
+Stopped at: v3.0 milestone archived
+Next action: `/gsd:new-milestone` to start next milestone cycle
