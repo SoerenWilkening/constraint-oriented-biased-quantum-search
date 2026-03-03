@@ -388,3 +388,148 @@ def evaluate(predictor, test_models, stopping_time=5, num_workers=2,
     _print_comparison_table(results)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Generalized weight evaluation with convergence speed metrics
+# ---------------------------------------------------------------------------
+
+def _compute_time_to_best(history, stopping_time):
+    """Compute time-to-best from solve history.
+
+    Scans history for the entry with the best (maximum) objective value and
+    returns the elapsed_seconds when it was first achieved. If history is
+    empty, returns ``stopping_time`` as a ceiling penalty.
+
+    Parameters
+    ----------
+    history : list of tuple
+        Each entry is ``(value, elapsed_seconds)`` from OptimizeResult.history.
+    stopping_time : float
+        Ceiling penalty returned when history is empty.
+
+    Returns
+    -------
+    float
+        Elapsed seconds at which the best objective value was first found.
+    """
+    if not history:
+        return stopping_time
+
+    best_value = max(entry[0] for entry in history)
+    for value, elapsed in history:
+        if value == best_value:
+            return elapsed
+
+    return stopping_time  # Should not reach here
+
+
+def _print_evaluation_table(results):
+    """Print a human-readable evaluation table with convergence speed columns.
+
+    Extends the comparison table pattern with Time-to-Best and
+    Speedup vs Uniform columns.
+
+    Parameters
+    ----------
+    results : dict
+        Strategy results with keys: mean_objective, feasibility_rate,
+        mean_time_to_best, speedup_vs_uniform.
+    """
+    name_width = max(len(name) for name in results)
+    name_width = max(name_width, len("Strategy"))
+
+    header = (f"{'Strategy':<{name_width}}  {'Mean Objective':>15}  "
+              f"{'Feasibility Rate':>17}  {'Time-to-Best':>13}  "
+              f"{'Speedup vs Uniform':>19}")
+    separator = "-" * len(header)
+
+    print(separator)
+    print(header)
+    print(separator)
+
+    for name, m in results.items():
+        print(f"{name:<{name_width}}  {m['mean_objective']:>15.4f}  "
+              f"{m['feasibility_rate']:>17.4f}  "
+              f"{m['mean_time_to_best']:>13.4f}  "
+              f"{m['speedup_vs_uniform']:>19.2f}x")
+
+    print(separator)
+
+
+def evaluate_weights(test_models, strategies, stopping_time=5, num_workers=2):
+    """Compare weight strategies with convergence speed metrics.
+
+    Evaluates each strategy on every test model and reports mean objective,
+    feasibility rate, time-to-best, and speedup relative to a uniform baseline.
+    A 'uniform' baseline is automatically added when not present in the
+    strategies dict.
+
+    Parameters
+    ----------
+    test_models : list of Model
+        Closed Model instances to evaluate on.
+    strategies : dict
+        Named weight-producing callables: ``{name: callable(model) -> weights_array}``.
+    stopping_time : float
+        Solve time budget in seconds per evaluation solve.
+    num_workers : int
+        Number of solver threads per solve call.
+
+    Returns
+    -------
+    dict
+        Strategy results: ``{name: {'mean_objective': float, 'feasibility_rate': float,
+        'mean_time_to_best': float, 'speedup_vs_uniform': float}}``.
+    """
+    # Build strategy dict with uniform baseline first, then user overrides
+    all_strategies = {'uniform': lambda m: np.ones(len(m.variables))}
+    all_strategies.update(strategies)
+
+    results = {}
+
+    for strategy_name, weight_fn in all_strategies.items():
+        objectives = []
+        feasible_count = 0
+        times_to_best = []
+
+        for model in test_models:
+            weights = weight_fn(model)
+
+            model.set_param('branching_weights', np.asarray(weights, dtype=np.float64))
+            model.set_param('stopping_time', stopping_time)
+            model.set_param('num_workers', num_workers)
+
+            result = model.solve()
+
+            objectives.append(result.objective)
+            if result.feasible:
+                feasible_count += 1
+
+            ttb = _compute_time_to_best(result.history, stopping_time)
+            times_to_best.append(ttb)
+
+            # Reset weights to avoid polluting next strategy
+            model.set_param('branching_weights', None)
+
+        n_models = len(test_models)
+        results[strategy_name] = {
+            'mean_objective': float(np.mean(objectives)) if objectives else 0.0,
+            'feasibility_rate': feasible_count / n_models if n_models > 0 else 0.0,
+            'mean_time_to_best': float(np.mean(times_to_best)) if times_to_best else 0.0,
+        }
+
+    # Compute speedup ratios relative to uniform
+    uniform_ttb = results['uniform']['mean_time_to_best']
+    for name, metrics in results.items():
+        if uniform_ttb > 0:
+            if metrics['mean_time_to_best'] > 0:
+                metrics['speedup_vs_uniform'] = uniform_ttb / metrics['mean_time_to_best']
+            else:
+                metrics['speedup_vs_uniform'] = float('inf')
+        else:
+            metrics['speedup_vs_uniform'] = 1.0
+
+    _print_evaluation_table(results)
+
+    return results

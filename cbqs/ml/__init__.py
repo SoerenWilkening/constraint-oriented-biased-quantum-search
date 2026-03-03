@@ -12,7 +12,7 @@ except ImportError:
     ) from None
 
 from .features import FeatureExtractor
-from .training import WeightPredictor, collect_training_data, evaluate
+from .training import WeightPredictor, collect_training_data, evaluate, evaluate_weights
 from .adaptation import adaptive_solve, AdaptiveResult
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "WeightPredictor",
     "collect_training_data",
     "evaluate",
+    "evaluate_weights",
     "adaptive_solve",
     "AdaptiveResult",
 ]

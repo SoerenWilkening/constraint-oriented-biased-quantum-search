@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 
 from cbqs.Model import Model
-from cbqs.ml.training import WeightPredictor, collect_training_data, evaluate
+from cbqs.ml.training import (
+    WeightPredictor, collect_training_data, evaluate,
+    evaluate_weights, _compute_time_to_best,
+)
 
 
 def _make_test_model(n_vars):
@@ -288,3 +291,101 @@ class TestEvaluate:
         )
         for strategy, metrics in results.items():
             assert 0.0 <= metrics['feasibility_rate'] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Tests for evaluate_weights (DIAG-02, DIAG-03)
+# ---------------------------------------------------------------------------
+
+class TestEvaluateWeights:
+    """Tests for evaluate_weights() with convergence speed metrics."""
+
+    def test_evaluate_weights_returns_dict_with_metrics(self):
+        """evaluate_weights returns a dict with strategy keys, each containing all four metric keys."""
+        test_model = _make_test_model(5)
+        strategies = {
+            'constant': lambda m: np.full(len(m.variables), 2.0),
+        }
+        results = evaluate_weights(
+            [test_model], strategies,
+            stopping_time=1, num_workers=1
+        )
+        assert isinstance(results, dict)
+        assert 'uniform' in results
+        assert 'constant' in results
+        expected_keys = {'mean_objective', 'feasibility_rate', 'mean_time_to_best', 'speedup_vs_uniform'}
+        for name in ('uniform', 'constant'):
+            assert set(results[name].keys()) == expected_keys
+
+    def test_evaluate_weights_auto_adds_uniform(self):
+        """When strategies dict lacks 'uniform', it is automatically added."""
+        test_model = _make_test_model(5)
+        strategies = {
+            'custom': lambda m: np.ones(len(m.variables)) * 3.0,
+        }
+        results = evaluate_weights(
+            [test_model], strategies,
+            stopping_time=1, num_workers=1
+        )
+        assert 'uniform' in results
+
+    def test_evaluate_weights_prints_table(self, capsys):
+        """evaluate_weights prints a table containing strategy names and column headers."""
+        test_model = _make_test_model(5)
+        strategies = {
+            'constant': lambda m: np.full(len(m.variables), 2.0),
+        }
+        evaluate_weights(
+            [test_model], strategies,
+            stopping_time=1, num_workers=1
+        )
+        captured = capsys.readouterr()
+        assert 'constant' in captured.out
+        assert 'uniform' in captured.out
+        assert 'Mean Objective' in captured.out
+        assert 'Time-to-Best' in captured.out
+        assert 'Speedup vs Uniform' in captured.out
+
+    def test_evaluate_weights_speedup_vs_uniform(self):
+        """speedup_vs_uniform is a float >= 0 for each strategy."""
+        test_model = _make_test_model(5)
+        strategies = {
+            'constant': lambda m: np.full(len(m.variables), 2.0),
+        }
+        results = evaluate_weights(
+            [test_model], strategies,
+            stopping_time=1, num_workers=1
+        )
+        for name, metrics in results.items():
+            assert isinstance(metrics['speedup_vs_uniform'], float)
+            assert metrics['speedup_vs_uniform'] >= 0
+
+    def test_evaluate_weights_time_to_best_range(self):
+        """mean_time_to_best is between 0 and stopping_time for each strategy."""
+        test_model = _make_test_model(5)
+        stopping_time = 1
+        strategies = {
+            'constant': lambda m: np.full(len(m.variables), 2.0),
+        }
+        results = evaluate_weights(
+            [test_model], strategies,
+            stopping_time=stopping_time, num_workers=1
+        )
+        for name, metrics in results.items():
+            assert 0 <= metrics['mean_time_to_best'] <= stopping_time
+
+    def test_compute_time_to_best_empty_history(self):
+        """_compute_time_to_best with empty list returns stopping_time."""
+        assert _compute_time_to_best([], 5.0) == 5.0
+        assert _compute_time_to_best([], 10.0) == 10.0
+
+    def test_compute_time_to_best_finds_first_max(self):
+        """_compute_time_to_best returns the elapsed time of the first occurrence of the best value."""
+        history = [
+            (1, 0.1),
+            (3, 0.5),
+            (2, 0.8),
+            (3, 1.2),  # second occurrence of max=3
+        ]
+        result = _compute_time_to_best(history, 5.0)
+        assert result == 0.5  # First occurrence of max value 3
