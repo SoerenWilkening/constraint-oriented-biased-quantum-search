@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-03-03)
 Phase: 28 of 28 (Transfer Learning & Diagnostics)
 Plan: 02/02 complete
 Status: Milestone archived
-Last activity: 2026-03-03 — v3.0 milestone archived
+Last activity: 2026-03-03 - Completed quick task 4: Extend README with training guide for better biasing weights
 
 Progress: [v1.0 ##########] [v1.1 ##########] [v2.0 ##########] [v2.1 ##########] [v3.0 ##########]
 
