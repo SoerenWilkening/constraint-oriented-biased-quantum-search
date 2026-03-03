@@ -124,11 +124,11 @@ Plans:
   1. User can train a predictor on small instances (e.g., n=50 variables) and apply the learned weights to larger instances (e.g., n=500) of the same problem type
   2. User can call an evaluate_weights utility that compares learned weights against uniform and default baselines on a set of test instances
   3. Evaluation report includes both objective improvement and convergence speed relative to baselines, so users can quantify the ML benefit
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 28-01: TBD
-- [ ] 28-02: TBD
+- [ ] 28-01-PLAN.md — evaluate_weights() with convergence speed metrics (DIAG-02, DIAG-03)
+- [ ] 28-02-PLAN.md — validate_transfer() orchestration for small-to-large transfer validation (DIAG-01)
 
 ## Progress
 
