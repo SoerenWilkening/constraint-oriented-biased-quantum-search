@@ -30,9 +30,9 @@ Requirements for ML-based adaptive branching weight learning. Each maps to roadm
 
 ### Transfer & Diagnostics
 
-- [ ] **DIAG-01**: User can train on small instances and apply learned weights to larger instances of the same problem type
-- [ ] **DIAG-02**: User can evaluate learned weights against uniform and default baselines via evaluate_weights utility
-- [ ] **DIAG-03**: Evaluation reports objective improvement and convergence speed relative to baselines
+- [x] **DIAG-01**: User can train on small instances and apply learned weights to larger instances of the same problem type
+- [x] **DIAG-02**: User can evaluate learned weights against uniform and default baselines via evaluate_weights utility
+- [x] **DIAG-03**: Evaluation reports objective improvement and convergence speed relative to baselines
 
 ### Integration
 
@@ -89,9 +89,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADAPT-02 | Phase 27 | Complete |
 | ADAPT-03 | Phase 27 | Complete |
 | ADAPT-04 | Phase 27 | Complete |
-| DIAG-01 | Phase 28 | Pending |
-| DIAG-02 | Phase 28 | Pending |
-| DIAG-03 | Phase 28 | Pending |
+| DIAG-01 | Phase 28 | Complete |
+| DIAG-02 | Phase 28 | Complete |
+| DIAG-03 | Phase 28 | Complete |
 | INTG-01 | Phase 25 | Pending |
 | INTG-02 | Phase 25 | Pending |
 | INTG-03 | Phase 25 | Pending |
@@ -103,4 +103,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after roadmap creation*
+*Last updated: 2026-03-03 after Phase 28 completion*

@@ -6,7 +6,7 @@
 - ✅ **v1.1 Bug Fixes & Polish** — Phases 9-13 (shipped 2026-02-08) — [archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v2.0 API Cleanup** — Phases 14-17 (shipped 2026-02-14) — [archive](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Code Audit & Optimization** — Phases 18-24 (shipped 2026-02-26) — [archive](milestones/v2.1-ROADMAP.md)
-- 🚧 **v3.0 Adaptive Branching** — Phases 25-28 (in progress)
+- ✅ **v3.0 Adaptive Branching** — Phases 25-28 (shipped 2026-03-03)
 
 ## Phases
 
@@ -58,14 +58,14 @@
 
 </details>
 
-### 🚧 v3.0 Adaptive Branching (In Progress)
+### ✅ v3.0 Adaptive Branching (Shipped 2026-03-03)
 
 **Milestone Goal:** Add ML-based learning of branching weights — train on small/medium instances, generalize to larger ones, with real-time online adaptation during solve.
 
 - [x] **Phase 25: Feature Extraction & ML Foundation** - Package skeleton, optional dependency wiring, per-variable and instance-level feature extraction (completed 2026-02-26)
 - [x] **Phase 26: Offline Training Pipeline** - Weight predictor training from collected solve data, model persistence, baseline evaluation (completed 2026-03-02)
 - [x] **Phase 27: Online Adaptive Solve** - Multi-round adaptive solve loop with EMA weight updates, combined reward signal, determinism and thread safety (completed 2026-03-02)
-- [ ] **Phase 28: Transfer Learning & Diagnostics** - Small-to-large generalization validation, weight evaluation utilities, diagnostic reporting
+- [x] **Phase 28: Transfer Learning & Diagnostics** - Small-to-large generalization validation, weight evaluation utilities, diagnostic reporting (completed 2026-03-03)
 
 ## Phase Details
 
@@ -127,8 +127,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 28-01-PLAN.md — evaluate_weights() with convergence speed metrics (DIAG-02, DIAG-03)
-- [ ] 28-02-PLAN.md — validate_transfer() orchestration for small-to-large transfer validation (DIAG-01)
+- [x] 28-01-PLAN.md — evaluate_weights() with convergence speed metrics (DIAG-02, DIAG-03)
+- [x] 28-02-PLAN.md — validate_transfer() orchestration for small-to-large transfer validation (DIAG-01)
 
 ## Progress
 
@@ -164,4 +164,4 @@ Phases execute in numeric order: 25 -> 26 -> 27 -> 28
 | 25. Feature Extraction & ML Foundation | v3.0 | Complete    | 2026-02-26 | - |
 | 26. Offline Training Pipeline | 2/2 | Complete    | 2026-03-02 | - |
 | 27. Online Adaptive Solve | v3.0 | Complete    | 2026-03-02 | - |
-| 28. Transfer Learning & Diagnostics | v3.0 | 0/0 | Not started | - |
+| 28. Transfer Learning & Diagnostics | v3.0 | 2/2 | Complete | 2026-03-03 |
