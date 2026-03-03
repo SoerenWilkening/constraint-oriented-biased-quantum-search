@@ -9,9 +9,9 @@ Requirements for ML-based adaptive branching weight learning. Each maps to roadm
 
 ### Feature Extraction
 
-- [ ] **FEAT-01**: User can extract per-variable feature matrix (n_vars x n_features) from a closed Model
-- [ ] **FEAT-02**: User can extract instance-level feature vector (constraint density, variable count, coefficient statistics)
-- [ ] **FEAT-03**: Feature extraction works on models of any size without coupling to a fixed dimension
+- [x] **FEAT-01**: User can extract per-variable feature matrix (n_vars x n_features) from a closed Model
+- [x] **FEAT-02**: User can extract instance-level feature vector (constraint density, variable count, coefficient statistics)
+- [x] **FEAT-03**: Feature extraction works on models of any size without coupling to a fixed dimension
 
 ### Offline Training
 
@@ -36,9 +36,9 @@ Requirements for ML-based adaptive branching weight learning. Each maps to roadm
 
 ### Integration
 
-- [ ] **INTG-01**: sklearn is an optional dependency installed via `pip install cbqs[ml]`
-- [ ] **INTG-02**: Importing cbqs without sklearn installed does not raise errors
-- [ ] **INTG-03**: ML module has clear import error message when sklearn is missing
+- [x] **INTG-01**: sklearn is an optional dependency installed via `pip install cbqs[ml]`
+- [x] **INTG-02**: Importing cbqs without sklearn installed does not raise errors
+- [x] **INTG-03**: ML module has clear import error message when sklearn is missing
 
 ## Future Requirements
 
@@ -77,9 +77,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEAT-01 | Phase 25 | Pending |
-| FEAT-02 | Phase 25 | Pending |
-| FEAT-03 | Phase 25 | Pending |
+| FEAT-01 | Phase 25 | Complete |
+| FEAT-02 | Phase 25 | Complete |
+| FEAT-03 | Phase 25 | Complete |
 | TRAIN-01 | Phase 26 | Complete |
 | TRAIN-02 | Phase 26 | Complete |
 | TRAIN-03 | Phase 26 | Complete |
@@ -92,9 +92,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DIAG-01 | Phase 28 | Complete |
 | DIAG-02 | Phase 28 | Complete |
 | DIAG-03 | Phase 28 | Complete |
-| INTG-01 | Phase 25 | Pending |
-| INTG-02 | Phase 25 | Pending |
-| INTG-03 | Phase 25 | Pending |
+| INTG-01 | Phase 25 | Complete |
+| INTG-02 | Phase 25 | Complete |
+| INTG-03 | Phase 25 | Complete |
 
 **Coverage:**
 - v3.0 requirements: 18 total

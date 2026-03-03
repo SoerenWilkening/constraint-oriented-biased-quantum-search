@@ -79,11 +79,11 @@
   3. User receives a clear error message when importing `cbqs.ml` without sklearn installed
   4. User can call a feature extractor on a closed Model and receive a per-variable feature matrix of shape (n_vars, n_features) where row i corresponds to variable i
   5. User can extract an instance-level feature vector (constraint density, variable count, coefficient statistics) from any Model regardless of size
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 25-01: TBD
-- [ ] 25-02: TBD
+- [x] 25-01: Package skeleton + optional dependency wiring
+- [x] 25-02: Feature extraction (per-variable + instance-level)
 
 ### Phase 26: Offline Training Pipeline
 **Goal**: Users can collect training data, train a weight predictor, and use it to predict branching weights for new problem instances
@@ -98,8 +98,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 26-01-PLAN.md — WeightPredictor class (fit/predict/save/load) with ExtraTreesRegressor
-- [ ] 26-02-PLAN.md — Data collection utility and evaluation with baseline comparison
+- [x] 26-01-PLAN.md — WeightPredictor class (fit/predict/save/load) with ExtraTreesRegressor
+- [x] 26-02-PLAN.md — Data collection utility and evaluation with baseline comparison
 
 ### Phase 27: Online Adaptive Solve
 **Goal**: Users can run a multi-round adaptive solve where branching weights improve between rounds based on observed solver performance
@@ -110,11 +110,11 @@ Plans:
   2. Adaptation reward signal combines both objective improvement rate and constraint satisfaction rate
   3. Running the same adaptive solve with the same seed and thread count produces identical results across runs
   4. Concurrent adaptive solves on different models do not share or corrupt weight arrays between workers
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 27-01: TBD
-- [ ] 27-02: TBD
+- [x] 27-01: Adaptive solve loop with EMA weight updates
+- [x] 27-02: Determinism, thread safety, and combined reward signal
 
 ### Phase 28: Transfer Learning & Diagnostics
 **Goal**: Users can validate that learned weights generalize across instance sizes and evaluate weight quality against baselines
