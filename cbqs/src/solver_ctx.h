@@ -29,8 +29,13 @@
  * Note: Using named struct 'solver_ctx' to match forward declaration in Branching.h
  */
 struct solver_ctx {
-    /** Branching statistics (embedded, not pointer) */
-    BranchingStats_t branching_stats;
+    /** Phase-specific branching statistics */
+    BranchingStats_t branching_stats_sat;
+    BranchingStats_t branching_stats_opt_sat;
+    BranchingStats_t branching_stats_opt;
+
+    /** Pointer to currently active phase stats */
+    BranchingStats_t *active_stats;
 
     /** Thread-safe stop signal (atomic for cross-thread safety) */
     atomic_bool stop;
@@ -63,6 +68,10 @@ struct solver_ctx {
     arena_t *arena;
 };
 typedef struct solver_ctx solver_ctx_t;
+
+/* Backwards-compatibility macro: ctx->branching_stats resolves to ctx->branching_stats_opt.
+ * Code that needs explicit access to all three should #undef branching_stats after including. */
+#define branching_stats branching_stats_opt
 
 /* ============================================================
  * Lifecycle Functions
@@ -168,6 +177,30 @@ void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor);
  * @param factor Factor value (default: 0.0)
  */
 void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor);
+
+/* ============================================================
+ * Phase-Specific Setters
+ * ============================================================ */
+
+void solver_ctx_set_sat_bias(solver_ctx_t *ctx, double bias);
+void solver_ctx_set_opt_sat_bias(solver_ctx_t *ctx, double bias);
+void solver_ctx_set_opt_bias(solver_ctx_t *ctx, double bias);
+
+void solver_ctx_set_sat_branching_weights(solver_ctx_t *ctx, const double *weights, int n);
+void solver_ctx_set_opt_sat_branching_weights(solver_ctx_t *ctx, const double *weights, int n);
+void solver_ctx_set_opt_branching_weights(solver_ctx_t *ctx, const double *weights, int n);
+
+void solver_ctx_set_sat_branching_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_sat_branching_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_branching_factor(solver_ctx_t *ctx, double factor);
+
+void solver_ctx_set_sat_bias_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_sat_bias_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_bias_factor(solver_ctx_t *ctx, double factor);
+
+void solver_ctx_set_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
+void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
  * Debug Output

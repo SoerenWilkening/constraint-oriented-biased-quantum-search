@@ -39,10 +39,10 @@ static void test_ctx_set_factors(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 3.0);
-    solver_ctx_set_look_factor(ctx, 4.0);
+    solver_ctx_set_look_ahead_factor(ctx, 4.0);
     assert_true(ctx->branching_stats.branching_factor == 1.0);
     assert_true(ctx->branching_stats.bias_factor == 3.0);
-    assert_true(ctx->branching_stats.look_factor == 4.0);
+    assert_true(ctx->branching_stats.look_ahead_factor == 4.0);
 }
 
 /* test_ctx_set_bias: verify solver_ctx_set_bias writes to ctx */
@@ -76,7 +76,7 @@ static void test_branching_function_equal_bits(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 0.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     double arr[] = {0.5, 0.5};
     solver_ctx_set_branching_weights(ctx, arr, 2);
 
@@ -92,7 +92,7 @@ static void test_branching_function_different_bits(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 0.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     double arr[] = {0.5, 0.5};
     solver_ctx_set_branching_weights(ctx, arr, 2);
 
@@ -109,7 +109,7 @@ static void test_branching_function_bias_only(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     solver_ctx_set_bias(ctx, 2.0);
 
     /* index=0, bit_S=0, bit_T=0, diffcount=0 */
@@ -125,7 +125,7 @@ static void test_branching_function_bias_different_bits(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     solver_ctx_set_bias(ctx, 2.0);
 
     /* index=0, bit_S=1, bit_T=0 (different bits) */
@@ -141,7 +141,7 @@ static void test_branching_function_both_bits_one(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     solver_ctx_set_bias(ctx, 2.0);
 
     /* bit_S=1, bit_T=1 (both 1) */
@@ -173,7 +173,7 @@ static void test_branching_function_3term(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 1.0);
+    solver_ctx_set_look_ahead_factor(ctx, 1.0);
     solver_ctx_set_bias(ctx, 2.0);
     double arr[] = {0.8, 0.2};
     solver_ctx_set_branching_weights(ctx, arr, 2);
@@ -244,7 +244,7 @@ static void test_state_probability(void **state) {
     /* Configure branching with bias only */
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     solver_ctx_set_bias(ctx, 5.0);
 
     int arr1[] = {1, 0, 1};
@@ -272,7 +272,7 @@ static void test_state_probability_identical(void **state) {
     /* Configure branching */
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 1.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
     solver_ctx_set_bias(ctx, 5.0);
 
     int arr[] = {1, 0, 1};
@@ -301,7 +301,7 @@ static void test_branching_function_all_factors_zero(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
     solver_ctx_set_branching_factor(ctx, 0.0);
     solver_ctx_set_bias_factor(ctx, 0.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
 
     /* No weights set, so factor_sum = bias_factor + look_factor = 0 + 0 = 0 */
     double result = BranchingFunction(0, 0, 0, 0, &ctx->branching_stats);
@@ -362,7 +362,7 @@ static void test_branching_weights_single_element(void **state) {
     /* BranchingFunction with only branching term active */
     solver_ctx_set_branching_factor(ctx, 1.0);
     solver_ctx_set_bias_factor(ctx, 0.0);
-    solver_ctx_set_look_factor(ctx, 0.0);
+    solver_ctx_set_look_ahead_factor(ctx, 0.0);
 
     /* index=0, bit_S=0, bit_T=0, diffcount=0 */
     /* factor_sum = 0 + 0 + 1.0 = 1.0, normalizer = 1.0 */

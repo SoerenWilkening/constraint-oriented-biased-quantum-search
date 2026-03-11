@@ -232,3 +232,11 @@ add_cmocka_test(test_dyn_expr
     test_dyn_expr.c
     ${CBQS_SRC_DIR}/dyn_expr.c
 )
+
+# --- M1: Phase-specific BranchingStats in solver_ctx_t ---
+add_cmocka_test(test_solver_ctx_phases
+    test_solver_ctx_phases.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
+)
