@@ -114,10 +114,16 @@ def make_phase_param_defs():
                 coerce = float
                 validate = None
 
+            description = (
+                f"Phase-specific {suffix} for {phase} phase. "
+                f"See '{suffix}' for details."
+            )
+
             defs[key] = {
                 'default': default,
                 'coerce': coerce,
                 'validate': validate,
+                'description': description,
             }
     return defs
 

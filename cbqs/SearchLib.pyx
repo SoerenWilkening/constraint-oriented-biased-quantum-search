@@ -14,6 +14,7 @@ from libc.stdlib cimport srand
 from .Constants import *
 from .Constraint cimport new_constraint
 from .Model import Model
+from .ml.phase_params import PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS
 
 # Class containing all the states information and acts as wrapper for C functionality
 
@@ -182,6 +183,116 @@ def _history_callback_fn():
 		except Exception:
 			logging.warning("History callback: error in user callback", exc_info=True)
 
+cdef _set_phase_bias(solver_ctx_t *ctx, str phase, double bias):
+	"""Set bias for a specific phase on the solver context."""
+	if phase == 'sat':
+		solver_ctx_set_sat_bias(ctx, bias)
+	elif phase == 'opt_sat':
+		solver_ctx_set_opt_sat_bias(ctx, bias)
+	else:
+		solver_ctx_set_opt_bias(ctx, bias)
+
+cdef _set_phase_branching_factor(solver_ctx_t *ctx, str phase, double factor):
+	"""Set branching_factor for a specific phase on the solver context."""
+	if phase == 'sat':
+		solver_ctx_set_sat_branching_factor(ctx, factor)
+	elif phase == 'opt_sat':
+		solver_ctx_set_opt_sat_branching_factor(ctx, factor)
+	else:
+		solver_ctx_set_opt_branching_factor(ctx, factor)
+
+cdef _set_phase_bias_factor(solver_ctx_t *ctx, str phase, double factor):
+	"""Set bias_factor for a specific phase on the solver context."""
+	if phase == 'sat':
+		solver_ctx_set_sat_bias_factor(ctx, factor)
+	elif phase == 'opt_sat':
+		solver_ctx_set_opt_sat_bias_factor(ctx, factor)
+	else:
+		solver_ctx_set_opt_bias_factor(ctx, factor)
+
+cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
+	"""Set branching_weights for a specific phase on the solver context."""
+	cdef double *bw_ptr = NULL
+	arr_bw = np.array(weights, dtype=np.double)
+	bw_ptr = <double *> calloc(n, sizeof(double))
+	for i in range(n):
+		bw_ptr[i] = <double> arr_bw[i]
+	if phase == 'sat':
+		solver_ctx_set_sat_branching_weights(ctx, bw_ptr, n)
+	elif phase == 'opt_sat':
+		solver_ctx_set_opt_sat_branching_weights(ctx, bw_ptr, n)
+	else:
+		solver_ctx_set_opt_branching_weights(ctx, bw_ptr, n)
+	free(bw_ptr)
+
+cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
+	"""Resolve and propagate phase-specific parameters to the solver context.
+
+	Uses PhaseParamResolver to resolve all 15 phase-specific parameters
+	with fallback: phase-specific > unprefixed > built-in default.
+	Sets per-phase bias, weights, and factors via phase-specific C setters.
+	Variable ordering is set once for all phases via solver_ctx_set_variable_order.
+	"""
+	cdef double *prio_ptr = NULL
+
+	params = mod._params if hasattr(mod, '_params') else {}
+	# Use n/4 as default bias if not set (matches close() default)
+	defaults = dict(_PHASE_DEFAULTS)
+	if 'branching_bias' not in params:
+		defaults['branching_bias'] = n / 4.0
+
+	resolver = PhaseParamResolver(params, defaults)
+	resolved = resolver.resolve_all()
+
+	for phase in ('sat', 'opt_sat', 'opt'):
+		p = resolved[phase]
+
+		# Bias
+		bias = p['branching_bias']
+		if bias is not None:
+			_set_phase_bias(ctx, phase, bias)
+
+		# Branching factor
+		bf = p['branching_factor']
+		if bf is not None:
+			_set_phase_branching_factor(ctx, phase, bf)
+
+		# Bias factor
+		bif = p['bias_factor']
+		if bif is not None:
+			_set_phase_bias_factor(ctx, phase, bif)
+
+		# Weights
+		weights = p['branching_weights']
+		if weights is not None:
+			_set_phase_weights(ctx, phase, weights, n)
+
+	# look_ahead_factor is not phase-specific; propagate from unprefixed param
+	param_look_factor = params.get('look_ahead_factor')
+	if param_look_factor is not None:
+		solver_ctx_set_look_ahead_factor(ctx, param_look_factor)
+
+	# Variable ordering: set from priorities if available, else default.
+	# solver_ctx_set_variable_order sets all three phases at once.
+	# Use the first non-None priorities found (phase-specific or unprefixed).
+	priorities = None
+	for phase in ('sat', 'opt_sat', 'opt'):
+		p_prio = resolved[phase]['variable_priorities']
+		if p_prio is not None:
+			priorities = p_prio
+			break
+
+	if priorities is not None:
+		arr_prio = np.array(priorities, dtype=np.double)
+		prio_ptr = <double *> calloc(n, sizeof(double))
+		for i in range(n):
+			prio_ptr[i] = <double> arr_prio[i]
+		solver_ctx_set_variable_order(ctx, prio_ptr, n)
+		free(prio_ptr)
+	else:
+		solver_ctx_set_default_order(ctx, n)
+
+
 cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_history=True,
                    double solve_start_time=0.0):
 	preprocess_start = time_mod.monotonic()
@@ -198,7 +309,6 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		cb_ptr = NULL
 
 	cdef unsigned long long seed_used_val = 0
-	cdef double *bw_ptr = NULL
 
 	n = mod.mod[0].initial_state[0].vector.bits
 
@@ -225,37 +335,8 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 	# Initialize PRNG with configured seed/threads
 	solver_ctx_init_prng(ctx)
 
-	# Propagate branching parameters to solver context
-	# Branching bias (from _params, default n/4)
-	param_bias = mod._params.get('branching_bias') if hasattr(mod, '_params') else None
-	if param_bias is not None:
-		solver_ctx_set_bias(ctx, param_bias)
-	else:
-		solver_ctx_set_bias(ctx, n / 4)
-
-	# Individual branching factors
-	param_branching_factor = mod._params.get('branching_factor') if hasattr(mod, '_params') else None
-	if param_branching_factor is not None:
-		solver_ctx_set_branching_factor(ctx, param_branching_factor)
-
-	param_bias_factor = mod._params.get('bias_factor') if hasattr(mod, '_params') else None
-	if param_bias_factor is not None:
-		solver_ctx_set_bias_factor(ctx, param_bias_factor)
-
-	param_look_factor = mod._params.get('look_ahead_factor') if hasattr(mod, '_params') else None
-	if param_look_factor is not None:
-		solver_ctx_set_look_ahead_factor(ctx, param_look_factor)
-
-	# Branching weights (new unified array)
-	param_weights = mod._params.get('branching_weights') if hasattr(mod, '_params') else None
-	if param_weights is not None:
-		arr_bw = np.array(param_weights, dtype=np.double)
-		bw_ptr = <double *> calloc(arr_bw.shape[0], sizeof(double))
-		for i in range(arr_bw.shape[0]):
-			bw_ptr[i] = <double> arr_bw[i]
-		solver_ctx_set_branching_weights(ctx, bw_ptr, len(param_weights))
-		free(bw_ptr)
-		bw_ptr = NULL
+	# Propagate phase-specific branching parameters to solver context
+	_propagate_phase_params(ctx, mod, n)
 
 	# Share ctx with incumbents for monte carlo sampler calls
 	inc._set_ctx(ctx)

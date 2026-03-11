@@ -26,6 +26,27 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_look_ahead_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
 
+	# Phase-specific setters (M1)
+	void solver_ctx_set_sat_bias(solver_ctx_t* ctx, double bias)
+	void solver_ctx_set_opt_sat_bias(solver_ctx_t* ctx, double bias)
+	void solver_ctx_set_opt_bias(solver_ctx_t* ctx, double bias)
+
+	void solver_ctx_set_sat_branching_weights(solver_ctx_t* ctx, const double* weights, int n)
+	void solver_ctx_set_opt_sat_branching_weights(solver_ctx_t* ctx, const double* weights, int n)
+	void solver_ctx_set_opt_branching_weights(solver_ctx_t* ctx, const double* weights, int n)
+
+	void solver_ctx_set_sat_branching_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_opt_sat_branching_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_opt_branching_factor(solver_ctx_t* ctx, double factor)
+
+	void solver_ctx_set_sat_bias_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_opt_sat_bias_factor(solver_ctx_t* ctx, double factor)
+	void solver_ctx_set_opt_bias_factor(solver_ctx_t* ctx, double factor)
+
+	# Variable ordering (M4/M5)
+	void solver_ctx_set_variable_order(solver_ctx_t* ctx, const double* priorities, int n)
+	void solver_ctx_set_default_order(solver_ctx_t* ctx, int n)
+
 # StateProbability from Branching.h (relocated from branching.pxd)
 cdef extern from "src/Branching.h":
 	double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold)
