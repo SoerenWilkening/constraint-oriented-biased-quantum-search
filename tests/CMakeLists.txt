@@ -267,3 +267,11 @@ add_cmocka_test(test_solver_ctx_phases
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
 )
+
+# --- M2: ctg() stage switching ---
+add_cmocka_test(test_stage_switching
+    test_stage_switching.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
+)

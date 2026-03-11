@@ -4,6 +4,7 @@
 
 #include "SearchLib.h"
 #include "solver_ctx.h"
+#undef branching_stats  /* Use explicit phase-specific field names */
 #include "prng.h"
 #include <pthread.h>
 #include <Python.h>
@@ -124,18 +125,26 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
     int feasible = eval_constraints(mod->con, cur_sol, n);
 
 	int stage = 1;
-	if (mod->solver == SATISFY) search_function = CSearch_sat;
-	if (mod->solver == OPTIMIZE && !feasible) search_function = CSearch_opt_sat; // opt_sat
+	if (mod->solver == SATISFY) {
+	    search_function = CSearch_sat;
+	    ctx->active_stats = &ctx->branching_stats_sat;
+	}
+	if (mod->solver == OPTIMIZE && !feasible) {
+	    search_function = CSearch_opt_sat; // opt_sat
+	    ctx->active_stats = &ctx->branching_stats_opt_sat;
+	}
 	if (mod->solver == OPTIMIZE && feasible) {
 	    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
 	    search_function = CSearch_opt;
+	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
 	if (mod->solver == OPTIMIZE && mod->ignore_constraint_search) {
 	    stage = 3;
 	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
         mod->global_opt->tot_profit = 0;
 	    search_function = CSearch_opt;
+	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
 	int direction = 1;
 	int counter = -1;
@@ -184,6 +193,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
                 cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
                 direction = -1;
                 feasible = 1;
+                ctx->active_stats = &ctx->branching_stats_opt_sat;  // stays opt_sat
             }
             
             // add solution to incumbent list
@@ -216,6 +226,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
 	        prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
             updated = 1;
+            ctx->active_stats = &ctx->branching_stats_opt;
         }
         if (mod->solver == OPTIMIZE && feasible && !updated) counter++;
 	}

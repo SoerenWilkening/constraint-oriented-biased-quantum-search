@@ -1,4 +1,5 @@
 #include "solver.h"
+#undef branching_stats  /* Use active_stats pointer for phase-aware branching */
 #include "prng.h"
 
 // implementations of classical sampling search and benchmarking =======================================================
@@ -319,7 +320,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->branching_stats.variable_order;
+		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -343,7 +344,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -441,7 +442,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->branching_stats.variable_order;
+		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -464,7 +465,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if ((count[0] > 0 && count[1] > 0) || (count[0] == 0 && count[1] == 0)) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -582,7 +583,7 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->branching_stats.variable_order;
+		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -606,7 +607,7 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -700,7 +701,7 @@ double CSearch_opt_monte_carlo_sampler(
         sw_set_ui_0(new_sol->branch);
 
         int i;
-        int *var_order = ctx->branching_stats.variable_order;
+        int *var_order = ctx->active_stats->variable_order;
         int k;
         for (k = 0; k < n; k++) {
             i = var_order ? var_order[k] : k;
@@ -721,7 +722,7 @@ double CSearch_opt_monte_carlo_sampler(
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
-                if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+                if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }
@@ -811,7 +812,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
 
-		int *var_order = ctx->branching_stats.variable_order;
+		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -834,7 +835,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if ((count[0] > 0 && count[1] > 0) || (count[0] == 0 && count[1] == 0)) {
                 sw_setbit(new_sol->branch, i);
-				if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
 				} else { sw_clrbit(new_sol->vector, i); }
@@ -930,7 +931,7 @@ double CSearch_sat_monte_carlo_sampler(
         new_sol->tot_profit = cur_sol->tot_profit;
         
         int i;
-        int *var_order = ctx->branching_stats.variable_order;
+        int *var_order = ctx->active_stats->variable_order;
         int k;
         for (k = 0; k < n; k++) {
             i = var_order ? var_order[k] : k;
@@ -951,7 +952,7 @@ double CSearch_sat_monte_carlo_sampler(
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
-                if (random_num > BranchingFunction(i, bit, 0, 0, &ctx->branching_stats)) {
+                if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
                     sw_setbit(new_sol->vector, i);
                     new_bit = 1;
                 } else { sw_clrbit(new_sol->vector, i); }

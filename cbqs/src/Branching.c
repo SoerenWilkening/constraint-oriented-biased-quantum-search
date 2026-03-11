@@ -2,6 +2,7 @@
 
 #include "Branching.h"
 #include "solver_ctx.h"
+#undef branching_stats  /* Use active_stats pointer for phase-aware branching */
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t */
 
@@ -14,7 +15,7 @@ double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold){
                 j,
                 sw_tstbit(state->vector, j),
                 sw_tstbit(threshold->vector, j),
-                0, &ctx->branching_stats
+                0, ctx->active_stats
             );
         }
     }
