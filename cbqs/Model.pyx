@@ -124,8 +124,9 @@ _PARAM_DEFS = {
 	                             'description': 'Local search stopping criterion. STOPATBEST (0): explore full neighborhood, pick best move. STOPATFIRST (1): accept first improving move found. Range: 0 or 1. Default: 1. Set before local_search.'},
 
 	# --- Existing params (from Phase 12/14) ---
-	'branching_bias':           {'default': None,  'coerce': float,        'validate': None,
-	                             'description': 'Assignment bias value for the branching formula; controls preference toward 0 or 1 assignments. None means auto-set to n/4 at close(). Range: any float or None. Default: None (auto). Set before solve.'},
+	'branching_bias':           {'default': None,  'coerce': float,        'validate': lambda v: v > -1,
+	                             'validate_msg': 'branching_bias must be greater than -1',
+	                             'description': 'Assignment bias value for the branching formula; controls preference toward 0 or 1 assignments. None means auto-set to n/4 at close(). Range: > -1 or None. Default: None (auto). Set before solve.'},
 	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special',
 	                             'description': 'Per-variable weight array for the branching formula; encodes learned or prior knowledge about variable importance. Must be a 1D non-negative numpy array of length n. None disables per-variable weighting. Default: None. Set before solve.'},
 	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
