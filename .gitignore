@@ -51,3 +51,7 @@ plot.py
 .rsync-exclude
 makefile
 cmake-build-debug
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

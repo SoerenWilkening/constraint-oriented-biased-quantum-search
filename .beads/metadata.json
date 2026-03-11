@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "constraint_oriented_biased_quantum_search",
+  "project_id": "a805df60-c206-47c3-a848-db198ee49ba5"
+}
