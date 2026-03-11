@@ -4,6 +4,9 @@ Provides the adaptive_solve() function which runs multiple solve rounds,
 improving branching weights between rounds using Exponential Moving Average
 (EMA) updates based on a combined reward signal of objective improvement
 and constraint satisfaction.
+
+Supports phase-specific parameters: SAT, OPT_SAT, and OPT phases each
+have their own weight arrays, and EMA updates are applied per-phase.
 """
 from dataclasses import dataclass
 from typing import Dict, List
@@ -11,6 +14,7 @@ from typing import Dict, List
 import numpy as np
 
 from cbqs.ml.training import WeightPredictor, _rank_result
+from cbqs.ml.phase_params import PHASES
 
 
 @dataclass
@@ -31,6 +35,8 @@ class AdaptiveResult:
         - 'feasible' (bool): whether solution was feasible
         - 'reward' (float): combined reward signal value
         - 'weights' (numpy.ndarray): weights used for this round
+        - 'phase' (str): active phase ('sat' or 'opt')
+        - 'phase_weights' (dict): per-phase weight arrays
     n_rounds_completed : int
         Total number of rounds executed.
     """
@@ -78,6 +84,76 @@ def _resolve_initial_weights(initial_weights, model, n_vars):
     return weights
 
 
+def _determine_phase(model):
+    """Determine the active solver phase from the model's mode.
+
+    Returns 'sat' for SATISFY mode, 'opt' for OPTIMIZE mode.
+    """
+    if len(model.obj_expr) > 0:
+        return 'opt'
+    return 'sat'
+
+
+def _resolve_phase_weights(initial_phase_params, n_vars):
+    """Extract per-phase weight arrays from initial_phase_params dict.
+
+    Parameters
+    ----------
+    initial_phase_params : dict or None
+        Dict with phase-prefixed keys like 'sat_branching_weights',
+        'opt_sat_branching_weights', 'opt_branching_weights'.
+    n_vars : int
+        Expected number of variables.
+
+    Returns
+    -------
+    dict
+        Mapping phase name -> numpy.ndarray of weights.
+    """
+    phase_weights = {}
+    for phase in PHASES:
+        key = f'{phase}_branching_weights'
+        if initial_phase_params and key in initial_phase_params:
+            w = np.array(initial_phase_params[key], dtype=np.float64).copy()
+            if len(w) != n_vars:
+                raise ValueError(
+                    f"{key} length {len(w)} != n_vars {n_vars}"
+                )
+            phase_weights[phase] = w
+        else:
+            phase_weights[phase] = np.ones(n_vars)
+    return phase_weights
+
+
+def _active_phases(phase):
+    """Return the list of phases to update based on the active solver phase.
+
+    For 'sat', only 'sat' weights are updated.
+    For 'opt', both 'opt_sat' and 'opt' weights are updated.
+    """
+    if phase == 'sat':
+        return ['sat']
+    return ['opt_sat', 'opt']
+
+
+def _set_phase_params_on_model(model, phase_weights, phase, initial_phase_params):
+    """Set the phase-appropriate branching weights and scalar params on model."""
+    active = _active_phases(phase)
+    for p in active:
+        model.set_param(f'{p}_branching_weights', phase_weights[p].copy())
+
+    # Set scalar phase params if provided
+    if initial_phase_params:
+        scalar_suffixes = (
+            'branching_bias', 'branching_factor', 'bias_factor',
+        )
+        for p in active:
+            for suffix in scalar_suffixes:
+                key = f'{p}_{suffix}'
+                if key in initial_phase_params:
+                    model.set_param(key, initial_phase_params[key])
+
+
 def _compute_reward(current_result, prev_result, current_weights):
     """Compute combined reward signal for EMA weight update.
 
@@ -105,14 +181,14 @@ def _compute_reward(current_result, prev_result, current_weights):
     feasibility = 1.0 if current_result.feasible else 0.0
 
     # Objective improvement component: normalized to [0, 1]
-    if prev_result is not None and prev_result.objective != 0:
-        obj_delta = (
-            (current_result.objective - prev_result.objective)
-            / abs(prev_result.objective)
-        )
+    cur_obj = current_result.objective
+    prev_obj = prev_result.objective if prev_result is not None else None
+    if (prev_obj is not None and cur_obj is not None
+            and prev_obj != 0):
+        obj_delta = (cur_obj - prev_obj) / abs(prev_obj)
         obj_improvement = max(0.0, min(1.0, obj_delta))
     else:
-        # Neutral for first round or when prev objective is 0
+        # Neutral for first round, None objectives, or when prev objective is 0
         obj_improvement = 0.5
 
     # Combined reward: equal weighting of feasibility and improvement
@@ -124,14 +200,47 @@ def _compute_reward(current_result, prev_result, current_weights):
     return reward, reward_adjusted
 
 
+def _ema_update_phase_weights(phase_weights, reward, ema_alpha, active_phases):
+    """Apply EMA update to the weight arrays for active phases.
+
+    Parameters
+    ----------
+    phase_weights : dict
+        Mapping phase -> numpy.ndarray of current weights.
+    reward : float
+        Reward signal in [0, 1].
+    ema_alpha : float
+        EMA smoothing factor.
+    active_phases : list of str
+        Phases to update.
+
+    Returns
+    -------
+    dict
+        Updated phase_weights (new dict, original not modified).
+    """
+    updated = {}
+    for phase in PHASES:
+        if phase in active_phases:
+            w = phase_weights[phase]
+            reward_adjusted = reward * w
+            new_w = ema_alpha * reward_adjusted + (1 - ema_alpha) * w
+            updated[phase] = np.clip(new_w, 0, None)
+        else:
+            updated[phase] = phase_weights[phase].copy()
+    return updated
+
+
 def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                    ema_alpha=0.3, seed=None, initial_weights=None,
-                   verbose=True):
+                   initial_phase_params=None, verbose=True):
     """Run a multi-round adaptive solve with EMA weight updates.
 
     Executes ``n_rounds`` solve rounds, updating branching weights between
     rounds using Exponential Moving Average. The reward signal combines
     objective improvement rate and constraint satisfaction rate.
+
+    Supports phase-specific parameters via ``initial_phase_params``.
 
     Parameters
     ----------
@@ -151,9 +260,15 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
         Random seed for reproducibility. Controls per-round seed derivation.
         Default is None.
     initial_weights : numpy.ndarray, WeightPredictor, or None
-        Starting weights. If None, uses uniform weights (np.ones).
-        If WeightPredictor, calls predict(model) automatically.
-        If ndarray, must have length == n_vars. Always copied.
+        Starting weights (unprefixed, backwards-compatible). If None, uses
+        uniform weights (np.ones). If WeightPredictor, calls predict(model)
+        automatically. If ndarray, must have length == n_vars. Always copied.
+        Default is None.
+    initial_phase_params : dict or None
+        Phase-specific initial parameters from SATTrainer.predict() or
+        OPTTrainer.predict(). Keys like 'sat_branching_weights',
+        'opt_sat_branching_weights', 'opt_branching_weights', etc.
+        Overrides initial_weights for the respective phases.
         Default is None.
     verbose : bool
         If True, prints per-round summary. Default is True.
@@ -168,26 +283,34 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
     ------
     ValueError
         If initial_weights has wrong length.
-
-    Examples
-    --------
-    >>> from cbqs.Model import Model
-    >>> from cbqs.ml.adaptation import adaptive_solve
-    >>> m = Model()
-    >>> xs = m.add_variables(5)
-    >>> m.set_objective(sum(xs[i] for i in xs))
-    >>> m.add_constraint(sum(xs[i] for i in xs) <= 3)
-    >>> m.close()
-    >>> result = adaptive_solve(m, n_rounds=3, stopping_time=2, seed=42)
-    >>> print(result.best_result.objective)
     """
     n_vars = len(model.variables)
 
-    # Resolve initial weights (always returns a fresh copy)
+    # Determine active phase from model mode
+    phase = _determine_phase(model)
+    active = _active_phases(phase)
+
+    # Resolve initial weights (backwards-compatible path)
     current_weights = _resolve_initial_weights(initial_weights, model, n_vars)
 
+    # Resolve per-phase weights
+    phase_weights = _resolve_phase_weights(initial_phase_params, n_vars)
+
+    # If no phase params given, use the unprefixed initial_weights for all
+    # active phases
+    if initial_phase_params is None:
+        for p in active:
+            phase_weights[p] = current_weights.copy()
+
     # Save original state for restoration
-    original_weights = model.get_param('branching_weights')
+    original_params = {}
+    original_params['branching_weights'] = model.get_param('branching_weights')
+    for p in PHASES:
+        key = f'{p}_branching_weights'
+        try:
+            original_params[key] = model.get_param(key)
+        except Exception:
+            original_params[key] = None
 
     # Deterministic RNG for per-round seed derivation
     rng = np.random.RandomState(seed)
@@ -204,9 +327,17 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
             model.seed = round_seed  # Property, NOT set_param
 
             # Set solver parameters for this round
+            # Backwards compat: always set unprefixed weights too
+            # Use the first active phase's weights as the unprefixed ones
+            current_weights = phase_weights[active[0]].copy()
             model.set_param('branching_weights', current_weights.copy())
             model.set_param('stopping_time', stopping_time)
             model.set_param('num_workers', num_workers)
+
+            # Set phase-specific weights on model
+            _set_phase_params_on_model(
+                model, phase_weights, phase, initial_phase_params
+            )
 
             result = model.solve()
 
@@ -228,6 +359,10 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                 'feasible': result.feasible,
                 'reward': reward,
                 'weights': current_weights.copy(),
+                'phase': phase,
+                'phase_weights': {
+                    p: phase_weights[p].copy() for p in PHASES
+                },
             })
 
             # Verbose per-round summary
@@ -236,16 +371,15 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                     f"Round {round_idx + 1}/{n_rounds}: "
                     f"obj={result.objective}, "
                     f"feasible={result.feasible}, "
-                    f"reward={reward:.4f}"
+                    f"reward={reward:.4f}, "
+                    f"phase={phase}"
                 )
 
-            # EMA weight update (skip after last round)
+            # EMA weight update per-phase (skip after last round)
             if round_idx < n_rounds - 1:
-                new_weights = (
-                    ema_alpha * reward_adjusted
-                    + (1 - ema_alpha) * current_weights
+                phase_weights = _ema_update_phase_weights(
+                    phase_weights, reward, ema_alpha, active
                 )
-                current_weights = np.clip(new_weights, 0, None)
 
             prev_result = result
 
@@ -258,4 +392,10 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
 
     finally:
         # Restore model's original branching_weights (no side effects)
-        model.set_param('branching_weights', original_weights)
+        model.set_param('branching_weights', original_params['branching_weights'])
+        for p in PHASES:
+            key = f'{p}_branching_weights'
+            try:
+                model.set_param(key, original_params[key])
+            except Exception:
+                pass
