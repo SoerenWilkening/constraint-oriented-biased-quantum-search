@@ -28,6 +28,10 @@ from .state_sampler import approximate_state
 from .SearchLib cimport initial_state_preparation
 from .state cimport print_state
 from .state cimport sw_tstbit
+from .ml.phase_params import (
+	make_phase_param_defs, PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS,
+	PHASES as _PHASES, PHASE_PARAM_SUFFIXES as _PHASE_SUFFIXES,
+)
 
 
 def _merge_duplicate_variable_terms(Expression expr):
@@ -142,6 +146,23 @@ _PARAM_DEFS = {
 	                             'validate_msg': 'timeout must be positive',
 	                             'description': 'Hard timeout in seconds; overrides stopping_time if set. None means use stopping_time instead. Range: > 0 or None. Default: None. Set before solve.'},
 }
+
+# Merge phase-specific parameter definitions (15 params: 3 phases x 5 suffixes)
+_phase_defs = make_phase_param_defs()
+# Add validation rules to scalar phase params
+_PHASE_VALIDATORS = {
+	'branching_bias': (lambda v: v > -1, 'branching_bias must be greater than -1'),
+	'branching_factor': (lambda v: v >= 0, 'branching_factor must be non-negative'),
+	'bias_factor': (lambda v: v >= 0, 'bias_factor must be non-negative'),
+}
+for _phase in _PHASES:
+	for _suffix in _PHASE_SUFFIXES:
+		_key = f"{_phase}_{_suffix}"
+		if _suffix in _PHASE_VALIDATORS:
+			_check, _msg = _PHASE_VALIDATORS[_suffix]
+			_phase_defs[_key]['validate'] = _check
+			_phase_defs[_key]['validate_msg'] = _msg
+_PARAM_DEFS.update(_phase_defs)
 
 _KNOWN_PARAMS = set(_PARAM_DEFS.keys())
 
@@ -272,8 +293,8 @@ cdef class Model:
 
 		pdef = _PARAM_DEFS[name]
 
-		# Special case: branching_weights has numpy-specific validation
-		if name == 'branching_weights':
+		# Special case: branching_weights (unprefixed and phase-specific)
+		if name == 'branching_weights' or name.endswith('_branching_weights'):
 			arr = np.asarray(value, dtype=np.float64)
 			if arr.ndim != 1:
 				raise ValueError("branching_weights must be a 1D array")
@@ -286,6 +307,18 @@ cdef class Model:
 			if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
 				raise ValueError(
 					"branching_weights must not contain NaN or Inf"
+				)
+			self._params[name] = value
+			return
+
+		# Special case: variable_priorities (phase-specific)
+		if name.endswith('_variable_priorities'):
+			arr = np.asarray(value, dtype=np.float64)
+			if arr.ndim != 1:
+				raise ValueError("variable_priorities must be a 1D array")
+			if self.n > 0 and len(arr) != self.n:
+				raise ValueError(
+					f"Expected array of length {self.n}, got {len(arr)}"
 				)
 			self._params[name] = value
 			return
@@ -340,6 +373,21 @@ cdef class Model:
 		if val is not None:
 			return val
 		return _PARAM_DEFS[name]['default']
+
+	def _resolve_phase_params(self):
+		"""Resolve phase-specific parameters with fallback to unprefixed defaults.
+
+		Uses PhaseParamResolver to resolve all 15 phase-specific parameters
+		(3 phases x 5 suffixes) with the resolution order:
+		    phase-specific > unprefixed > built-in default
+
+		Returns
+		-------
+		dict
+			``{phase: {suffix: value}}`` for all phases and suffixes.
+		"""
+		resolver = PhaseParamResolver(self._params, _PHASE_DEFAULTS)
+		return resolver.resolve_all()
 
 	def __copy__(self):
 		"""Create a shallow copy of this model.
