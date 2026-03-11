@@ -232,3 +232,30 @@ add_cmocka_test(test_dyn_expr
     test_dyn_expr.c
     ${CBQS_SRC_DIR}/dyn_expr.c
 )
+
+# --- M4: Variable ordering unit tests ---
+add_cmocka_test(test_variable_ordering
+    test_variable_ordering.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
+# --- M5: CSearch ordering iteration tests ---
+add_cmocka_test(test_csearch_ordering
+    test_csearch_ordering.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)

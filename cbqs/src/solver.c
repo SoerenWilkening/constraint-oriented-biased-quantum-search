@@ -319,7 +319,10 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		for (i = 0; i < n; i++) {
+		int *var_order = ctx->branching_stats.variable_order;
+		int k;
+		for (k = 0; k < n; k++) {
+			i = var_order ? var_order[k] : k;
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = prng_next_double();
 
@@ -367,11 +370,14 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			else update_potentials(con, potentials, PLAIN, ret_total1);
 		}
 		// if the previous loop broke earlier, determine all bit changes
-		for (int mn = i; mn < n; mn++) if (sw_tstbit(cur_sol->vector, i)) ChangedBits[NumChanges++] = mn;
-		int as1 = (i == n);
-		if (as1) for (uint32_t k = 0; k < con->num_constraints; ++k) {
-		    if (con->sense[k] == EQUAL) as1 &= potentials[k] == 0;
-		    else as1 &= potentials[k] >= 0;
+		for (int mn = k; mn < n; mn++) {
+			int vi = var_order ? var_order[mn] : mn;
+			if (sw_tstbit(cur_sol->vector, vi)) ChangedBits[NumChanges++] = vi;
+		}
+		int as1 = (k == n);
+		if (as1) for (uint32_t ci = 0; ci < con->num_constraints; ++ci) {
+		    if (con->sense[ci] == EQUAL) as1 &= potentials[ci] == 0;
+		    else as1 &= potentials[ci] >= 0;
 		}
 
 		int64_t val = cur_sol->tot_profit;
@@ -435,8 +441,10 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-
-		for (i = 0; i < n; i++) {
+		int *var_order = ctx->branching_stats.variable_order;
+		int k;
+		for (k = 0; k < n; k++) {
+			i = var_order ? var_order[k] : k;
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = prng_next_double();
 
@@ -574,7 +582,10 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		for (i = 0; i < n; i++) {
+		int *var_order = ctx->branching_stats.variable_order;
+		int k;
+		for (k = 0; k < n; k++) {
+			i = var_order ? var_order[k] : k;
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = prng_next_double();
 
@@ -689,13 +700,16 @@ double CSearch_opt_monte_carlo_sampler(
         sw_set_ui_0(new_sol->branch);
 
         int i;
-        for (i = 0; i < n; i++) {
+        int *var_order = ctx->branching_stats.variable_order;
+        int k;
+        for (k = 0; k < n; k++) {
+            i = var_order ? var_order[k] : k;
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
             double random_num = prng_next_double();
-            
+
             // Initialize new bit to be 0
             int new_bit = 0;
-            
+
             // check, if assignment does not exceed potentials
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
@@ -703,7 +717,7 @@ double CSearch_opt_monte_carlo_sampler(
             look_ahead_correct(i, 0, min(i + 0, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
             look_ahead_correct(i, 1, min(i + 0, n - 1), &count[1], con, potentials, new_sol, ret_total2);
-            
+
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {
@@ -727,12 +741,12 @@ double CSearch_opt_monte_carlo_sampler(
                 sw_setbit(new_sol->vector, i);
                 new_bit = 1;
             }
-            
+
             if (new_bit) update_potentials(con, potentials, PLAIN, ret_total2);
             else update_potentials(con, potentials, PLAIN, ret_total1);
         }
         // if the previous loop broke earlier, determine all bit changes
-        int as1 = (i == n);
+        int as1 = (k == n);
         if (as1)
             for (uint32_t k = 0; k < con->num_constraints; ++k) {
                 if (con->sense[k] == EQUAL) as1 &= potentials[k] == 0;
@@ -797,7 +811,10 @@ double CSearch_opt_sat_monte_carlo_sampler(
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
 
-		for (i = 0; i < n; i++) {
+		int *var_order = ctx->branching_stats.variable_order;
+		int k;
+		for (k = 0; k < n; k++) {
+			i = var_order ? var_order[k] : k;
 			int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
 			double random_num = prng_next_double();
 
@@ -913,12 +930,15 @@ double CSearch_sat_monte_carlo_sampler(
         new_sol->tot_profit = cur_sol->tot_profit;
         
         int i;
-        for (i = 0; i < n; i++) {
+        int *var_order = ctx->branching_stats.variable_order;
+        int k;
+        for (k = 0; k < n; k++) {
+            i = var_order ? var_order[k] : k;
             int bit = sw_tstbit(cur_sol->vector, i); // which bit has the current solution?
             double random_num = prng_next_double();
-            
+
             int new_bit = 0;
-            
+
             // check, if assignment does not exceed potentials
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
@@ -926,7 +946,7 @@ double CSearch_sat_monte_carlo_sampler(
             look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
             look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
-            
+
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
             if (count[0] > 0 && count[1] > 0) {

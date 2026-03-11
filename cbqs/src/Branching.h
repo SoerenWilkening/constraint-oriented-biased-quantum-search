@@ -41,6 +41,9 @@ typedef struct {
     double bias_factor;         /* Factor for assignment_bias term (default 1.0) */
     double bias;                /* Assignment bias value (default 5.0) */
     double look_ahead_factor;   /* Factor for look-ahead term (default 0.0) */
+
+    int *variable_order;        /* Iteration order for variables (NULL = identity) */
+    int num_vars;               /* Length of variable_order (0 when NULL) */
 } BranchingStats_t;
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */

@@ -170,6 +170,41 @@ void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
+ * Variable Ordering API
+ * ============================================================ */
+
+/**
+ * @brief Set variable iteration order from priority values
+ *
+ * Sorts variables by priority (descending) to produce an iteration order.
+ * Higher priority values are visited first. Ties are broken by index (stable).
+ *
+ * @param ctx Solver context
+ * @param priorities Priority values per variable (higher = visited first)
+ * @param n Number of variables
+ */
+void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, int n);
+
+/**
+ * @brief Set identity (default) variable ordering [0, 1, ..., n-1]
+ *
+ * @param ctx Solver context
+ * @param n Number of variables
+ */
+void solver_ctx_set_default_order(solver_ctx_t *ctx, int n);
+
+/**
+ * @brief Set variable ordering by constraint degree (most-constrained first)
+ *
+ * Sorts variables by degree (descending). Higher degree = visited first.
+ *
+ * @param ctx Solver context
+ * @param degrees Per-variable constraint degree counts
+ * @param n Number of variables
+ */
+void solver_ctx_set_degree_order(solver_ctx_t *ctx, const int *degrees, int n);
+
+/* ============================================================
  * Debug Output
  * ============================================================ */
 

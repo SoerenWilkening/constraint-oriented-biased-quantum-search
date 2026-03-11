@@ -35,6 +35,8 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->branching_stats.bias_factor = 1;
     ctx->branching_stats.bias = 5;
     ctx->branching_stats.look_ahead_factor = 0.0;
+    ctx->branching_stats.variable_order = NULL;
+    ctx->branching_stats.num_vars = 0;
 
     /* Initialize atomic stop flag */
     atomic_init(&ctx->stop, false);
@@ -74,6 +76,12 @@ void solver_ctx_free(solver_ctx_t *ctx) {
     if (ctx->branching_stats.branching_weights != NULL) {
         free(ctx->branching_stats.branching_weights);
         ctx->branching_stats.branching_weights = NULL;
+    }
+
+    /* Free variable_order array if allocated */
+    if (ctx->branching_stats.variable_order != NULL) {
+        free(ctx->branching_stats.variable_order);
+        ctx->branching_stats.variable_order = NULL;
     }
 
     /* Free arena if allocated */
@@ -192,6 +200,101 @@ void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor) {
         return;
     }
     ctx->branching_stats.look_ahead_factor = factor;
+}
+
+/* ============================================================
+ * Variable Ordering
+ * ============================================================ */
+
+/* Helper struct for argsort */
+typedef struct {
+    double value;
+    int index;
+} indexed_value_t;
+
+/* Compare for descending sort (higher values first), stable by index */
+static int cmp_indexed_desc(const void *a, const void *b) {
+    const indexed_value_t *ia = (const indexed_value_t *)a;
+    const indexed_value_t *ib = (const indexed_value_t *)b;
+    if (ia->value > ib->value) return -1;
+    if (ia->value < ib->value) return 1;
+    /* Tie-break by index (ascending) for stability */
+    return (ia->index > ib->index) - (ia->index < ib->index);
+}
+
+static void free_variable_order(BranchingStats_t *stats) {
+    if (stats->variable_order != NULL) {
+        free(stats->variable_order);
+        stats->variable_order = NULL;
+        stats->num_vars = 0;
+    }
+}
+
+void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, int n) {
+    if (ctx == NULL) return;
+
+    free_variable_order(&ctx->branching_stats);
+
+    if (priorities == NULL || n <= 0) return;
+
+    /* Argsort priorities descending */
+    indexed_value_t *indexed = malloc((size_t)n * sizeof(indexed_value_t));
+    if (indexed == NULL) return;
+
+    for (int i = 0; i < n; i++) {
+        indexed[i].value = priorities[i];
+        indexed[i].index = i;
+    }
+
+    qsort(indexed, (size_t)n, sizeof(indexed_value_t), cmp_indexed_desc);
+
+    ctx->branching_stats.variable_order = malloc((size_t)n * sizeof(int));
+    if (ctx->branching_stats.variable_order == NULL) {
+        free(indexed);
+        return;
+    }
+
+    for (int i = 0; i < n; i++) {
+        ctx->branching_stats.variable_order[i] = indexed[i].index;
+    }
+    ctx->branching_stats.num_vars = n;
+
+    free(indexed);
+}
+
+void solver_ctx_set_default_order(solver_ctx_t *ctx, int n) {
+    if (ctx == NULL) return;
+
+    free_variable_order(&ctx->branching_stats);
+
+    if (n <= 0) return;
+
+    ctx->branching_stats.variable_order = malloc((size_t)n * sizeof(int));
+    if (ctx->branching_stats.variable_order == NULL) return;
+
+    for (int i = 0; i < n; i++) {
+        ctx->branching_stats.variable_order[i] = i;
+    }
+    ctx->branching_stats.num_vars = n;
+}
+
+void solver_ctx_set_degree_order(solver_ctx_t *ctx, const int *degrees, int n) {
+    if (ctx == NULL) return;
+
+    free_variable_order(&ctx->branching_stats);
+
+    if (degrees == NULL || n <= 0) return;
+
+    /* Convert int degrees to double priorities and reuse set_variable_order */
+    double *priorities = malloc((size_t)n * sizeof(double));
+    if (priorities == NULL) return;
+
+    for (int i = 0; i < n; i++) {
+        priorities[i] = (double)degrees[i];
+    }
+
+    solver_ctx_set_variable_order(ctx, priorities, n);
+    free(priorities);
 }
 
 /* ============================================================
