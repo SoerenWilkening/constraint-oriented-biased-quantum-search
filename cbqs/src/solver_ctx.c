@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 
 #include "solver_ctx.h"
+#undef branching_stats  /* Use explicit field names in this file */
 #include "prng.h"
 #include "arena.h"
 #include <stdlib.h>
@@ -17,6 +18,60 @@
 #include <stdio.h>
 #include <math.h>
 #include <unistd.h>  /* for sysconf */
+
+/* ============================================================
+ * Internal Helpers
+ * ============================================================ */
+
+static void branching_stats_init_defaults(BranchingStats_t *stats) {
+    stats->branching_weights = NULL;
+    stats->num_weights = 0;
+    stats->branching_factor = 1.0;
+    stats->bias_factor = 1.0;
+    stats->bias = 5.0;
+    stats->look_ahead_factor = 0.0;
+    stats->variable_order = NULL;
+    stats->num_vars = 0;
+}
+
+static void branching_stats_free_weights(BranchingStats_t *stats) {
+    if (stats->branching_weights != NULL) {
+        free(stats->branching_weights);
+        stats->branching_weights = NULL;
+        stats->num_weights = 0;
+    }
+    if (stats->variable_order != NULL) {
+        free(stats->variable_order);
+        stats->variable_order = NULL;
+        stats->num_vars = 0;
+    }
+}
+
+static void branching_stats_set_weights(BranchingStats_t *stats, const double *weights, int n) {
+    branching_stats_free_weights(stats);
+
+    if (weights == NULL || n <= 0) {
+        return;
+    }
+
+    stats->branching_weights = calloc((size_t)n, sizeof(double));
+    if (stats->branching_weights == NULL) {
+        return;
+    }
+    memcpy(stats->branching_weights, weights, (size_t)n * sizeof(double));
+    stats->num_weights = n;
+
+    /* L1 normalize */
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        sum += fabs(stats->branching_weights[i]);
+    }
+    if (sum > 0.0) {
+        for (int i = 0; i < n; i++) {
+            stats->branching_weights[i] /= sum;
+        }
+    }
+}
 
 /* ============================================================
  * Lifecycle Functions
@@ -28,15 +83,11 @@ solver_ctx_t *solver_ctx_create(void) {
         return NULL;
     }
 
-    /* Initialize branching_stats with default values */
-    ctx->branching_stats.branching_weights = NULL;
-    ctx->branching_stats.num_weights = 0;
-    ctx->branching_stats.branching_factor = 1.0;
-    ctx->branching_stats.bias_factor = 1;
-    ctx->branching_stats.bias = 5;
-    ctx->branching_stats.look_ahead_factor = 0.0;
-    ctx->branching_stats.variable_order = NULL;
-    ctx->branching_stats.num_vars = 0;
+    /* Initialize all three phase-specific branching stats with defaults */
+    branching_stats_init_defaults(&ctx->branching_stats_sat);
+    branching_stats_init_defaults(&ctx->branching_stats_opt_sat);
+    branching_stats_init_defaults(&ctx->branching_stats_opt);
+    ctx->active_stats = &ctx->branching_stats_opt_sat;
 
     /* Initialize atomic stop flag */
     atomic_init(&ctx->stop, false);
@@ -72,17 +123,10 @@ void solver_ctx_free(solver_ctx_t *ctx) {
         return;
     }
 
-    /* Free branching_weights array if allocated */
-    if (ctx->branching_stats.branching_weights != NULL) {
-        free(ctx->branching_stats.branching_weights);
-        ctx->branching_stats.branching_weights = NULL;
-    }
-
-    /* Free variable_order array if allocated */
-    if (ctx->branching_stats.variable_order != NULL) {
-        free(ctx->branching_stats.variable_order);
-        ctx->branching_stats.variable_order = NULL;
-    }
+    /* Free branching_weights and variable_order arrays for all three phases */
+    branching_stats_free_weights(&ctx->branching_stats_sat);
+    branching_stats_free_weights(&ctx->branching_stats_opt_sat);
+    branching_stats_free_weights(&ctx->branching_stats_opt);
 
     /* Free arena if allocated */
     if (ctx->arena != NULL) {
@@ -137,69 +181,120 @@ int solver_ctx_should_stop(solver_ctx_t *ctx) {
  * Context-aware Setters
  * ============================================================ */
 
+/* Backwards-compatible setters: set ALL three phase stats */
+
 void solver_ctx_set_bias(solver_ctx_t *ctx, double bias) {
-    if (ctx == NULL) {
-        return;
-    }
-    ctx->branching_stats.bias = bias;
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.bias = bias;
+    ctx->branching_stats_opt_sat.bias = bias;
+    ctx->branching_stats_opt.bias = bias;
 }
 
 void solver_ctx_set_branching_weights(solver_ctx_t *ctx, const double *weights, int n) {
-    if (ctx == NULL) {
-        return;
-    }
-
-    /* Free existing weights if present */
-    if (ctx->branching_stats.branching_weights != NULL) {
-        free(ctx->branching_stats.branching_weights);
-        ctx->branching_stats.branching_weights = NULL;
-        ctx->branching_stats.num_weights = 0;
-    }
-
-    /* NULL/empty means clear weights */
-    if (weights == NULL || n <= 0) {
-        return;
-    }
-
-    /* Allocate and copy */
-    ctx->branching_stats.branching_weights = calloc((size_t)n, sizeof(double));
-    if (ctx->branching_stats.branching_weights == NULL) {
-        return;
-    }
-    memcpy(ctx->branching_stats.branching_weights, weights, (size_t)n * sizeof(double));
-    ctx->branching_stats.num_weights = n;
-
-    /* L1 normalize: sum all values (all non-negative, validated upstream) */
-    double sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        sum += fabs(ctx->branching_stats.branching_weights[i]);
-    }
-    if (sum > 0.0) {
-        for (int i = 0; i < n; i++) {
-            ctx->branching_stats.branching_weights[i] /= sum;
-        }
-    }
+    if (ctx == NULL) { return; }
+    branching_stats_set_weights(&ctx->branching_stats_sat, weights, n);
+    branching_stats_set_weights(&ctx->branching_stats_opt_sat, weights, n);
+    branching_stats_set_weights(&ctx->branching_stats_opt, weights, n);
 }
 
 void solver_ctx_set_branching_factor(solver_ctx_t *ctx, double factor) {
-    if (ctx == NULL) {
-        return;
-    }
-    ctx->branching_stats.branching_factor = factor;
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.branching_factor = factor;
+    ctx->branching_stats_opt_sat.branching_factor = factor;
+    ctx->branching_stats_opt.branching_factor = factor;
 }
 
 void solver_ctx_set_bias_factor(solver_ctx_t *ctx, double factor) {
-    if (ctx == NULL) {
-        return;
-    }
-    ctx->branching_stats.bias_factor = factor;
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.bias_factor = factor;
+    ctx->branching_stats_opt_sat.bias_factor = factor;
+    ctx->branching_stats_opt.bias_factor = factor;
 }
 
 void solver_ctx_set_look_ahead_factor(solver_ctx_t *ctx, double factor) {
-    if (ctx == NULL) {
-        return;
-    }
-    ctx->branching_stats.look_ahead_factor = factor;
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.look_ahead_factor = factor;
+    ctx->branching_stats_opt_sat.look_ahead_factor = factor;
+    ctx->branching_stats_opt.look_ahead_factor = factor;
+}
+
+/* ============================================================
+ * Phase-Specific Setters
+ * ============================================================ */
+
+void solver_ctx_set_sat_bias(solver_ctx_t *ctx, double bias) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.bias = bias;
+}
+
+void solver_ctx_set_opt_sat_bias(solver_ctx_t *ctx, double bias) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.bias = bias;
+}
+
+void solver_ctx_set_opt_bias(solver_ctx_t *ctx, double bias) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.bias = bias;
+}
+
+void solver_ctx_set_sat_branching_weights(solver_ctx_t *ctx, const double *weights, int n) {
+    if (ctx == NULL) { return; }
+    branching_stats_set_weights(&ctx->branching_stats_sat, weights, n);
+}
+
+void solver_ctx_set_opt_sat_branching_weights(solver_ctx_t *ctx, const double *weights, int n) {
+    if (ctx == NULL) { return; }
+    branching_stats_set_weights(&ctx->branching_stats_opt_sat, weights, n);
+}
+
+void solver_ctx_set_opt_branching_weights(solver_ctx_t *ctx, const double *weights, int n) {
+    if (ctx == NULL) { return; }
+    branching_stats_set_weights(&ctx->branching_stats_opt, weights, n);
+}
+
+void solver_ctx_set_sat_branching_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.branching_factor = factor;
+}
+
+void solver_ctx_set_opt_sat_branching_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.branching_factor = factor;
+}
+
+void solver_ctx_set_opt_branching_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.branching_factor = factor;
+}
+
+void solver_ctx_set_sat_bias_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.bias_factor = factor;
+}
+
+void solver_ctx_set_opt_sat_bias_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.bias_factor = factor;
+}
+
+void solver_ctx_set_opt_bias_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.bias_factor = factor;
+}
+
+void solver_ctx_set_sat_look_ahead_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.look_ahead_factor = factor;
+}
+
+void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.look_ahead_factor = factor;
+}
+
+void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.look_ahead_factor = factor;
 }
 
 /* ============================================================
@@ -230,16 +325,32 @@ static void free_variable_order(BranchingStats_t *stats) {
     }
 }
 
+/* Set variable_order on a single BranchingStats_t from a sorted index array */
+static void set_variable_order_on_stats(BranchingStats_t *stats, const int *order, int n) {
+    free_variable_order(stats);
+    if (order == NULL || n <= 0) { return; }
+    stats->variable_order = malloc((size_t)n * sizeof(int));
+    if (stats->variable_order == NULL) { return; }
+    for (int i = 0; i < n; i++) {
+        stats->variable_order[i] = order[i];
+    }
+    stats->num_vars = n;
+}
+
 void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, int n) {
-    if (ctx == NULL) return;
+    if (ctx == NULL) { return; }
 
-    free_variable_order(&ctx->branching_stats);
-
-    if (priorities == NULL || n <= 0) return;
+    if (priorities == NULL || n <= 0) {
+        /* Clear all three phases */
+        free_variable_order(&ctx->branching_stats_sat);
+        free_variable_order(&ctx->branching_stats_opt_sat);
+        free_variable_order(&ctx->branching_stats_opt);
+        return;
+    }
 
     /* Argsort priorities descending */
     indexed_value_t *indexed = malloc((size_t)n * sizeof(indexed_value_t));
-    if (indexed == NULL) return;
+    if (indexed == NULL) { return; }
 
     for (int i = 0; i < n; i++) {
         indexed[i].value = priorities[i];
@@ -248,46 +359,61 @@ void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, 
 
     qsort(indexed, (size_t)n, sizeof(indexed_value_t), cmp_indexed_desc);
 
-    ctx->branching_stats.variable_order = malloc((size_t)n * sizeof(int));
-    if (ctx->branching_stats.variable_order == NULL) {
+    int *order = malloc((size_t)n * sizeof(int));
+    if (order == NULL) {
         free(indexed);
         return;
     }
-
     for (int i = 0; i < n; i++) {
-        ctx->branching_stats.variable_order[i] = indexed[i].index;
+        order[i] = indexed[i].index;
     }
-    ctx->branching_stats.num_vars = n;
-
     free(indexed);
+
+    /* Set all three phases (backwards compat) */
+    set_variable_order_on_stats(&ctx->branching_stats_sat, order, n);
+    set_variable_order_on_stats(&ctx->branching_stats_opt_sat, order, n);
+    set_variable_order_on_stats(&ctx->branching_stats_opt, order, n);
+
+    free(order);
 }
 
 void solver_ctx_set_default_order(solver_ctx_t *ctx, int n) {
-    if (ctx == NULL) return;
+    if (ctx == NULL) { return; }
 
-    free_variable_order(&ctx->branching_stats);
-
-    if (n <= 0) return;
-
-    ctx->branching_stats.variable_order = malloc((size_t)n * sizeof(int));
-    if (ctx->branching_stats.variable_order == NULL) return;
-
-    for (int i = 0; i < n; i++) {
-        ctx->branching_stats.variable_order[i] = i;
+    if (n <= 0) {
+        free_variable_order(&ctx->branching_stats_sat);
+        free_variable_order(&ctx->branching_stats_opt_sat);
+        free_variable_order(&ctx->branching_stats_opt);
+        return;
     }
-    ctx->branching_stats.num_vars = n;
+
+    int *order = malloc((size_t)n * sizeof(int));
+    if (order == NULL) { return; }
+    for (int i = 0; i < n; i++) {
+        order[i] = i;
+    }
+
+    /* Set all three phases (backwards compat) */
+    set_variable_order_on_stats(&ctx->branching_stats_sat, order, n);
+    set_variable_order_on_stats(&ctx->branching_stats_opt_sat, order, n);
+    set_variable_order_on_stats(&ctx->branching_stats_opt, order, n);
+
+    free(order);
 }
 
 void solver_ctx_set_degree_order(solver_ctx_t *ctx, const int *degrees, int n) {
-    if (ctx == NULL) return;
+    if (ctx == NULL) { return; }
 
-    free_variable_order(&ctx->branching_stats);
-
-    if (degrees == NULL || n <= 0) return;
+    if (degrees == NULL || n <= 0) {
+        free_variable_order(&ctx->branching_stats_sat);
+        free_variable_order(&ctx->branching_stats_opt_sat);
+        free_variable_order(&ctx->branching_stats_opt);
+        return;
+    }
 
     /* Convert int degrees to double priorities and reuse set_variable_order */
     double *priorities = malloc((size_t)n * sizeof(double));
-    if (priorities == NULL) return;
+    if (priorities == NULL) { return; }
 
     for (int i = 0; i < n; i++) {
         priorities[i] = (double)degrees[i];
@@ -325,11 +451,11 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
             "\"timeout_ms\":%llu,"
             "\"stopped\":%s}\n",
             elapsed_sec,
-            ctx->branching_stats.bias,
-            ctx->branching_stats.bias_factor,
-            ctx->branching_stats.branching_factor,
-            ctx->branching_stats.look_ahead_factor,
-            (ctx->branching_stats.branching_weights != NULL) ? "true" : "false",
+            ctx->active_stats->bias,
+            ctx->active_stats->bias_factor,
+            ctx->active_stats->branching_factor,
+            ctx->active_stats->look_ahead_factor,
+            (ctx->active_stats->branching_weights != NULL) ? "true" : "false",
             (unsigned long long)ctx->timeout_ms,
             atomic_load(&ctx->stop) ? "true" : "false");
 }
