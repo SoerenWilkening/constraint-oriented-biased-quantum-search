@@ -157,6 +157,76 @@ def _evaluate_strategy(model, params, signal_fn, time_budget=None):
     }
 
 
+def _evaluate_strategy_repeated(model, params, signal_fn, time_budget=None,
+                                min_repeats=10, max_repeats=100,
+                                threshold=0.05, epsilon=1e-8):
+    """Evaluate a parameter config with repeated single-thread solves.
+
+    Runs at least min_repeats solves. Continues until
+    std_of_mean / (best - worst) < threshold, or max_repeats reached.
+    If best - worst < epsilon, uses min_repeats.
+
+    Args:
+        model: The CBQS model to solve.
+        params: Parameter dict to set on the model before solving.
+        signal_fn: Scoring function that takes an OptimizeResult and
+            returns a float.
+        time_budget: Optional time budget in seconds.
+        min_repeats: Minimum number of repeated solves.
+        max_repeats: Maximum number of repeated solves (hard cap).
+        threshold: Convergence threshold for std_of_mean / range.
+        epsilon: Minimum range to consider the instance discriminating.
+
+    Returns:
+        dict with keys: params, mean_signal, std_signal, n_repeats,
+                        raw_signals, raw_results.
+    """
+    raw_signals = []
+    raw_results = []
+
+    # Save original num_workers and force single-thread evaluation
+    orig_workers = getattr(model, '_params', {}).get('num_workers', None)
+    model.set_param('num_workers', 1)
+
+    for i in range(max_repeats):
+        entry = _evaluate_strategy(model, params, signal_fn, time_budget)
+        raw_signals.append(entry['signal'])
+        raw_results.append(entry['result'])
+
+        n = i + 1
+        if n < min_repeats:
+            continue
+
+        # Check adaptive stopping
+        signals_arr = np.array(raw_signals)
+        best = signals_arr.max()
+        worst = signals_arr.min()
+        spread = best - worst
+
+        # Non-discriminating instance: stop at min_repeats
+        if spread < epsilon:
+            break
+
+        std = signals_arr.std(ddof=1) if n > 1 else 0.0
+        std_of_mean = std / np.sqrt(n)
+
+        if std_of_mean / spread < threshold:
+            break
+
+    # Restore original num_workers
+    if orig_workers is not None:
+        model.set_param('num_workers', orig_workers)
+
+    return {
+        'params': params,
+        'mean_signal': float(np.mean(raw_signals)),
+        'std_signal': float(np.std(raw_signals, ddof=1)) if len(raw_signals) > 1 else 0.0,
+        'n_repeats': len(raw_signals),
+        'raw_signals': raw_signals,
+        'raw_results': raw_results,
+    }
+
+
 # ------------------------------------------------------------------
 # SATDataCollector
 # ------------------------------------------------------------------
@@ -172,20 +242,32 @@ class SATDataCollector:
         time_budget: Optional per-solve time budget in seconds.
         signal_fn: Scoring function: takes OptimizeResult, returns float.
         random_state: Random seed for reproducibility.
+        single_thread: If True, use repeated single-thread evaluation.
+        min_repeats: Minimum repeated solves per config (single_thread mode).
+        max_repeats: Maximum repeated solves per config (single_thread mode).
+        threshold: Convergence threshold for adaptive stopping.
     """
 
     def __init__(self, n_strategies=10, time_budget=None,
-                 signal_fn=None, random_state=None):
+                 signal_fn=None, random_state=None,
+                 single_thread=True, min_repeats=10,
+                 max_repeats=100, threshold=0.05):
         self.n_strategies = n_strategies
         self.time_budget = time_budget
         self.signal_fn = signal_fn or (lambda r: r.objective)
         self._rng = np.random.default_rng(random_state)
+        self.single_thread = single_thread
+        self.min_repeats = min_repeats
+        self.max_repeats = max_repeats
+        self.threshold = threshold
 
     def collect(self, model):
         """Collect SAT training data for a model.
 
         Samples n_strategies random SAT parameter vectors, evaluates
-        each, and returns the best by signal.
+        each, and returns the best by signal. When single_thread is
+        True, uses repeated single-thread evaluation with adaptive
+        stopping.
 
         Args:
             model: A closed CBQS model.
@@ -201,9 +283,18 @@ class SATDataCollector:
 
         for _ in range(self.n_strategies):
             params = random_sat_params(n_vars, self._rng)
-            entry = _evaluate_strategy(
-                model, params, self.signal_fn, self.time_budget,
-            )
+            if self.single_thread:
+                entry = _evaluate_strategy_repeated(
+                    model, params, self.signal_fn, self.time_budget,
+                    min_repeats=self.min_repeats,
+                    max_repeats=self.max_repeats,
+                    threshold=self.threshold,
+                )
+                entry['signal'] = entry['mean_signal']
+            else:
+                entry = _evaluate_strategy(
+                    model, params, self.signal_fn, self.time_budget,
+                )
             all_results.append(entry)
 
         # Select best by signal
@@ -247,12 +338,17 @@ class OPTDataCollector:
         screening_signal_fn: Scoring function for screening. If None,
             uses signal_fn.
         random_state: Random seed for reproducibility.
+        single_thread: If True, use repeated single-thread evaluation.
+        min_repeats: Minimum repeated solves per config (single_thread mode).
+        max_repeats: Maximum repeated solves per config (single_thread mode).
+        threshold: Convergence threshold for adaptive stopping.
     """
 
     def __init__(self, n_opt_sat=10, top_k=3, n_opt_per_candidate=5,
                  screening_budget=None, full_budget=None,
                  signal_fn=None, screening_signal_fn=None,
-                 random_state=None):
+                 random_state=None, single_thread=True,
+                 min_repeats=10, max_repeats=100, threshold=0.05):
         self.n_opt_sat = n_opt_sat
         self.top_k = top_k
         self.n_opt_per_candidate = n_opt_per_candidate
@@ -261,6 +357,10 @@ class OPTDataCollector:
         self.signal_fn = signal_fn or (lambda r: r.objective)
         self.screening_signal_fn = screening_signal_fn or self.signal_fn
         self._rng = np.random.default_rng(random_state)
+        self.single_thread = single_thread
+        self.min_repeats = min_repeats
+        self.max_repeats = max_repeats
+        self.threshold = threshold
 
     def collect(self, model):
         """Collect OPT training data using Option C.
@@ -337,9 +437,18 @@ class OPTDataCollector:
 
         for _ in range(n_total):
             opt_params = random_opt_only_params(n_vars, self._rng)
-            entry = _evaluate_strategy(
-                model, opt_params, self.signal_fn, self.full_budget,
-            )
+            if self.single_thread:
+                entry = _evaluate_strategy_repeated(
+                    model, opt_params, self.signal_fn, self.full_budget,
+                    min_repeats=self.min_repeats,
+                    max_repeats=self.max_repeats,
+                    threshold=self.threshold,
+                )
+                entry['signal'] = entry['mean_signal']
+            else:
+                entry = _evaluate_strategy(
+                    model, opt_params, self.signal_fn, self.full_budget,
+                )
             entry['opt_sat_params'] = None
             entry['opt_params'] = opt_params
             all_results.append(entry)
@@ -423,9 +532,18 @@ class OPTDataCollector:
                 combined.update(opt_sat_params)
                 combined.update(opt_params)
 
-                entry = _evaluate_strategy(
-                    model, combined, self.signal_fn, self.full_budget,
-                )
+                if self.single_thread:
+                    entry = _evaluate_strategy_repeated(
+                        model, combined, self.signal_fn, self.full_budget,
+                        min_repeats=self.min_repeats,
+                        max_repeats=self.max_repeats,
+                        threshold=self.threshold,
+                    )
+                    entry['signal'] = entry['mean_signal']
+                else:
+                    entry = _evaluate_strategy(
+                        model, combined, self.signal_fn, self.full_budget,
+                    )
                 entry['opt_sat_params'] = opt_sat_params
                 entry['opt_params'] = opt_params
                 pair_results.append(entry)

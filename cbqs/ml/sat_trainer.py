@@ -118,6 +118,7 @@ class SATTrainer:
             time_budget=time_budget,
             signal_fn=signal_fn,
             random_state=random_state,
+            single_thread=False,
         )
         self.extractor = FeatureExtractor()
         self.log = TrainingLog(path=log_path)
@@ -383,6 +384,7 @@ class SATTrainer:
             time_budget=trainer._time_budget,
             signal_fn=signal_fn,
             random_state=trainer._random_state,
+            single_thread=False,
         )
 
         return trainer

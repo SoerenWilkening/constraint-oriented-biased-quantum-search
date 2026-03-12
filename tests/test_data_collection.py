@@ -179,7 +179,7 @@ class TestSATDataCollector:
         ]
         model = FakeModel(n_vars=5, results=results)
         collector = SATDataCollector(n_strategies=3, signal_fn=lambda r: r.objective,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert data['best_signal'] == 10.0
 
@@ -187,7 +187,7 @@ class TestSATDataCollector:
         """collect() tries exactly n_strategies random configurations."""
         model = FakeModel(n_vars=5)
         collector = SATDataCollector(n_strategies=7, signal_fn=lambda r: r.objective,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert len(data['all_results']) == 7
         assert model._solve_count == 7
@@ -197,7 +197,7 @@ class TestSATDataCollector:
         model = FakeModel(n_vars=5)
         collector = SATDataCollector(n_strategies=3, time_budget=10.0,
                                      signal_fn=lambda r: r.objective,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert 'best_params' in data
         assert 'best_signal' in data
@@ -208,7 +208,7 @@ class TestSATDataCollector:
                               history=[(7.0, 0.01)], solve_time=100.0)
         model = FakeModel(n_vars=5, results=[result])
         collector = SATDataCollector(n_strategies=1, signal_fn=lambda r: r.objective,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert data['best_signal'] == 7.0
         assert len(data['all_results']) == 1
@@ -217,7 +217,7 @@ class TestSATDataCollector:
         """All strategy results are recorded in all_results."""
         model = FakeModel(n_vars=3)
         collector = SATDataCollector(n_strategies=5, signal_fn=lambda r: r.objective,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert len(data['all_results']) == 5
         for entry in data['all_results']:
@@ -240,7 +240,7 @@ class TestOPTDataCollector:
         collector = OPTDataCollector(
             n_opt_sat=3, top_k=2, n_opt_per_candidate=2,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         assert collector._is_trivially_feasible(model) is True
 
@@ -264,7 +264,7 @@ class TestOPTDataCollector:
             n_opt_sat=5, top_k=2, n_opt_per_candidate=1,
             signal_fn=lambda r: r.objective,
             screening_signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         candidates = collector._screen_opt_sat(model)
         assert len(candidates) == 2
@@ -276,7 +276,7 @@ class TestOPTDataCollector:
         collector = OPTDataCollector(
             n_opt_sat=10, top_k=2, n_opt_per_candidate=3,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         # Screening: 10 solves, full pairs: 2 * 3 = 6 solves
@@ -288,7 +288,7 @@ class TestOPTDataCollector:
         collector = OPTDataCollector(
             n_opt_sat=5, top_k=2, n_opt_per_candidate=3,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         assert 'best_opt_sat_params' in data
@@ -301,7 +301,7 @@ class TestOPTDataCollector:
         collector = OPTDataCollector(
             n_opt_sat=5, top_k=2, n_opt_per_candidate=3,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         assert data['trivially_feasible'] is True
@@ -314,7 +314,7 @@ class TestOPTDataCollector:
             n_opt_sat=3, top_k=2, n_opt_per_candidate=2,
             screening_budget=5.0, full_budget=10.0,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         assert 'best_signal' in data
@@ -334,7 +334,7 @@ class TestSignalIntegration:
         signal_fn = make_signal('auc')
         model = FakeModel(n_vars=5)
         collector = SATDataCollector(n_strategies=3, signal_fn=signal_fn,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert data['best_signal'] is not None
 
@@ -344,7 +344,7 @@ class TestSignalIntegration:
         signal_fn = make_signal('weighted', lam=1.0)
         model = FakeModel(n_vars=5)
         collector = SATDataCollector(n_strategies=3, signal_fn=signal_fn,
-                                     random_state=42)
+                                     random_state=42, single_thread=False)
         data = collector.collect(model)
         assert data['best_signal'] is not None
 
@@ -369,7 +369,7 @@ class TestEdgeCases:
         collector = SATDataCollector(
             n_strategies=2,
             signal_fn=lambda r: r.objective if r.feasible else -1e6,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         assert data['best_signal'] is not None
@@ -383,7 +383,7 @@ class TestEdgeCases:
         collector = OPTDataCollector(
             n_opt_sat=1, top_k=1, n_opt_per_candidate=1,
             signal_fn=lambda r: r.objective,
-            random_state=42,
+            random_state=42, single_thread=False,
         )
         data = collector.collect(model)
         assert data['best_signal'] is not None
