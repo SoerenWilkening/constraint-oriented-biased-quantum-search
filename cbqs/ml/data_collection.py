@@ -1,7 +1,7 @@
 """
 Random parameter sampling and data collection for CBQS ML training.
 
-Provides functions for generating random solver parameters and two
+Provides functions for generating random solver parameters and three
 data collector classes:
 
 - SATDataCollector: Samples random SAT-phase parameters, evaluates
@@ -11,10 +11,14 @@ data collector classes:
   via quick feasibility evaluation, pair top candidates with random opt
   parameters, and select the best (opt_sat, opt) pair by training signal.
 
+- ParallelCollector: Wraps SATDataCollector or OPTDataCollector for
+  parallel instance evaluation using ProcessPoolExecutor.
+
 Both collectors support configurable time budgets and training signals.
 """
 
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 
 
 # ------------------------------------------------------------------
@@ -549,3 +553,76 @@ class OPTDataCollector:
                 pair_results.append(entry)
 
         return pair_results
+
+
+# ------------------------------------------------------------------
+# Helper for parallel evaluation (must be top-level for pickling)
+# ------------------------------------------------------------------
+
+def _collect_one(collector, model):
+    """Run collector.collect(model) and return the result.
+
+    Top-level function so it can be pickled by ProcessPoolExecutor.
+
+    Args:
+        collector: A SATDataCollector or OPTDataCollector instance.
+        model: A closed CBQS model.
+
+    Returns:
+        dict: The collect() result, or a dict with 'error' key on failure.
+    """
+    try:
+        return collector.collect(model)
+    except Exception as exc:
+        return {'error': str(exc)}
+
+
+# ------------------------------------------------------------------
+# ParallelCollector
+# ------------------------------------------------------------------
+
+class ParallelCollector:
+    """Wraps SATDataCollector or OPTDataCollector for parallel instance evaluation.
+
+    Evaluates multiple instances in parallel using ProcessPoolExecutor.
+
+    Args:
+        collector: A SATDataCollector or OPTDataCollector instance.
+        max_workers: Maximum parallel processes (default: 6).
+    """
+
+    def __init__(self, collector, max_workers=6):
+        self.collector = collector
+        self.max_workers = max_workers
+
+    def collect_batch(self, models):
+        """Collect training data for multiple models in parallel.
+
+        Submits each model to the process pool for independent evaluation.
+        Results are returned in the same order as the input models.
+        If a model's evaluation raises an exception, the corresponding
+        entry will be a dict with an 'error' key.
+
+        Args:
+            models: Iterable of closed CBQS models to evaluate.
+
+        Returns:
+            list of dict: One collect() result per model, in order.
+        """
+        models = list(models)
+        if not models:
+            return []
+
+        results = [None] * len(models)
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(_collect_one, self.collector, m): i
+                for i, m in enumerate(models)
+            }
+            for future in futures:
+                idx = futures[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as exc:
+                    results[idx] = {'error': str(exc)}
+        return results
