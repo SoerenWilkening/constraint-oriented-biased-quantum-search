@@ -34,6 +34,58 @@ from .signals import (
 from .training_log import TrainingLog
 
 
+def soft_topk_target(configs, scores, k):
+    """Compute weighted-average target from top-k configs by score.
+
+    Selects the top-k parameter configurations ranked by score, then
+    returns a weighted average of their parameters, with weights
+    proportional to the scores.
+
+    Args:
+        configs: list of parameter dicts. Values may be scalars or lists.
+        scores: list of float scores (higher = better), one per config.
+        k: number of top configs to use. If k > len(configs), all are used.
+
+    Returns:
+        dict: weighted average of top-k parameter configs,
+              weights proportional to scores.
+    """
+    n = len(configs)
+    if n == 0:
+        return {}
+
+    k = min(k, n)
+
+    # Find top-k indices by score
+    indexed = sorted(range(n), key=lambda i: scores[i], reverse=True)
+    topk_idx = indexed[:k]
+
+    # Compute weights proportional to scores
+    topk_scores = [scores[i] for i in topk_idx]
+    total = sum(topk_scores)
+    if total == 0:
+        weights = [1.0 / k] * k
+    else:
+        weights = [s / total for s in topk_scores]
+
+    # Weighted average of parameters
+    result = {}
+    keys = configs[topk_idx[0]].keys()
+    for key in keys:
+        vals = [configs[topk_idx[j]][key] for j in range(k)]
+        if isinstance(vals[0], (list, np.ndarray)):
+            arr = np.array(vals, dtype=np.float64)
+            wavg = np.zeros(arr.shape[1], dtype=np.float64)
+            for j in range(k):
+                wavg += weights[j] * arr[j]
+            result[key] = wavg.tolist()
+        else:
+            wavg = sum(weights[j] * float(vals[j]) for j in range(k))
+            result[key] = wavg
+
+    return result
+
+
 def _constraint_count_signal(result):
     """Default SAT signal: use objective value as proxy for constraint count."""
     return result.objective
@@ -104,12 +156,14 @@ class SATTrainer:
         Path for the training log file.
     random_state : int or None
         Random seed for reproducibility.
+    target_k : int
+        Number of top configs for soft target selection (default 3).
     """
 
     def __init__(self, n_estimators=100, n_strategies=10,
                  time_budget=None, signal='constraint_count',
                  signal_kwargs=None, refit_every=5,
-                 log_path=None, random_state=None):
+                 log_path=None, random_state=None, target_k=3):
         self._signal_name = signal
         self._signal_kwargs = signal_kwargs or {}
         signal_fn = _make_signal_fn(signal, **self._signal_kwargs)
@@ -133,6 +187,7 @@ class SATTrainer:
         self._current_a = 0.5  # current annealing parameter
         self._n_estimators = n_estimators
         self._random_state = random_state
+        self._target_k = target_k
         self._n_strategies = n_strategies
         self._time_budget = time_budget
 
@@ -352,6 +407,7 @@ class SATTrainer:
             'n_estimators': self._n_estimators,
             'time_budget': self._time_budget,
             'random_state': self._random_state,
+            'target_k': self._target_k,
         }
         with open(str(dir_path / 'config.json'), 'w') as f:
             json.dump(config, f, indent=2)
@@ -394,6 +450,7 @@ class SATTrainer:
         trainer._n_estimators = config.get('n_estimators', 100)
         trainer._time_budget = config.get('time_budget', None)
         trainer._random_state = config.get('random_state', None)
+        trainer._target_k = config.get('target_k', 3)
         trainer._collected = []
 
         signal_fn = _make_signal_fn(
@@ -454,9 +511,10 @@ class SATTrainer:
                 norm_auc, best_norm_obj, self._current_a)
             composite_scores.append(score)
 
-        best_idx = max(range(len(composite_scores)),
-                       key=lambda i: composite_scores[i])
-        return all_results[best_idx]['params'], composite_scores[best_idx]
+        configs = [entry['params'] for entry in all_results]
+        best_score = max(composite_scores)
+        blended = soft_topk_target(configs, composite_scores, self._target_k)
+        return blended, best_score
 
     def _refit(self, validation_models=None):
         """Refit the predictor on all accumulated data."""

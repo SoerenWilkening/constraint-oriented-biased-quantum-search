@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from .data_collection import OPTDataCollector
+from .sat_trainer import soft_topk_target
 from .features import FeatureExtractor
 from .regressors import PhasePredictor, VariableRegressor, InstanceRegressor
 from .signals import (
@@ -160,13 +161,16 @@ class OPTTrainer:
         Path for the training log file.
     random_state : int or None
         Random seed for reproducibility.
+    target_k : int
+        Number of top configs for soft target selection (default 3).
     """
 
     def __init__(self, n_estimators=100, n_opt_sat_strategies=10,
                  top_k=3, n_opt_per_candidate=5,
                  screening_budget=None, full_budget=None,
                  signal='auc', signal_kwargs=None,
-                 refit_every=5, log_path=None, random_state=None):
+                 refit_every=5, log_path=None, random_state=None,
+                 target_k=3):
         self._signal_name = signal
         self._signal_kwargs = signal_kwargs or {}
         signal_fn = make_signal(signal, **self._signal_kwargs)
@@ -191,6 +195,7 @@ class OPTTrainer:
         self._collected = []  # list of (var_X, var_y, inst_X, inst_y, triv_feas)
         self._instance_obj_variances = []  # per-instance variance of objectives
         self._current_a = 0.5  # current annealing parameter
+        self._target_k = target_k
         self._n_estimators = n_estimators
         self._random_state = random_state
         self._n_opt_sat_strategies = n_opt_sat_strategies
@@ -455,6 +460,7 @@ class OPTTrainer:
             'full_budget': self._full_budget,
             'n_estimators': self._n_estimators,
             'random_state': self._random_state,
+            'target_k': self._target_k,
         }
         with open(str(dir_path / 'config.json'), 'w') as f:
             json.dump(config, f, indent=2)
@@ -500,6 +506,7 @@ class OPTTrainer:
         trainer._full_budget = config.get('full_budget', None)
         trainer._n_estimators = config.get('n_estimators', 100)
         trainer._random_state = config.get('random_state', None)
+        trainer._target_k = config.get('target_k', 3)
         trainer._collected = []
 
         signal_fn = make_signal(
@@ -563,12 +570,31 @@ class OPTTrainer:
                 norm_auc, best_norm_obj, self._current_a)
             composite_scores.append(score)
 
-        best_idx = max(range(len(composite_scores)),
-                       key=lambda i: composite_scores[i])
-        best = all_results[best_idx]
-        return (best.get('opt_sat_params'),
-                best.get('opt_params'),
-                composite_scores[best_idx])
+        best_score = max(composite_scores)
+
+        # Blend opt_sat params via soft top-k
+        opt_sat_configs = [entry.get('opt_sat_params') or {}
+                           for entry in all_results]
+        has_opt_sat = any(c for c in opt_sat_configs)
+        if has_opt_sat:
+            blended_opt_sat = soft_topk_target(
+                opt_sat_configs, composite_scores, self._target_k)
+        else:
+            blended_opt_sat = None
+
+        # Blend opt params via soft top-k
+        opt_configs = [entry.get('opt_params') or {}
+                       for entry in all_results]
+        has_opt = any(c for c in opt_configs)
+        if has_opt:
+            blended_opt = soft_topk_target(
+                opt_configs, composite_scores, self._target_k)
+        else:
+            blended_opt = None
+
+        return (blended_opt_sat or None,
+                blended_opt or None,
+                best_score)
 
     def _refit(self, validation_models=None):
         """Refit the predictor on all accumulated data."""

@@ -305,8 +305,8 @@ class TestTrainerUsesCompositeSignal:
                    wraps=compute_composite_signal) as mock_cs:
             best_params, best_score = trainer._select_best_composite(results)
             assert mock_cs.call_count == len(results)
-            # Best should be obj=50 (highest composite score)
-            assert best_params['sat_branching_bias'] == 50.0
+            # Soft top-k: result is weighted avg, biased toward best (obj=50)
+            assert best_params['sat_branching_bias'] > 30.0
             assert best_score > 0.0
 
     def test_opt_trainer_uses_composite_signal(self):
@@ -335,7 +335,8 @@ class TestTrainerUsesCompositeSignal:
                    wraps=compute_composite_signal) as mock_cs:
             opt_sat_p, opt_p, score = trainer._select_best_composite(results)
             assert mock_cs.call_count == len(results)
-            assert opt_p['opt_branching_bias'] == 50.0
+            # Soft top-k: result is weighted avg, biased toward best (obj=50)
+            assert opt_p['opt_branching_bias'] > 30.0
             assert score > 0.0
 
 
