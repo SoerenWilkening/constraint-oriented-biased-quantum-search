@@ -26,7 +26,12 @@ import numpy as np
 from .data_collection import OPTDataCollector
 from .features import FeatureExtractor
 from .regressors import PhasePredictor, VariableRegressor, InstanceRegressor
-from .signals import make_signal
+from .signals import (
+    make_signal,
+    compute_normalized_auc,
+    compute_composite_signal,
+    compute_annealing_a,
+)
 from .training_log import TrainingLog
 
 
@@ -184,6 +189,8 @@ class OPTTrainer:
         self.log = TrainingLog(path=log_path)
         self.refit_every = refit_every
         self._collected = []  # list of (var_X, var_y, inst_X, inst_y, triv_feas)
+        self._instance_obj_variances = []  # per-instance variance of objectives
+        self._current_a = 0.5  # current annealing parameter
         self._n_estimators = n_estimators
         self._random_state = random_state
         self._n_opt_sat_strategies = n_opt_sat_strategies
@@ -230,14 +237,27 @@ class OPTTrainer:
                     },
                 )
 
+            # Track per-instance objective variance for annealing
+            objectives = [entry['result'].objective
+                          for entry in data['all_results']]
+            if len(objectives) > 1:
+                obj_var = float(np.var(objectives))
+            else:
+                obj_var = 0.0
+            self._instance_obj_variances.append(obj_var)
+
+            # Re-score strategies using composite signal
+            best_opt_sat_params, best_opt_params, best_signal = \
+                self._select_best_composite(data['all_results'])
+
             # Step 3: Log model summary
             self.log.log_model(
                 model_idx=model_idx,
                 n_strategies_tried=len(data['all_results']),
-                best_signal=data['best_signal'] or 0.0,
+                best_signal=best_signal,
                 best_parameters={
-                    'opt_sat': data.get('best_opt_sat_params', {}),
-                    'opt': data.get('best_opt_params', {}),
+                    'opt_sat': best_opt_sat_params or {},
+                    'opt': best_opt_params or {},
                 },
                 trivially_feasible=trivially_feasible,
             )
@@ -247,14 +267,14 @@ class OPTTrainer:
             var_features = self.extractor.extract_variable_features(model)
             inst_features = self.extractor.extract_instance_features(model)
             var_targets = _build_var_targets(
-                data['best_opt_sat_params'],
-                data['best_opt_params'],
+                best_opt_sat_params,
+                best_opt_params,
                 n_vars,
                 trivially_feasible,
             )
             inst_targets = _build_inst_targets(
-                data['best_opt_sat_params'],
-                data['best_opt_params'],
+                best_opt_sat_params,
+                best_opt_params,
                 trivially_feasible,
             )
 
@@ -502,8 +522,61 @@ class OPTTrainer:
     # Internal
     # ------------------------------------------------------------------
 
+    def _select_best_composite(self, all_results):
+        """Re-score all strategy results using composite signal.
+
+        Computes normalized AUC and composite signal for each result,
+        and returns the best opt_sat params, opt params, and score.
+
+        Parameters
+        ----------
+        all_results : list of dict
+            Each dict has 'result', and optionally 'opt_sat_params'
+            and 'opt_params' keys.
+
+        Returns
+        -------
+        tuple of (dict or None, dict or None, float)
+            Best opt_sat params, best opt params, and composite score.
+        """
+        if not all_results:
+            return None, None, 0.0
+
+        objectives = [entry['result'].objective for entry in all_results]
+        best_obj = max(objectives)
+        worst_obj = min(objectives)
+
+        composite_scores = []
+        for entry in all_results:
+            result = entry['result']
+            total_time = result.solve_time / 1000.0  # ms to seconds
+
+            norm_auc = compute_normalized_auc(
+                result.history, total_time, best_obj, worst_obj)
+
+            if best_obj != worst_obj:
+                best_norm_obj = (result.objective - worst_obj) / (best_obj - worst_obj)
+            else:
+                best_norm_obj = 0.0
+
+            score = compute_composite_signal(
+                norm_auc, best_norm_obj, self._current_a)
+            composite_scores.append(score)
+
+        best_idx = max(range(len(composite_scores)),
+                       key=lambda i: composite_scores[i])
+        best = all_results[best_idx]
+        return (best.get('opt_sat_params'),
+                best.get('opt_params'),
+                composite_scores[best_idx])
+
     def _refit(self, validation_models=None):
         """Refit the predictor on all accumulated data."""
+        # Compute annealing a from instance objective variances
+        if self._instance_obj_variances:
+            self._current_a = compute_annealing_a(
+                self._instance_obj_variances)
+
         var_X_list = [c[0] for c in self._collected]
         var_y_list = [c[1] for c in self._collected]
         inst_X = np.vstack([c[2].reshape(1, -1) for c in self._collected])
@@ -519,4 +592,5 @@ class OPTTrainer:
             n_training_models=len(self._collected),
             validation_score=val_score,
             timestamp=datetime.now().isoformat(),
+            annealing_a=self._current_a,
         )

@@ -15,6 +15,7 @@ Three granularity levels:
 import json
 from dataclasses import dataclass, asdict, fields
 from pathlib import Path
+from typing import Optional
 
 
 # ------------------------------------------------------------------
@@ -47,6 +48,7 @@ class RefitEvent:
     n_training_models: int
     validation_score: float
     timestamp: str
+    annealing_a: Optional[float] = None
 
 
 @dataclass
