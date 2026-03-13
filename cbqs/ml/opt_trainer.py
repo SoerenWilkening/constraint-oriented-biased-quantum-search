@@ -18,6 +18,7 @@ Pipeline per model:
 
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -170,7 +171,8 @@ class OPTTrainer:
                  screening_budget=None, full_budget=None,
                  signal='auc', signal_kwargs=None,
                  refit_every=5, log_path=None, random_state=None,
-                 target_k=3):
+                 target_k=3, checkpoint_callback=None,
+                 checkpoint_interval=30.0):
         self._signal_name = signal
         self._signal_kwargs = signal_kwargs or {}
         signal_fn = make_signal(signal, **self._signal_kwargs)
@@ -203,6 +205,8 @@ class OPTTrainer:
         self._n_opt_per_candidate = n_opt_per_candidate
         self._screening_budget = screening_budget
         self._full_budget = full_budget
+        self._checkpoint_callback = checkpoint_callback
+        self._checkpoint_interval = checkpoint_interval
 
     def fit(self, models, validation_models=None):
         """Train on a list of Model instances.
@@ -220,6 +224,9 @@ class OPTTrainer:
         validation_models : list or None
             Optional validation models for scoring at refit time.
         """
+        fit_start = time.monotonic()
+        last_checkpoint = fit_start
+
         for model_idx, model in enumerate(models):
             # Step 1: Collect data via Option C
             data = self.collector.collect(model)
@@ -292,6 +299,14 @@ class OPTTrainer:
             n_collected = len(self._collected)
             if n_collected > 0 and n_collected % self.refit_every == 0:
                 self._refit(validation_models)
+
+            # Step 6: Checkpoint callback
+            if self._checkpoint_callback is not None:
+                now = time.monotonic()
+                if now - last_checkpoint >= self._checkpoint_interval:
+                    elapsed_total = now - fit_start
+                    self._checkpoint_callback(self, elapsed_total)
+                    last_checkpoint = now
 
         # Final refit if not yet fitted or not aligned with refit_every
         if not self.predictor._is_fitted and self._collected:
@@ -508,6 +523,8 @@ class OPTTrainer:
         trainer._random_state = config.get('random_state', None)
         trainer._target_k = config.get('target_k', 3)
         trainer._collected = []
+        trainer._checkpoint_callback = None
+        trainer._checkpoint_interval = config.get('checkpoint_interval', 30.0)
 
         signal_fn = make_signal(
             trainer._signal_name, **trainer._signal_kwargs
