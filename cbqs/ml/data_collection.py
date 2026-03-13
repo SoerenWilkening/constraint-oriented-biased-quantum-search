@@ -503,8 +503,11 @@ class OPTDataCollector:
     def _is_trivially_feasible(self, model):
         """Check if a model is trivially feasible.
 
-        A model is trivially feasible if it was explicitly marked as such,
-        typically because all constraints are satisfied by a zero solution.
+        A model is trivially feasible if the all-zeros solution satisfies
+        every constraint. This is computed by evaluating constraints against
+        the zero state when the model has a constraint object (real Model
+        instances). Falls back to checking the _trivially_feasible attribute
+        for objects without constraint evaluation (e.g., test fakes).
 
         Args:
             model: The model to check.
@@ -512,6 +515,11 @@ class OPTDataCollector:
         Returns:
             bool indicating whether the model is trivially feasible.
         """
+        constraint = getattr(model, 'constraint', None)
+        if constraint is not None and hasattr(constraint, 'eval_con_from_array'):
+            n = getattr(model, 'n', 0)
+            if n > 0:
+                return bool(constraint.eval_con_from_array([0] * n))
         return getattr(model, '_trivially_feasible', False)
 
     def _collect_trivially_feasible(self, model):
