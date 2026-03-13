@@ -182,6 +182,42 @@ def compute_annealing_a(instance_variances, a_min=0.1, a_max=0.9):
     return max(a_min, min(a_max, a))
 
 
+def make_exploration_signal(tiny_weight=1e-9):
+    """Signal: final objective primary, time-to-best tiebreaker.
+
+    Returns a callable that scores an OptimizeResult. For equal
+    objectives, faster time-to-best wins. Implemented as:
+    objective + tiny_weight * (1 / time_to_best).
+
+    No AUC component -- AUC rewards greediness, which is
+    counterproductive for exploration-focused training.
+
+    Args:
+        tiny_weight: Weight for the time tiebreaker. Must be small
+            enough that even a tiny objective difference dominates.
+
+    Returns:
+        Callable(result) -> float, where result is an OptimizeResult.
+    """
+
+    def score(result):
+        # time_to_best is the time of the last history entry
+        if result.history:
+            time_to_best = result.history[-1][1]
+        else:
+            time_to_best = 0.0
+
+        # Avoid division by zero; if time_to_best is 0, use a large bonus
+        if time_to_best <= 0:
+            time_bonus = tiny_weight * 1e12
+        else:
+            time_bonus = tiny_weight * (1.0 / time_to_best)
+
+        return result.objective + time_bonus
+
+    return score
+
+
 def _make_auc_signal():
     """Create an AUC scoring function."""
 

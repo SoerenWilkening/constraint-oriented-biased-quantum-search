@@ -107,6 +107,97 @@ def random_opt_only_params(n_vars, rng):
     }
 
 
+def constrained_sat_params(n_vars, rng):
+    """Sample SAT params within exploration-friendly bounds.
+
+    Generates constrained parameters for exploration-focused training:
+    - bias_factor = 1.0 (fixed)
+    - delta_bias in [-n/100, n/100], applied as n/4 + delta_bias
+    - weights in [-1, 1]
+    - branching_factor in [-1, 1]
+
+    Args:
+        n_vars: Number of variables in the model.
+        rng: Random number generator instance.
+
+    Returns:
+        dict with keys: sat_branching_weights, sat_variable_priorities,
+        sat_branching_bias, sat_branching_factor, sat_bias_factor.
+    """
+    weights = rng.uniform(-1.0, 1.0, size=n_vars).tolist()
+    priorities = rng.standard_normal(size=n_vars).tolist()
+    delta_max = n_vars / 100.0
+    delta_bias = rng.uniform(-delta_max, delta_max)
+    bias = n_vars / 4.0 + delta_bias
+    branching_factor = float(rng.uniform(-1.0, 1.0))
+    bias_factor = 1.0
+    return {
+        'sat_branching_weights': weights,
+        'sat_variable_priorities': priorities,
+        'sat_branching_bias': bias,
+        'sat_branching_factor': branching_factor,
+        'sat_bias_factor': bias_factor,
+    }
+
+
+def constrained_opt_sat_params(n_vars, rng):
+    """Sample opt_sat params within exploration-friendly bounds.
+
+    Same bounds as constrained_sat_params but with opt_sat prefix.
+
+    Args:
+        n_vars: Number of variables in the model.
+        rng: Random number generator instance.
+
+    Returns:
+        dict with keys: opt_sat_branching_weights, opt_sat_variable_priorities,
+        opt_sat_branching_bias, opt_sat_branching_factor, opt_sat_bias_factor.
+    """
+    weights = rng.uniform(-1.0, 1.0, size=n_vars).tolist()
+    priorities = rng.standard_normal(size=n_vars).tolist()
+    delta_max = n_vars / 100.0
+    delta_bias = rng.uniform(-delta_max, delta_max)
+    bias = n_vars / 4.0 + delta_bias
+    branching_factor = float(rng.uniform(-1.0, 1.0))
+    bias_factor = 1.0
+    return {
+        'opt_sat_branching_weights': weights,
+        'opt_sat_variable_priorities': priorities,
+        'opt_sat_branching_bias': bias,
+        'opt_sat_branching_factor': branching_factor,
+        'opt_sat_bias_factor': bias_factor,
+    }
+
+
+def constrained_opt_only_params(n_vars, rng):
+    """Sample opt params within exploration-friendly bounds.
+
+    Same bounds as constrained_sat_params but with opt prefix.
+
+    Args:
+        n_vars: Number of variables in the model.
+        rng: Random number generator instance.
+
+    Returns:
+        dict with keys: opt_branching_weights, opt_variable_priorities,
+        opt_branching_bias, opt_branching_factor, opt_bias_factor.
+    """
+    weights = rng.uniform(-1.0, 1.0, size=n_vars).tolist()
+    priorities = rng.standard_normal(size=n_vars).tolist()
+    delta_max = n_vars / 100.0
+    delta_bias = rng.uniform(-delta_max, delta_max)
+    bias = n_vars / 4.0 + delta_bias
+    branching_factor = float(rng.uniform(-1.0, 1.0))
+    bias_factor = 1.0
+    return {
+        'opt_branching_weights': weights,
+        'opt_variable_priorities': priorities,
+        'opt_branching_bias': bias,
+        'opt_branching_factor': branching_factor,
+        'opt_bias_factor': bias_factor,
+    }
+
+
 def random_opt_params(n_vars, rng):
     """Sample random OPT parameters (opt_sat + opt phases combined).
 
