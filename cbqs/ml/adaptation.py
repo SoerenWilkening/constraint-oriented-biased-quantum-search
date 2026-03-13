@@ -7,6 +7,9 @@ and constraint satisfaction.
 
 Supports phase-specific parameters: SAT, OPT_SAT, and OPT phases each
 have their own weight arrays, and EMA updates are applied per-phase.
+
+Supports phase-switch: starts with Set A (greedy) parameters and switches
+one-time to Set B (exploration) parameters when objective improvement stalls.
 """
 from dataclasses import dataclass
 from typing import Dict, List
@@ -233,7 +236,8 @@ def _ema_update_phase_weights(phase_weights, reward, ema_alpha, active_phases):
 
 def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                    ema_alpha=0.3, seed=None, initial_weights=None,
-                   initial_phase_params=None, verbose=True):
+                   initial_phase_params=None, verbose=True,
+                   exploration_phase_params=None, switch_epsilon=1e-6):
     """Run a multi-round adaptive solve with EMA weight updates.
 
     Executes ``n_rounds`` solve rounds, updating branching weights between
@@ -241,6 +245,12 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
     objective improvement rate and constraint satisfaction rate.
 
     Supports phase-specific parameters via ``initial_phase_params``.
+
+    Supports phase-switch: when ``exploration_phase_params`` (Set B) is
+    provided, the solver starts in a greedy phase using Set A parameters
+    (``initial_phase_params``). When objective improvement stalls (relative
+    improvement < ``switch_epsilon``), it switches one-time to Set B
+    exploration parameters for the remaining rounds.
 
     Parameters
     ----------
@@ -272,12 +282,22 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
         Default is None.
     verbose : bool
         If True, prints per-round summary. Default is True.
+    exploration_phase_params : dict or None
+        Set B exploration parameters from ExplorationTrainer.predict().
+        When provided, enables phase-switch logic. The solver starts with
+        Set A (initial_phase_params) and switches to Set B when stalled.
+        Default is None.
+    switch_epsilon : float
+        Stall detection threshold. A switch is triggered when
+        ``(new_best - prev_best) / |prev_best| < switch_epsilon``.
+        Default is 1e-6.
 
     Returns
     -------
     AdaptiveResult
         Result containing best_result, best_weights, history, and
-        n_rounds_completed.
+        n_rounds_completed. History entries include 'adaptive_phase'
+        ('greedy' or 'exploration') and 'switch_round' (int or None).
 
     Raises
     ------
@@ -315,6 +335,21 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
     # Deterministic RNG for per-round seed derivation
     rng = np.random.RandomState(seed)
 
+    # Phase-switch state
+    adaptive_phase = 'greedy'  # 'greedy' (Set A) or 'exploration' (Set B)
+    switch_round = None  # 1-indexed round when switch occurred, or None
+    prev_best_obj = None  # best objective seen so far (for stall detection)
+
+    # Resolve Set B phase weights if provided
+    exploration_weights = None
+    if exploration_phase_params is not None:
+        exploration_weights = _resolve_phase_weights(
+            exploration_phase_params, n_vars
+        )
+
+    # Track which phase_params dict is active for scalar params
+    active_phase_params = initial_phase_params
+
     history = []
     best_result = None
     best_weights = None
@@ -336,7 +371,7 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
 
             # Set phase-specific weights on model
             _set_phase_params_on_model(
-                model, phase_weights, phase, initial_phase_params
+                model, phase_weights, phase, active_phase_params
             )
 
             result = model.solve()
@@ -352,6 +387,36 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                 best_result = result
                 best_weights = current_weights.copy()
 
+            # Phase-switch stall detection (after first round)
+            cur_obj = result.objective
+            if (adaptive_phase == 'greedy'
+                    and exploration_weights is not None
+                    and prev_best_obj is not None
+                    and cur_obj is not None):
+                if prev_best_obj == 0:
+                    # Avoid division by zero
+                    if cur_obj == 0:
+                        rel_improvement = 0.0
+                    elif cur_obj < prev_best_obj:
+                        rel_improvement = float('-inf')
+                    else:
+                        rel_improvement = float('inf')
+                else:
+                    rel_improvement = (
+                        (cur_obj - prev_best_obj) / abs(prev_best_obj)
+                    )
+                if rel_improvement < switch_epsilon:
+                    adaptive_phase = 'exploration'
+                    switch_round = round_idx + 1  # 1-indexed
+                    # Switch to Set B weights and params
+                    phase_weights = exploration_weights
+                    active_phase_params = exploration_phase_params
+
+            # Update prev_best_obj (track best objective for stall detection)
+            if cur_obj is not None:
+                if prev_best_obj is None or cur_obj > prev_best_obj:
+                    prev_best_obj = cur_obj
+
             # Record history entry (copy weights to prevent aliasing)
             history.append({
                 'round': round_idx + 1,
@@ -363,6 +428,8 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                 'phase_weights': {
                     p: phase_weights[p].copy() for p in PHASES
                 },
+                'adaptive_phase': adaptive_phase,
+                'switch_round': switch_round,
             })
 
             # Verbose per-round summary
@@ -372,7 +439,8 @@ def adaptive_solve(model, n_rounds=5, stopping_time=5, num_workers=2,
                     f"obj={result.objective}, "
                     f"feasible={result.feasible}, "
                     f"reward={reward:.4f}, "
-                    f"phase={phase}"
+                    f"phase={phase}, "
+                    f"adaptive_phase={adaptive_phase}"
                 )
 
             # EMA weight update per-phase (skip after last round)
