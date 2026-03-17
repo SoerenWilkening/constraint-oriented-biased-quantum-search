@@ -42,8 +42,8 @@ def test_ml_subpackage_structure():
     assert cbqs.ml.adaptation is not None
 
 
-def test_ml_import_error_message():
-    """Importing cbqs.ml without sklearn raises ImportError with install instructions."""
+def test_ml_import_without_sklearn_has_es_exports():
+    """Importing cbqs.ml without sklearn succeeds with ES exports available."""
     # Ensure sklearn is imported first so we can restore it
     import sklearn
     sklearn_module = sys.modules['sklearn']
@@ -62,8 +62,14 @@ def test_ml_import_error_message():
 
     try:
         with patch.dict('sys.modules', {'sklearn': None}):
-            with pytest.raises(ImportError, match="pip install cbqs\\[ml\\]"):
-                importlib.import_module('cbqs.ml')
+            ml = importlib.import_module('cbqs.ml')
+            # ES exports should always be available
+            assert hasattr(ml, 'PolynomialPredictor')
+            assert hasattr(ml, 'ESTrainer')
+            assert hasattr(ml, 'ESTrainerConfig')
+            # Legacy exports should NOT be available without sklearn
+            assert not hasattr(ml, 'FeatureExtractor')
+            assert not hasattr(ml, 'WeightPredictor')
     finally:
         # Clean up any partially loaded cbqs.ml modules
         for key in list(sys.modules):
