@@ -238,6 +238,30 @@ void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
+ * Consolidated Parameter Setter
+ * ============================================================ */
+
+/**
+ * @brief Set all predicted parameters on all three phases in one call
+ *
+ * Writes bias, branching_factor, bias_factor, weights, and variable_order
+ * to sat, opt_sat, and opt BranchingStats simultaneously. Replaces the
+ * pattern of ~12 individual setter calls from the Python prediction path.
+ *
+ * @param ctx Solver context
+ * @param bias Bias value for all phases
+ * @param branching_factor Branching factor for all phases
+ * @param bias_factor Bias factor for all phases
+ * @param weights Per-variable branching weights (NULL to clear)
+ * @param variable_order Per-variable priority values for ordering (NULL for default)
+ * @param n Number of variables (length of weights and variable_order arrays)
+ */
+void solver_ctx_set_predicted_params(solver_ctx_t *ctx, double bias,
+                                     double branching_factor, double bias_factor,
+                                     const double *weights,
+                                     const double *variable_order, int n);
+
+/* ============================================================
  * Debug Output
  * ============================================================ */
 

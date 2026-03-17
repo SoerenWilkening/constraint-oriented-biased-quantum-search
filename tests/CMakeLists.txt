@@ -276,9 +276,10 @@ add_cmocka_test(test_stage_switching
     ${CBQS_SRC_DIR}/prng.c
 )
 
-# --- C feature extraction ---
-add_cmocka_test(test_features
-    test_features.c
-    ${CBQS_SRC_DIR}/ml_features.c
-    ${CBQS_SRC_DIR}/dyn_expr.c
+# --- Consolidated predicted params setter ---
+add_cmocka_test(test_predicted_params
+    test_predicted_params.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
 )

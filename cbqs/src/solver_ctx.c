@@ -298,6 +298,42 @@ void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor) {
 }
 
 /* ============================================================
+ * Consolidated Parameter Setter
+ * ============================================================ */
+
+void solver_ctx_set_predicted_params(solver_ctx_t *ctx, double bias,
+                                     double branching_factor, double bias_factor,
+                                     const double *weights,
+                                     const double *variable_order, int n) {
+    if (ctx == NULL) { return; }
+
+    /* Set scalar parameters on all three phases */
+    ctx->branching_stats_sat.bias = bias;
+    ctx->branching_stats_opt_sat.bias = bias;
+    ctx->branching_stats_opt.bias = bias;
+
+    ctx->branching_stats_sat.branching_factor = branching_factor;
+    ctx->branching_stats_opt_sat.branching_factor = branching_factor;
+    ctx->branching_stats_opt.branching_factor = branching_factor;
+
+    ctx->branching_stats_sat.bias_factor = bias_factor;
+    ctx->branching_stats_opt_sat.bias_factor = bias_factor;
+    ctx->branching_stats_opt.bias_factor = bias_factor;
+
+    /* Set weights on all three phases (handles NULL/clear case) */
+    branching_stats_set_weights(&ctx->branching_stats_sat, weights, n);
+    branching_stats_set_weights(&ctx->branching_stats_opt_sat, weights, n);
+    branching_stats_set_weights(&ctx->branching_stats_opt, weights, n);
+
+    /* Set variable ordering from priorities, or default if NULL */
+    if (variable_order != NULL && n > 0) {
+        solver_ctx_set_variable_order(ctx, variable_order, n);
+    } else {
+        solver_ctx_set_default_order(ctx, n);
+    }
+}
+
+/* ============================================================
  * Variable Ordering
  * ============================================================ */
 

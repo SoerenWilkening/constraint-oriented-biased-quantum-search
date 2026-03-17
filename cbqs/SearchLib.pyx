@@ -220,6 +220,36 @@ cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
 		solver_ctx_set_opt_branching_weights(ctx, bw_ptr, n)
 	free(bw_ptr)
 
+cdef _set_predicted_params(solver_ctx_t *ctx, double bias, double branching_factor,
+                           double bias_factor, weights, priorities, int n):
+	"""Set all predicted parameters on solver context in one C call.
+
+	Writes bias, branching_factor, bias_factor, weights, and variable_order
+	to all three phase stats (sat, opt_sat, opt) via a single C function.
+	"""
+	cdef double *w_ptr = NULL
+	cdef double *p_ptr = NULL
+
+	if weights is not None:
+		arr_w = np.ascontiguousarray(weights, dtype=np.double)
+		w_ptr = <double *> calloc(n, sizeof(double))
+		for i in range(n):
+			w_ptr[i] = <double> arr_w[i]
+
+	if priorities is not None:
+		arr_p = np.ascontiguousarray(priorities, dtype=np.double)
+		p_ptr = <double *> calloc(n, sizeof(double))
+		for i in range(n):
+			p_ptr[i] = <double> arr_p[i]
+
+	solver_ctx_set_predicted_params(ctx, bias, branching_factor, bias_factor,
+	                                w_ptr, p_ptr, n)
+
+	if w_ptr != NULL:
+		free(w_ptr)
+	if p_ptr != NULL:
+		free(p_ptr)
+
 cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	"""Resolve and propagate phase-specific parameters to the solver context.
 
