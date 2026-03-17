@@ -11,6 +11,35 @@ import numpy as np
 from cbqs.ml.polynomial import PolynomialPredictor
 
 
+def _make_history_callback(model):
+    """Create a callback that tracks the best objective and time-to-best.
+
+    Uses model.objective_value and model.runtime to read the current
+    incumbent and elapsed time during solve. Bypasses the built-in
+    history tracking which has a known bug in SearchLib.pyx.
+
+    The callback takes no arguments (solver convention) and captures
+    the model via closure.
+
+    Returns
+    -------
+    tuple of (callable, dict)
+        The callback function and a state dict with 'best_objective'
+        and 'time_to_best' keys, updated in-place by the callback.
+    """
+    state = {'best_objective': None, 'time_to_best': 0.0}
+
+    def callback():
+        obj = model.objective_value
+        if obj is None:
+            return
+        if state['best_objective'] is None or obj > state['best_objective']:
+            state['best_objective'] = obj
+            state['time_to_best'] = model.runtime
+
+    return callback, state
+
+
 def extract_signal(result):
     """Extract the ES training signal from a solver result.
 
@@ -105,6 +134,17 @@ def evaluate(theta, model, time_budget):
         except ValueError:
             pass
 
-    # Solve and extract signal
+    # Install a manual callback to track best objective and time-to-best,
+    # bypassing the broken built-in history callback.
+    cb, state = _make_history_callback(model)
+    model.set_param('callback', cb)
+
+    # Solve
     result = model.solve()
-    return extract_signal(result)
+
+    # Build signal from callback state (falls back to result.objective_value)
+    best_obj = state['best_objective']
+    if best_obj is None:
+        best_obj = float(model.objective_value or 0)
+    time_to_best = state['time_to_best']
+    return (float(best_obj), -float(time_to_best))

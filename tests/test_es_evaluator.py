@@ -52,6 +52,8 @@ class FakeModel:
         self._results = results or []
         self._objective_range = objective_range
         self.constraints_compiled = True
+        self.objective_value = None
+        self.runtime = 0.0
 
         self.variables = {i: _FakeVar() for i in range(n_vars)}
         self.obj_expr = [[[1, i] for i in range(n_vars)]]
@@ -67,14 +69,22 @@ class FakeModel:
         idx = self._solve_count
         self._solve_count += 1
         if idx < len(self._results):
-            return self._results[idx]
-        lo, hi = self._objective_range
-        obj = lo + (idx % 10) * (hi - lo) / 10
-        return _make_result(
-            objective=obj,
-            solution=[1] * self.n,
-            history=[(obj * 0.8, 0.01), (obj, 0.05)],
-        )
+            result = self._results[idx]
+        else:
+            lo, hi = self._objective_range
+            obj = lo + (idx % 10) * (hi - lo) / 10
+            result = _make_result(
+                objective=obj,
+                solution=[1] * self.n,
+                history=[(obj * 0.8, 0.01), (obj, 0.05)],
+            )
+        # Simulate callback invocation (as the real solver does)
+        self.objective_value = result.objective
+        self.runtime = result.history[-1][1] if result.history else 0.0
+        cb = self._params.get('callback')
+        if cb is not None:
+            cb()
+        return result
 
 
 # ------------------------------------------------------------------
