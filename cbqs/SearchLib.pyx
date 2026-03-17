@@ -10,7 +10,7 @@ from random import randint
 import numpy as np
 import os
 
-from libc.stdlib cimport srand
+from libc.stdlib cimport srand, calloc, free
 from .Constants import *
 from .Constraint cimport new_constraint
 from .Model import Model
@@ -219,36 +219,6 @@ cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
 	else:
 		solver_ctx_set_opt_branching_weights(ctx, bw_ptr, n)
 	free(bw_ptr)
-
-cdef _set_predicted_params(solver_ctx_t *ctx, double bias, double branching_factor,
-                           double bias_factor, weights, priorities, int n):
-	"""Set all predicted parameters on solver context in one C call.
-
-	Writes bias, branching_factor, bias_factor, weights, and variable_order
-	to all three phase stats (sat, opt_sat, opt) via a single C function.
-	"""
-	cdef double *w_ptr = NULL
-	cdef double *p_ptr = NULL
-
-	if weights is not None:
-		arr_w = np.ascontiguousarray(weights, dtype=np.double)
-		w_ptr = <double *> calloc(n, sizeof(double))
-		for i in range(n):
-			w_ptr[i] = <double> arr_w[i]
-
-	if priorities is not None:
-		arr_p = np.ascontiguousarray(priorities, dtype=np.double)
-		p_ptr = <double *> calloc(n, sizeof(double))
-		for i in range(n):
-			p_ptr[i] = <double> arr_p[i]
-
-	solver_ctx_set_predicted_params(ctx, bias, branching_factor, bias_factor,
-	                                w_ptr, p_ptr, n)
-
-	if w_ptr != NULL:
-		free(w_ptr)
-	if p_ptr != NULL:
-		free(p_ptr)
 
 cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	"""Resolve and propagate phase-specific parameters to the solver context.
@@ -559,6 +529,70 @@ cpdef run_quantum_local_search(initial: state_py,
 
 	with nogil:
 		quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
+
+def c_extract_features(Model mod):
+	"""Extract per-variable and instance-level features via C implementation.
+
+	Calls the C extract_features() function on the compiled constraint data,
+	bypassing Python-level expression iteration for performance.
+
+	Parameters
+	----------
+	mod : Model
+		A closed Model instance (constraints_compiled must be True).
+
+	Returns
+	-------
+	tuple of (numpy.ndarray, numpy.ndarray)
+		var_features : shape (n_vars, 9), dtype float64 - z-score normalized
+		inst_features : shape (11,), dtype float64 - raw values
+
+	Raises
+	------
+	ValueError
+		If the model has not been closed.
+	"""
+	if not mod.constraints_compiled:
+		raise ValueError("Model must be closed before feature extraction")
+
+	cdef int n = int(mod.n)
+	if n == 0:
+		return np.zeros((0, 9), dtype=np.float64), np.zeros(11, dtype=np.float64)
+
+	# Build variable_meta_t array from Python variable metadata
+	cdef variable_meta_t *vmeta = <variable_meta_t *> calloc(n, sizeof(variable_meta_t))
+	if vmeta == NULL:
+		raise MemoryError("Failed to allocate variable metadata")
+
+	var_indices = sorted(mod.variables.keys())
+	for i in range(n):
+		idx = var_indices[i]
+		var = mod.variables[idx]
+		vmeta[i].lb = <double> var.lb
+		vmeta[i].ub = <double> var.ub
+		vmeta[i].is_integer = 1 if var.vtype == INTEGER else 0
+
+	# Allocate output arrays as numpy (contiguous C-order)
+	var_features = np.zeros((n, 9), dtype=np.float64)
+	inst_features = np.zeros(11, dtype=np.float64)
+
+	cdef double[::1] var_view = var_features.ravel()
+	cdef double[::1] inst_view = inst_features
+
+	# Call C function
+	extract_features(
+		mod.mod[0].obj,
+		mod.mod[0].con,
+		vmeta,
+		n,
+		&var_view[0],
+		&inst_view[0]
+	)
+
+	free(vmeta)
+
+	return var_features, inst_features
+
 
 def reset_c_flags():
 	"""Legacy function - no longer needed with ctx-based lifecycle.

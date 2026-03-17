@@ -47,12 +47,6 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_variable_order(solver_ctx_t* ctx, const double* priorities, int n)
 	void solver_ctx_set_default_order(solver_ctx_t* ctx, int n)
 
-	# Consolidated predicted params setter
-	void solver_ctx_set_predicted_params(solver_ctx_t* ctx, double bias,
-	                                     double branching_factor, double bias_factor,
-	                                     const double* weights,
-	                                     const double* variable_order, int n)
-
 # StateProbability from Branching.h (relocated from branching.pxd)
 cdef extern from "src/Branching.h":
 	double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold)
@@ -84,6 +78,26 @@ cdef extern from "src/SearchLib.h":
 	double CSearch_opt_sat_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, double error, int direction, int initial_samples) nogil
 	double CSearch_sat_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, double error, int initial_samples) nogil
 
+
+# ML feature extraction
+cdef extern from "src/ml_features.h":
+	ctypedef struct variable_meta_t:
+		double lb
+		double ub
+		int is_integer
+
+	ctypedef struct features_result_t:
+		double *var_features
+		double *inst_features
+
+	void extract_features(
+		const new_constraints_t *obj,
+		const new_constraints_t *con,
+		const variable_meta_t *vars,
+		int n_vars,
+		double *out_var,
+		double *out_inst
+	)
 
 cdef extern from "src/local_search.h":
 	int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) nogil

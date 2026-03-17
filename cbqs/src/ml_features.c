@@ -1,447 +1,304 @@
 /**
- * ml_features.c - Feature extraction for ML-based branching prediction
+ * ml_features.c - C-level feature extraction for ML branching parameter prediction
  *
- * Single-pass extraction of per-variable (n x 9) and instance-level (11,)
- * features from dyn_expression_t arrays and variable metadata.
- * Mirrors the Python FeatureExtractor in cbqs/ml/features.py exactly.
+ * Single-pass extraction of per-variable and instance-level features from
+ * compiled constraint data. Matches the Python FeatureExtractor output exactly.
  */
 
 #include "ml_features.h"
-#include "definitions.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-/* ============================================================================
- * Internal: per-variable coefficient accumulator
- * ============================================================================ */
+/* ------------------------------------------------------------------ */
+/* Helper: iterate clauses of constraint cnstr, calling body for each  */
+/* clause with (factor, variable_indices[], clause_len).               */
+/* ------------------------------------------------------------------ */
 
-typedef struct {
-    double *vals;
-    int count;
-    int capacity;
-} coeff_acc_t;
-
-static void coeff_acc_init(coeff_acc_t *acc) {
-    acc->vals = NULL;
-    acc->count = 0;
-    acc->capacity = 0;
-}
-
-static int coeff_acc_push(coeff_acc_t *acc, double val) {
-    if (acc->count >= acc->capacity) {
-        int new_cap = acc->capacity == 0 ? 8 : acc->capacity * 2;
-        double *tmp = realloc(acc->vals, (size_t)new_cap * sizeof(double));
-        if (!tmp) return -1;
-        acc->vals = tmp;
-        acc->capacity = new_cap;
-    }
-    acc->vals[acc->count++] = val;
-    return 0;
-}
-
-static void coeff_acc_free(coeff_acc_t *acc) {
-    free(acc->vals);
-    acc->vals = NULL;
-    acc->count = 0;
-    acc->capacity = 0;
-}
-
-/* ============================================================================
- * Internal: per-variable co-occurrence set (sorted dynamic array of ints)
- * ============================================================================ */
-
-typedef struct {
-    int *ids;
-    int count;
-    int capacity;
-} coset_t;
-
-static void coset_init(coset_t *s) {
-    s->ids = NULL;
-    s->count = 0;
-    s->capacity = 0;
-}
-
-static int coset_contains(const coset_t *s, int val) {
-    for (int i = 0; i < s->count; i++) {
-        if (s->ids[i] == val) return 1;
-    }
-    return 0;
-}
-
-static int coset_add(coset_t *s, int val) {
-    if (coset_contains(s, val)) return 0;
-    if (s->count >= s->capacity) {
-        int new_cap = s->capacity == 0 ? 8 : s->capacity * 2;
-        int *tmp = realloc(s->ids, (size_t)new_cap * sizeof(int));
-        if (!tmp) return -1;
-        s->ids = tmp;
-        s->capacity = new_cap;
-    }
-    s->ids[s->count++] = val;
-    return 0;
-}
-
-static void coset_free(coset_t *s) {
-    free(s->ids);
-    s->ids = NULL;
-    s->count = 0;
-    s->capacity = 0;
-}
-
-/* ============================================================================
- * Internal: iterate terms in a dyn_expression_t
- * ============================================================================ */
-
-static inline const int64_t *expr_lits(const dyn_expression_t *e) {
-    return (e->capacity == 0) ? e->inline_literals : e->literals;
-}
-
-static inline const int *expr_lens(const dyn_expression_t *e) {
-    return (e->capacity == 0) ? e->inline_len_literal : e->len_literal;
-}
-
-/* ============================================================================
- * extract_features
- * ============================================================================ */
-
-features_result_t extract_features(
-    dyn_expression_t **obj_exprs, int n_obj,
-    dyn_expression_t **con_exprs, int n_con,
+/**
+ * Accumulate per-variable coefficient data from a constraint set.
+ *
+ * For each variable in each clause, records the absolute coefficient.
+ * Tracks: degree (count), coeff_sum, coeff_max, coeff_min, coeff_count.
+ * Also builds co-occurrence: for each variable, a bitset of which other
+ * variables share a constraint.
+ */
+static void scan_constraints(
+    const new_constraints_t *con,
     int n_vars,
-    const double *lb, const double *ub, const int *vtype
-) {
-    features_result_t result;
-    memset(&result, 0, sizeof(result));
-    result.n_vars = n_vars;
+    /* per-variable accumulators (length n_vars each) */
+    double *degree,         /* constraint count */
+    double *coeff_sum,      /* sum of |coeff| */
+    double *coeff_max,      /* max |coeff| */
+    double *coeff_min,      /* min |coeff|, init to -1 meaning unset */
+    int *coeff_count,       /* number of coefficient observations */
+    /* co-occurrence: bitset per variable, length n_vars * ((n_vars+63)/64) */
+    uint64_t *co_occur,
+    int co_occur_stride,    /* number of uint64_t words per variable */
+    /* instance-level accumulators */
+    double *all_coeff_sum,
+    double *all_coeff_sq_sum,
+    int *all_coeff_count,
+    double *all_coeff_max
+)
+{
+    uint32_t C = con->num_constraints;
 
-    /* Handle zero-variable case */
-    if (n_vars <= 0) {
-        result.var_features = NULL;
-        result.n_vars = 0;
-        return result;
-    }
+    for (uint32_t cnstr = 0; cnstr < C; cnstr++) {
+        size_t clause_offset = (cnstr == 0) ? 0 : con->clause_offset[cnstr - 1];
+        uint32_t n_clauses = con->num_clauses[cnstr];
 
-    size_t feat_sz = (size_t)n_vars * NUM_VAR_FEATURES;
-    result.var_features = calloc(feat_sz, sizeof(double));
-    if (!result.var_features) {
-        result.n_vars = 0;
-        return result;
-    }
+        /* Collect all variables appearing in this constraint */
+        /* Use a temporary array; max realistic size bounded by total clauses */
+        int vars_buf[4096];
+        int n_vars_in_con = 0;
 
-    /* Per-variable accumulators */
-    coeff_acc_t *var_coeffs = calloc((size_t)n_vars, sizeof(coeff_acc_t));
-    coset_t *var_co = calloc((size_t)n_vars, sizeof(coset_t));
-    if (!var_coeffs || !var_co) {
-        free(result.var_features);
-        free(var_coeffs);
-        free(var_co);
-        result.var_features = NULL;
-        result.n_vars = 0;
-        return result;
-    }
-    for (int i = 0; i < n_vars; i++) {
-        coeff_acc_init(&var_coeffs[i]);
-        coset_init(&var_co[i]);
-    }
+        for (uint32_t cls = 0; cls < n_clauses; cls++) {
+            size_t ci = clause_offset + cls;
+            int64_t factor = con->factors[ci];
+            double abs_coeff = (factor < 0) ? (double)(-factor) : (double)factor;
+            uint32_t cl_len = con->clause_length[ci];
 
-    /* --- Instance feature accumulators --- */
-    /* all_coeffs: global constraint coefficient list for instance features */
-    coeff_acc_t all_coeffs;
-    coeff_acc_init(&all_coeffs);
+            /* Instance-level coefficient stats */
+            *all_coeff_sum += abs_coeff;
+            *all_coeff_sq_sum += abs_coeff * abs_coeff;
+            (*all_coeff_count)++;
+            if (abs_coeff > *all_coeff_max)
+                *all_coeff_max = abs_coeff;
 
-    /* obj_vars: set of variables with nonzero objective coefficient */
-    int *obj_var_seen = calloc((size_t)n_vars, sizeof(int));
-    if (!obj_var_seen) {
-        for (int i = 0; i < n_vars; i++) {
-            coeff_acc_free(&var_coeffs[i]);
-            coset_free(&var_co[i]);
-        }
-        free(var_coeffs);
-        free(var_co);
-        free(result.var_features);
-        result.var_features = NULL;
-        result.n_vars = 0;
-        return result;
-    }
+            for (uint32_t k = 0; k < cl_len; k++) {
+                size_t vi = (cls == 0)
+                    ? clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1) + k
+                    : clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1)
+                      + (CONSTRAINT_VARS_PER_CLAUSE - 1) * cls + k;
+                uint32_t var_idx = con->variables[vi];
+                if ((int)var_idx >= n_vars) continue;
 
-    /* =========================================================
-     * Pass over objective expressions
-     * ========================================================= */
-    for (int e = 0; e < n_obj; e++) {
-        const dyn_expression_t *expr = obj_exprs[e];
-        if (!expr) continue;
-        const int64_t *lits = expr_lits(expr);
-        const int *lens = expr_lens(expr);
-        size_t n_terms = expr->expr_size;
+                /* Per-variable stats */
+                degree[var_idx] += 1.0;
+                coeff_sum[var_idx] += abs_coeff;
+                coeff_count[var_idx]++;
+                if (abs_coeff > coeff_max[var_idx])
+                    coeff_max[var_idx] = abs_coeff;
+                if (coeff_min[var_idx] < 0 || abs_coeff < coeff_min[var_idx])
+                    coeff_min[var_idx] = abs_coeff;
 
-        for (size_t t = 0; t < n_terms; t++) {
-            int term_len = lens[t];
-            if (term_len < 2) continue; /* constant term, no variables */
-            int64_t coeff = lits[t * MAX_VARS_PER_TERM];
-            double abs_coeff = fabs((double)coeff);
-
-            for (int k = 1; k < term_len; k++) {
-                int var_idx = (int)lits[t * MAX_VARS_PER_TERM + k];
-                if (var_idx < 0 || var_idx >= n_vars) continue;
-                /* col 4: objective coefficient (sum of abs coefficients) */
-                result.var_features[var_idx * NUM_VAR_FEATURES + FEAT_OBJ_COEFF] += abs_coeff;
-                /* Track for instance feature: objective density */
-                if (coeff != 0) {
-                    obj_var_seen[var_idx] = 1;
-                }
-            }
-        }
-    }
-
-    /* =========================================================
-     * Pass over constraint expressions
-     * ========================================================= */
-
-    /* Temporary buffer for vars_in_constraint per constraint */
-    int *vars_in_con = calloc((size_t)n_vars, sizeof(int)); /* boolean flags */
-    int *vars_list = malloc((size_t)n_vars * sizeof(int));   /* list of var indices */
-    if (!vars_in_con || !vars_list) {
-        /* cleanup and return empty */
-        free(vars_in_con);
-        free(vars_list);
-        free(obj_var_seen);
-        coeff_acc_free(&all_coeffs);
-        for (int i = 0; i < n_vars; i++) {
-            coeff_acc_free(&var_coeffs[i]);
-            coset_free(&var_co[i]);
-        }
-        free(var_coeffs);
-        free(var_co);
-        free(result.var_features);
-        result.var_features = NULL;
-        result.n_vars = 0;
-        return result;
-    }
-
-    for (int e = 0; e < n_con; e++) {
-        const dyn_expression_t *expr = con_exprs[e];
-        if (!expr) continue;
-        const int64_t *lits = expr_lits(expr);
-        const int *lens = expr_lens(expr);
-        size_t n_terms = expr->expr_size;
-
-        int vars_list_len = 0;
-
-        for (size_t t = 0; t < n_terms; t++) {
-            int term_len = lens[t];
-            if (term_len < 2) continue; /* constant term */
-            int64_t coeff = lits[t * MAX_VARS_PER_TERM];
-            double abs_coeff = fabs((double)coeff);
-
-            /* Instance feature: accumulate all constraint coefficients */
-            coeff_acc_push(&all_coeffs, abs_coeff);
-
-            for (int k = 1; k < term_len; k++) {
-                int var_idx = (int)lits[t * MAX_VARS_PER_TERM + k];
-                if (var_idx < 0 || var_idx >= n_vars) continue;
-
-                /* col 0: degree (number of terms referencing this variable) */
-                result.var_features[var_idx * NUM_VAR_FEATURES + FEAT_DEGREE] += 1.0;
-
-                /* Accumulate coefficient for per-variable stats */
-                coeff_acc_push(&var_coeffs[var_idx], abs_coeff);
-
-                /* Track unique variables in this constraint */
-                if (!vars_in_con[var_idx]) {
-                    vars_in_con[var_idx] = 1;
-                    vars_list[vars_list_len++] = var_idx;
-                }
+                /* Track for co-occurrence */
+                if (n_vars_in_con < 4096)
+                    vars_buf[n_vars_in_con++] = (int)var_idx;
             }
         }
 
-        /* Build co-occurrence: for each var in constraint, add all others */
-        for (int i = 0; i < vars_list_len; i++) {
-            int vi = vars_list[i];
-            for (int j = 0; j < vars_list_len; j++) {
-                int vj = vars_list[j];
+        /* Build co-occurrence from vars_buf */
+        for (int i = 0; i < n_vars_in_con; i++) {
+            int vi = vars_buf[i];
+            for (int j = 0; j < n_vars_in_con; j++) {
+                int vj = vars_buf[j];
                 if (vi != vj) {
-                    coset_add(&var_co[vi], vj);
+                    co_occur[vi * co_occur_stride + (vj >> 6)] |=
+                        (1ULL << (vj & 63));
                 }
             }
         }
-
-        /* Reset vars_in_con flags */
-        for (int i = 0; i < vars_list_len; i++) {
-            vars_in_con[vars_list[i]] = 0;
-        }
     }
-
-    free(vars_in_con);
-    free(vars_list);
-
-    /* =========================================================
-     * Per-variable: coefficient statistics (cols 1-3)
-     * ========================================================= */
-    for (int i = 0; i < n_vars; i++) {
-        coeff_acc_t *acc = &var_coeffs[i];
-        if (acc->count > 0) {
-            double sum = 0.0, mx = acc->vals[0], mn = acc->vals[0];
-            for (int j = 0; j < acc->count; j++) {
-                sum += acc->vals[j];
-                if (acc->vals[j] > mx) mx = acc->vals[j];
-                if (acc->vals[j] < mn) mn = acc->vals[j];
-            }
-            result.var_features[i * NUM_VAR_FEATURES + FEAT_COEFF_MEAN] = sum / acc->count;
-            result.var_features[i * NUM_VAR_FEATURES + FEAT_COEFF_MAX] = mx;
-            result.var_features[i * NUM_VAR_FEATURES + FEAT_COEFF_MIN] = mn;
-        }
-    }
-
-    /* =========================================================
-     * Per-variable: variable properties (cols 5-6)
-     * ========================================================= */
-    for (int i = 0; i < n_vars; i++) {
-        result.var_features[i * NUM_VAR_FEATURES + FEAT_BOUNDS_WIDTH] = ub[i] - lb[i];
-        result.var_features[i * NUM_VAR_FEATURES + FEAT_IS_INTEGER] =
-            (vtype[i] == INTEGER) ? 1.0 : 0.0;
-    }
-
-    /* =========================================================
-     * Per-variable: neighbor features (cols 7-8)
-     * ========================================================= */
-    for (int i = 0; i < n_vars; i++) {
-        coset_t *co = &var_co[i];
-        result.var_features[i * NUM_VAR_FEATURES + FEAT_NUM_CO_OCCURRING] = (double)co->count;
-        if (co->count > 0) {
-            double deg_sum = 0.0;
-            int deg_count = 0;
-            for (int j = 0; j < co->count; j++) {
-                int idx = co->ids[j];
-                if (idx >= 0 && idx < n_vars) {
-                    deg_sum += result.var_features[idx * NUM_VAR_FEATURES + FEAT_DEGREE];
-                    deg_count++;
-                }
-            }
-            if (deg_count > 0) {
-                result.var_features[i * NUM_VAR_FEATURES + FEAT_AVG_NEIGHBOR_DEGREE] =
-                    deg_sum / deg_count;
-            }
-        }
-    }
-
-    /* =========================================================
-     * Per-variable: z-score normalization per column
-     * ========================================================= */
-    for (int col = 0; col < NUM_VAR_FEATURES; col++) {
-        double sum = 0.0;
-        for (int i = 0; i < n_vars; i++) {
-            sum += result.var_features[i * NUM_VAR_FEATURES + col];
-        }
-        double mean = sum / n_vars;
-
-        double var_sum = 0.0;
-        for (int i = 0; i < n_vars; i++) {
-            double diff = result.var_features[i * NUM_VAR_FEATURES + col] - mean;
-            var_sum += diff * diff;
-        }
-        double std = sqrt(var_sum / n_vars);
-
-        if (std > 0.0) {
-            for (int i = 0; i < n_vars; i++) {
-                result.var_features[i * NUM_VAR_FEATURES + col] =
-                    (result.var_features[i * NUM_VAR_FEATURES + col] - mean) / std;
-            }
-        } else {
-            for (int i = 0; i < n_vars; i++) {
-                result.var_features[i * NUM_VAR_FEATURES + col] = 0.0;
-            }
-        }
-    }
-
-    /* =========================================================
-     * Instance-level features
-     * ========================================================= */
-
-    /* col 0: n_variables */
-    result.inst_features[0] = (double)n_vars;
-
-    /* col 1: n_constraints */
-    result.inst_features[1] = (double)n_con;
-
-    /* col 2: constraint_density */
-    result.inst_features[2] = (n_vars > 0) ? (double)n_con / n_vars : 0.0;
-
-    /* col 3: constraint_variable_ratio (same as density) */
-    result.inst_features[3] = result.inst_features[2];
-
-    /* col 4: objective_density */
-    if (n_vars > 0) {
-        int obj_count = 0;
-        for (int i = 0; i < n_vars; i++) {
-            if (obj_var_seen[i]) obj_count++;
-        }
-        result.inst_features[4] = (double)obj_count / n_vars;
-    }
-
-    /* col 5: integer_variable_fraction */
-    if (n_vars > 0) {
-        int n_int = 0;
-        for (int i = 0; i < n_vars; i++) {
-            if (vtype[i] == INTEGER) n_int++;
-        }
-        result.inst_features[5] = (double)n_int / n_vars;
-    }
-
-    /* cols 6-8: global constraint coefficient statistics */
-    if (all_coeffs.count > 0) {
-        double sum = 0.0, mx = all_coeffs.vals[0];
-        for (int i = 0; i < all_coeffs.count; i++) {
-            sum += all_coeffs.vals[i];
-            if (all_coeffs.vals[i] > mx) mx = all_coeffs.vals[i];
-        }
-        double mean = sum / all_coeffs.count;
-        result.inst_features[6] = mean;
-
-        double var_sum = 0.0;
-        for (int i = 0; i < all_coeffs.count; i++) {
-            double diff = all_coeffs.vals[i] - mean;
-            var_sum += diff * diff;
-        }
-        result.inst_features[7] = sqrt(var_sum / all_coeffs.count);
-        result.inst_features[8] = mx;
-    }
-
-    /* cols 9-10: bounds tightness statistics */
-    if (n_vars > 0) {
-        double sum = 0.0;
-        for (int i = 0; i < n_vars; i++) {
-            sum += (ub[i] - lb[i]);
-        }
-        double mean = sum / n_vars;
-        result.inst_features[9] = mean;
-
-        double var_sum = 0.0;
-        for (int i = 0; i < n_vars; i++) {
-            double diff = (ub[i] - lb[i]) - mean;
-            var_sum += diff * diff;
-        }
-        result.inst_features[10] = sqrt(var_sum / n_vars);
-    }
-
-    /* Cleanup */
-    free(obj_var_seen);
-    coeff_acc_free(&all_coeffs);
-    for (int i = 0; i < n_vars; i++) {
-        coeff_acc_free(&var_coeffs[i]);
-        coset_free(&var_co[i]);
-    }
-    free(var_coeffs);
-    free(var_co);
-
-    return result;
 }
 
-void features_result_free(features_result_t *result) {
-    if (result) {
-        free(result->var_features);
-        result->var_features = NULL;
-        result->n_vars = 0;
+/**
+ * Scan objective constraints for per-variable objective coefficients.
+ * Also counts variables with nonzero objective coefficient (for obj_density).
+ */
+static void scan_objective(
+    const new_constraints_t *obj,
+    int n_vars,
+    double *obj_coeff,     /* per-variable: sum of |coeff| in objective */
+    int *obj_var_count      /* output: count of variables with nonzero obj coeff */
+)
+{
+    uint32_t C = obj->num_constraints;
+    *obj_var_count = 0;
+
+    for (uint32_t cnstr = 0; cnstr < C; cnstr++) {
+        size_t clause_offset = (cnstr == 0) ? 0 : obj->clause_offset[cnstr - 1];
+        uint32_t n_clauses = obj->num_clauses[cnstr];
+
+        for (uint32_t cls = 0; cls < n_clauses; cls++) {
+            size_t ci = clause_offset + cls;
+            int64_t factor = obj->factors[ci];
+            double abs_coeff = (factor < 0) ? (double)(-factor) : (double)factor;
+            uint32_t cl_len = obj->clause_length[ci];
+
+            for (uint32_t k = 0; k < cl_len; k++) {
+                size_t vi = (cls == 0)
+                    ? clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1) + k
+                    : clause_offset * (CONSTRAINT_VARS_PER_CLAUSE - 1)
+                      + (CONSTRAINT_VARS_PER_CLAUSE - 1) * cls + k;
+                uint32_t var_idx = obj->variables[vi];
+                if ((int)var_idx >= n_vars) continue;
+                obj_coeff[var_idx] += abs_coeff;
+            }
+        }
     }
+
+    /* Count variables with nonzero objective coefficient */
+    for (int i = 0; i < n_vars; i++) {
+        if (obj_coeff[i] > 0.0)
+            (*obj_var_count)++;
+    }
+}
+
+void extract_features(
+    const new_constraints_t *obj,
+    const new_constraints_t *con,
+    const variable_meta_t *vars,
+    int n_vars,
+    double *out_var,
+    double *out_inst
+)
+{
+    if (n_vars == 0) {
+        memset(out_inst, 0, ML_NUM_INST_FEATURES * sizeof(double));
+        return;
+    }
+
+    /* Allocate per-variable accumulators */
+    double *degree     = calloc(n_vars, sizeof(double));
+    double *coeff_sum  = calloc(n_vars, sizeof(double));
+    double *coeff_max  = calloc(n_vars, sizeof(double));
+    double *coeff_min  = calloc(n_vars, sizeof(double));
+    int    *coeff_cnt  = calloc(n_vars, sizeof(int));
+    double *obj_coeff  = calloc(n_vars, sizeof(double));
+
+    /* Initialize coeff_min to -1 (unset sentinel) */
+    for (int i = 0; i < n_vars; i++)
+        coeff_min[i] = -1.0;
+
+    /* Co-occurrence bitset */
+    int co_stride = (n_vars + 63) / 64;
+    uint64_t *co_occur = calloc((size_t)n_vars * co_stride, sizeof(uint64_t));
+
+    /* Instance-level accumulators */
+    double all_coeff_sum = 0, all_coeff_sq_sum = 0, all_coeff_max = 0;
+    int all_coeff_count = 0;
+
+    /* Scan constraints */
+    scan_constraints(con, n_vars,
+                     degree, coeff_sum, coeff_max, coeff_min, coeff_cnt,
+                     co_occur, co_stride,
+                     &all_coeff_sum, &all_coeff_sq_sum,
+                     &all_coeff_count, &all_coeff_max);
+
+    /* Scan objective */
+    int obj_var_count = 0;
+    scan_objective(obj, n_vars, obj_coeff, &obj_var_count);
+
+    /* Zero the output arrays */
+    memset(out_var, 0, (size_t)n_vars * ML_NUM_VAR_FEATURES * sizeof(double));
+    memset(out_inst, 0, ML_NUM_INST_FEATURES * sizeof(double));
+
+    /* Fill per-variable features (raw, before z-score) */
+    for (int i = 0; i < n_vars; i++) {
+        int row = i * ML_NUM_VAR_FEATURES;
+        out_var[row + 0] = degree[i];
+        out_var[row + 1] = (coeff_cnt[i] > 0) ? coeff_sum[i] / coeff_cnt[i] : 0.0;
+        out_var[row + 2] = coeff_max[i];
+        out_var[row + 3] = (coeff_min[i] < 0) ? 0.0 : coeff_min[i];
+        out_var[row + 4] = obj_coeff[i];
+        out_var[row + 5] = vars[i].ub - vars[i].lb;
+        out_var[row + 6] = vars[i].is_integer ? 1.0 : 0.0;
+
+        /* Count co-occurring variables from bitset */
+        int n_co = 0;
+        for (int w = 0; w < co_stride; w++) {
+            uint64_t bits = co_occur[i * co_stride + w];
+            /* popcount */
+            while (bits) {
+                n_co++;
+                bits &= bits - 1;
+            }
+        }
+        out_var[row + 8] = (double)n_co;
+    }
+
+    /* avg_neighbor_degree (column 7) - needs degree to be filled first */
+    for (int i = 0; i < n_vars; i++) {
+        int row = i * ML_NUM_VAR_FEATURES;
+        int n_co = (int)out_var[row + 8];
+        if (n_co == 0) continue;
+        double sum_deg = 0;
+        for (int w = 0; w < co_stride; w++) {
+            uint64_t bits = co_occur[i * co_stride + w];
+            while (bits) {
+                int bit = w * 64 + __builtin_ctzll(bits);
+                if (bit < n_vars)
+                    sum_deg += degree[bit];
+                bits &= bits - 1;
+            }
+        }
+        out_var[row + 7] = sum_deg / n_co;
+    }
+
+    /* Per-column z-score normalization */
+    for (int col = 0; col < ML_NUM_VAR_FEATURES; col++) {
+        double sum = 0, sq_sum = 0;
+        for (int i = 0; i < n_vars; i++) {
+            double v = out_var[i * ML_NUM_VAR_FEATURES + col];
+            sum += v;
+            sq_sum += v * v;
+        }
+        double mean = sum / n_vars;
+        double variance = sq_sum / n_vars - mean * mean;
+        double std = (variance > 0) ? sqrt(variance) : 0;
+        if (std > 0) {
+            for (int i = 0; i < n_vars; i++)
+                out_var[i * ML_NUM_VAR_FEATURES + col] =
+                    (out_var[i * ML_NUM_VAR_FEATURES + col] - mean) / std;
+        } else {
+            for (int i = 0; i < n_vars; i++)
+                out_var[i * ML_NUM_VAR_FEATURES + col] = 0.0;
+        }
+    }
+
+    /* Fill instance features */
+    int n_con = (int)con->num_constraints;
+    out_inst[0] = (double)n_vars;
+    out_inst[1] = (double)n_con;
+    out_inst[2] = (n_vars > 0) ? (double)n_con / n_vars : 0.0;
+    out_inst[3] = out_inst[2]; /* same as constraint_density */
+    out_inst[4] = (n_vars > 0) ? (double)obj_var_count / n_vars : 0.0;
+
+    /* integer_variable_fraction */
+    int n_integer = 0;
+    for (int i = 0; i < n_vars; i++)
+        if (vars[i].is_integer) n_integer++;
+    out_inst[5] = (n_vars > 0) ? (double)n_integer / n_vars : 0.0;
+
+    /* Coefficient statistics */
+    if (all_coeff_count > 0) {
+        double cmean = all_coeff_sum / all_coeff_count;
+        double cvar = all_coeff_sq_sum / all_coeff_count - cmean * cmean;
+        out_inst[6] = cmean;
+        out_inst[7] = (cvar > 0) ? sqrt(cvar) : 0.0;
+        out_inst[8] = all_coeff_max;
+    }
+
+    /* Bounds tightness */
+    double bw_sum = 0, bw_sq_sum = 0;
+    for (int i = 0; i < n_vars; i++) {
+        double w = vars[i].ub - vars[i].lb;
+        bw_sum += w;
+        bw_sq_sum += w * w;
+    }
+    double bw_mean = bw_sum / n_vars;
+    double bw_var = bw_sq_sum / n_vars - bw_mean * bw_mean;
+    out_inst[9] = bw_mean;
+    out_inst[10] = (bw_var > 0) ? sqrt(bw_var) : 0.0;
+
+    /* Clean up */
+    free(degree);
+    free(coeff_sum);
+    free(coeff_max);
+    free(coeff_min);
+    free(coeff_cnt);
+    free(obj_coeff);
+    free(co_occur);
 }
