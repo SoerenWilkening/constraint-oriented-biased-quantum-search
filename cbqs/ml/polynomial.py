@@ -212,7 +212,7 @@ class PolynomialPredictor:
         bias_factor = max(0.0, float(inst_out[2]))
 
         return {
-            'branching_weights': weights,
+            'branching_weights': np.maximum(0.0, weights),
             'variable_priorities': priorities,
             'branching_bias': float(bias),
             'branching_factor': branching_factor,

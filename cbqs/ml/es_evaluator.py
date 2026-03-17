@@ -90,10 +90,20 @@ def evaluate(theta, model, time_budget):
 
     # Set predicted parameters on model
     model.set_param('branching_weights', params['branching_weights'])
-    model.set_param('variable_priorities', params['variable_priorities'])
     model.set_param('branching_bias', params['branching_bias'])
     model.set_param('branching_factor', params['branching_factor'])
     model.set_param('bias_factor', params['bias_factor'])
+
+    # variable_priorities: set if the solver supports it (phase-specific param,
+    # may not be wired yet). Skip silently if not available.
+    priorities = params['variable_priorities']
+    for name in ('variable_priorities',
+                 'sat_variable_priorities', 'opt_sat_variable_priorities',
+                 'opt_variable_priorities'):
+        try:
+            model.set_param(name, priorities)
+        except ValueError:
+            pass
 
     # Solve and extract signal
     result = model.solve()
