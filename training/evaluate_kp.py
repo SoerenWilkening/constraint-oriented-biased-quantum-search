@@ -149,15 +149,19 @@ def main():
 
     # 2) ES-trained predictor
     predictor_path = args.predictor or find_latest_predictor()
+    predict_overhead = 0.0
     if predictor_path:
         print(f"\nLoading ES predictor from: {predictor_path}")
         try:
             from cbqs.ml.polynomial import PolynomialPredictor
+            t0 = time.monotonic()
             predictor = PolynomialPredictor.load(predictor_path)
             tmp_model = build_knapsack_model(weights, values, capacity)
             predicted_params = predictor.predict(tmp_model)
+            predict_overhead = time.monotonic() - t0
             configs.append(("ES-predicted", predicted_params))
-            print(f"  Loaded successfully. Predicted params:")
+            print(f"  Loaded successfully ({predict_overhead*1000:.1f}ms overhead).")
+            print(f"  Predicted params:")
             for k, v in predicted_params.items():
                 if isinstance(v, np.ndarray):
                     print(f"    {k}: array[{len(v)}] "
@@ -231,6 +235,14 @@ def main():
                     objs.append(obj)
             if times_s:
                 ax.step(times_s, objs, where='post', label=label, linewidth=2)
+                has_data = True
+
+            # For ES-predicted, also plot with prediction overhead added
+            if label == "ES-predicted" and times_s and predict_overhead > 0:
+                shifted_times = [t + predict_overhead for t in times_s]
+                ax.step(shifted_times, objs, where='post',
+                        label="ES-predicted (incl. overhead)",
+                        linewidth=2, linestyle='--')
                 has_data = True
 
         if has_data:
