@@ -12,8 +12,6 @@ Total learnable parameters: 344 (110 per-variable + 234 instance-level).
 """
 import numpy as np
 
-from cbqs.ml.features import FeatureExtractor
-
 # --- Dimensions ---
 N_VAR_FEATURES = 9
 N_INST_FEATURES = 11
@@ -173,7 +171,6 @@ class PolynomialPredictor:
     def __init__(self, theta, delta_pct=DEFAULT_DELTA_PCT):
         self.W_var, self.W_inst = unpack_theta(np.asarray(theta, dtype=np.float64))
         self.delta_pct = delta_pct
-        self._extractor = FeatureExtractor()
 
     def predict(self, model):
         """Predict solver parameters from a closed Model.
@@ -189,8 +186,18 @@ class PolynomialPredictor:
             Parameter dict with keys: branching_weights, variable_priorities,
             branching_bias, branching_factor, bias_factor.
         """
+        # Extract features via C implementation (lazy import to avoid circular).
+        # Falls back to Python FeatureExtractor for non-Model objects (e.g. tests).
+        try:
+            from cbqs.SearchLib import c_extract_features
+            var_features, inst_features = c_extract_features(model)
+        except TypeError:
+            from cbqs.ml.features import FeatureExtractor
+            _fe = FeatureExtractor()
+            var_features = _fe.extract_variable_features(model)
+            inst_features = _fe.extract_instance_features(model)
+
         # Per-variable predictions
-        var_features = self._extractor.extract_variable_features(model)
         var_terms = poly_expand(var_features, degree=2)
         var_out = var_terms @ self.W_var.T  # (n_vars, 2)
         weights = var_out[:, 0]
@@ -198,7 +205,6 @@ class PolynomialPredictor:
         priorities = np.argsort(-priority_scores)
 
         # Instance-level predictions
-        inst_features = self._extractor.extract_instance_features(model)
         inst_terms = poly_expand(inst_features, degree=2)
         inst_out = self.W_inst @ inst_terms  # (3,)
 

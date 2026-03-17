@@ -594,6 +594,37 @@ def c_extract_features(Model mod):
 	return var_features, inst_features
 
 
+def set_predicted_params(mod, double bias, double branching_factor,
+                         double bias_factor, weights, variable_priorities, int n):
+	"""Set all predicted parameters on the model in one call.
+
+	Stores parameters in the model's _params dict, bypassing per-parameter
+	validation for performance in the ES prediction hot path.
+
+	Parameters
+	----------
+	mod : Model
+		A Model instance (or any object with a _params dict).
+	bias : float
+		Branching bias value.
+	branching_factor : float
+		Branching factor value.
+	bias_factor : float
+		Bias factor value.
+	weights : numpy.ndarray
+		Per-variable branching weights, shape (n,).
+	variable_priorities : numpy.ndarray
+		Per-variable priority ordering, shape (n,).
+	n : int
+		Number of variables.
+	"""
+	mod._params['branching_bias'] = bias
+	mod._params['branching_factor'] = branching_factor
+	mod._params['bias_factor'] = bias_factor
+	mod._params['branching_weights'] = weights
+	mod._params['variable_priorities'] = variable_priorities
+
+
 def reset_c_flags():
 	"""Legacy function - no longer needed with ctx-based lifecycle.
 

@@ -47,6 +47,12 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_variable_order(solver_ctx_t* ctx, const double* priorities, int n)
 	void solver_ctx_set_default_order(solver_ctx_t* ctx, int n)
 
+	# Consolidated parameter setter
+	void solver_ctx_set_predicted_params(solver_ctx_t* ctx, double bias,
+	                                      double branching_factor, double bias_factor,
+	                                      const double* weights,
+	                                      const double* variable_order, int n)
+
 # StateProbability from Branching.h (relocated from branching.pxd)
 cdef extern from "src/Branching.h":
 	double StateProbability(solver_ctx_t *ctx, state_t *state, state_t *threshold)

@@ -117,22 +117,18 @@ def evaluate(theta, model, time_budget):
     # Set time budget
     model.set_param('stopping_time', int(time_budget))
 
-    # Set predicted parameters on model
-    model.set_param('branching_weights', params['branching_weights'])
-    model.set_param('branching_bias', params['branching_bias'])
-    model.set_param('branching_factor', params['branching_factor'])
-    model.set_param('bias_factor', params['bias_factor'])
-
-    # variable_priorities: set if the solver supports it (phase-specific param,
-    # may not be wired yet). Skip silently if not available.
-    priorities = params['variable_priorities']
-    for name in ('variable_priorities',
-                 'sat_variable_priorities', 'opt_sat_variable_priorities',
-                 'opt_variable_priorities'):
-        try:
-            model.set_param(name, priorities)
-        except ValueError:
-            pass
+    # Set all predicted parameters in one call via consolidated setter
+    from cbqs.SearchLib import set_predicted_params
+    n = len(model.variables)
+    set_predicted_params(
+        model,
+        params['branching_bias'],
+        params['branching_factor'],
+        params['bias_factor'],
+        params['branching_weights'],
+        params['variable_priorities'],
+        n,
+    )
 
     # Install a manual callback to track best objective and time-to-best,
     # bypassing the broken built-in history callback.
