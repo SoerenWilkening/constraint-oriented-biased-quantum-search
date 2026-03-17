@@ -3,13 +3,15 @@
 Verifies that c_extract_features() produces results matching the Python
 FeatureExtractor reference implementation for various model configurations.
 """
+import random
+
 import numpy as np
 import pytest
 
 pytest.importorskip("cbqs")
 
 from cbqs.Model import Model
-from cbqs.Constants import MAXIMIZE, INTEGER
+from cbqs.Constants import MAXIMIZE, MINIMIZE, INTEGER
 from cbqs.SearchLib import c_extract_features
 from cbqs.ml.features import FeatureExtractor
 
@@ -31,6 +33,24 @@ def _make_knapsack_model(n=10):
     obj = sum((i % 7 + 1) * x[i] for i in range(n))
     m.set_objective(obj, sense=MAXIMIZE)
     m.add_constraint(sum((i % 5 + 1) * x[i] for i in range(n)) <= n * 2)
+    m.close()
+    return m
+
+
+def _make_sat_model(n, clause_ratio=4.27, seed=42):
+    """n-variable random 3-SAT with deterministic clause generation."""
+    rng = random.Random(seed)
+    m = Model()
+    x = m.add_variables(n)
+    # Dummy objective (SAT instances still need one to close)
+    m.set_objective(sum(1 * x[i] for i in range(n)), sense=MINIMIZE)
+    n_clauses = int(clause_ratio * n)
+    for _ in range(n_clauses):
+        # Pick 3 distinct variables for each clause
+        indices = rng.sample(range(n), min(3, n))
+        # Each literal is x[i] or (1 - x[i]); model as sum >= 1
+        expr = sum(1 * x[i] for i in indices)
+        m.add_constraint(expr <= len(indices))
     m.close()
     return m
 
@@ -110,11 +130,41 @@ class TestCExtractFeaturesMatchesPython:
     def test_multi_constraint(self):
         self._compare(_make_multi_constraint_model())
 
+    def test_knapsack_100(self):
+        self._compare(_make_knapsack_model(100))
+
+    def test_knapsack_3000(self):
+        self._compare(_make_knapsack_model(3000))
+
+    def test_sat_20(self):
+        self._compare(_make_sat_model(20))
+
+    def test_sat_65(self):
+        self._compare(_make_sat_model(65))
+
     def test_single_variable(self):
         m = Model()
         x = m.add_variables(2)
         m.set_objective(x[0] + x[1], sense=MAXIMIZE)
         m.add_constraint(x[0] + x[1] <= 1)
+        m.close()
+        self._compare(m)
+
+    def test_single_variable_true(self):
+        """Edge case: model with exactly one variable."""
+        m = Model()
+        x = m.add_variables(1)
+        m.set_objective(1 * x[0], sense=MAXIMIZE)
+        m.add_constraint(1 * x[0] <= 1)
+        m.close()
+        self._compare(m)
+
+    def test_empty_model(self):
+        """Edge case: minimal model with variables but no meaningful structure."""
+        m = Model()
+        x = m.add_variables(2)
+        m.set_objective(x[0] + x[1], sense=MAXIMIZE)
+        m.add_constraint(x[0] + x[1] <= 2)
         m.close()
         self._compare(m)
 
