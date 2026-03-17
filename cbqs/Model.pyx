@@ -1028,6 +1028,21 @@ or {self.runtime}s sampling
 		inc = self.stgen.QMaxSearch(M)
 		return inc
 
+	def _callback_value(self):
+		"""Current incumbent value for history callback.
+
+		In SATISFY mode, returns constraints satisfied count.
+		In OPTIMIZE mode, returns objective value scaled by sense.
+
+		Returns
+		-------
+		int
+			Current incumbent value.
+		"""
+		if self.mod[0].solver == SATISFY:
+			return self.mod[0].con[0].num_constraints + self.mod[0].global_opt[0].tot_profit
+		return self.mod[0].global_opt[0].tot_profit * self.sense
+
 	@property
 	def objective_value(self):
 		"""Best objective value found by the solver.

@@ -2,10 +2,9 @@
 
 ## Required Reading
 
-Before starting any task, scan the following documents:
+Before starting any task, scan the following document:
 
 - **PRD.md** — Product Requirements Document
-- **IMPLEMENTATION_PLAN.md** — Implementation plan and milestones
 - **AGENTS.md** — Agent configuration and task tracking
 
 ## Tools

@@ -164,12 +164,7 @@ def _history_callback_fn():
 		return
 	try:
 		mod = state.mod
-		if state.mode == SATISFY:
-			# Satisfaction count: num_constraints + tot_profit
-			# (tot_profit is negative, so this gives constraints-remaining complement)
-			value = mod.mod[0].con[0].num_constraints + mod.mod[0].global_opt[0].tot_profit
-		else:
-			value = mod.mod[0].global_opt[0].tot_profit * mod.sense
+		value = mod._callback_value()
 		elapsed = time_mod.monotonic() - state.start_time
 		if state.prev_best is None or value != state.prev_best:
 			state.history.append((value, elapsed))
