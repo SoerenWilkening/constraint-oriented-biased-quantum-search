@@ -80,7 +80,10 @@ def solve_with_params(weights, values, capacity, params, time_budget,
     m.general_greedy()
 
     for key, value in params.items():
-        m.set_param(key, value)
+        try:
+            m.set_param(key, value)
+        except ValueError:
+            pass
 
     history = []
 
@@ -100,23 +103,17 @@ def solve_with_params(weights, values, capacity, params, time_budget,
 # Main
 # ------------------------------------------------------------------
 
-def find_latest_training_dir():
-    """Find the most recent training output directory."""
+def find_latest_predictor():
+    """Find the most recent ES predictor .npz file."""
     output_dir = Path(__file__).parent / 'output'
     if not output_dir.exists():
         return None
     runs = sorted(output_dir.iterdir())
-    if not runs:
-        return None
-    # Look for opt subdirectory first
-    latest = runs[-1]
-    opt_dir = latest / 'opt'
-    if opt_dir.exists():
-        return str(opt_dir)
-    sat_dir = latest / 'sat'
-    if sat_dir.exists():
-        return str(sat_dir)
-    return str(latest)
+    for run_dir in reversed(runs):
+        npz = run_dir / 'es_predictor.npz'
+        if npz.exists():
+            return str(npz)
+    return None
 
 
 def main():
@@ -129,8 +126,8 @@ def main():
         description='Evaluate CBQS on a knapsack instance with and without ML')
     parser.add_argument('--instance', type=str, default=str(default_instance),
                         help='Path to knapsack .in file')
-    parser.add_argument('--training-dir', type=str, default=None,
-                        help='Training output dir (auto-detected if omitted)')
+    parser.add_argument('--predictor', type=str, default=None,
+                        help='Path to es_predictor.npz (auto-detected if omitted)')
     parser.add_argument('--time-budget', type=float, default=60,
                         help='Solve time budget in seconds (default: 30)')
     parser.add_argument('--num-workers', type=int, default=12,
@@ -150,28 +147,27 @@ def main():
     # 1) Default (no ML)
     configs.append(("Default", {}))
 
-    # 2) Trained predictor
-    training_dir = args.training_dir or find_latest_training_dir()
-    if training_dir:
-        print(f"\nLoading trained predictor from: {training_dir}")
+    # 2) ES-trained predictor
+    predictor_path = args.predictor or find_latest_predictor()
+    if predictor_path:
+        print(f"\nLoading ES predictor from: {predictor_path}")
         try:
-            from cbqs.ml.opt_trainer import OPTTrainer
-            trainer = OPTTrainer.load(training_dir)
-            # Build a temporary model to get predictions
+            from cbqs.ml.polynomial import PolynomialPredictor
+            predictor = PolynomialPredictor.load(predictor_path)
             tmp_model = build_knapsack_model(weights, values, capacity)
-            predicted_params = trainer.predict(tmp_model)
-            configs.append(("ML-predicted", predicted_params))
+            predicted_params = predictor.predict(tmp_model)
+            configs.append(("ES-predicted", predicted_params))
             print(f"  Loaded successfully. Predicted params:")
             for k, v in predicted_params.items():
-                if isinstance(v, list):
+                if isinstance(v, np.ndarray):
                     print(f"    {k}: array[{len(v)}] "
                           f"(mean={np.mean(v):.3f}, std={np.std(v):.3f})")
                 else:
                     print(f"    {k}: {v:.4f}")
         except Exception as e:
-            print(f"  Warning: could not load trainer: {e}")
+            print(f"  Warning: could not load predictor: {e}")
     else:
-        print("\nNo training directory found, skipping ML-predicted config.")
+        print("\nNo ES predictor found, skipping ML-predicted config.")
 
     # Run evaluations
     print(f"\n{'='*70}")
