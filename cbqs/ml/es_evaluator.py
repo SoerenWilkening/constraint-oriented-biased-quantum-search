@@ -1,0 +1,100 @@
+"""ES evaluation functions: wire PolynomialPredictor to the CBQS solver.
+
+Provides evaluate() which creates a PolynomialPredictor from a theta vector,
+sets predicted parameters on a Model, runs solve(), and returns a training
+signal tuple (best_objective, -time_to_best). Also provides normalize_signals()
+for per-instance zero-mean unit-variance normalization of signal differences
+before gradient aggregation.
+"""
+import numpy as np
+
+from cbqs.ml.polynomial import PolynomialPredictor
+
+
+def extract_signal(result):
+    """Extract the ES training signal from a solver result.
+
+    The signal is a 2-tuple for lexicographic comparison:
+    - First element: best objective value (higher is better).
+    - Second element: negative time-to-best (faster is better as tiebreaker).
+
+    Parameters
+    ----------
+    result : OptimizeResult
+        Solver result from model.solve().
+
+    Returns
+    -------
+    tuple of (float, float)
+        (best_objective, -time_to_best).
+    """
+    best_objective = float(result.objective)
+    if result.history:
+        time_to_best = float(result.history[-1][1])
+    else:
+        time_to_best = 0.0
+    return (best_objective, -time_to_best)
+
+
+def normalize_signals(diffs):
+    """Normalize signal differences to zero mean and unit variance.
+
+    Used per-instance to normalize the signal differences across K
+    perturbation pairs before gradient aggregation. This ensures that
+    instances with different objective scales contribute equally.
+
+    Parameters
+    ----------
+    diffs : array-like
+        Signal differences, shape (K,). Can be a list or numpy array.
+
+    Returns
+    -------
+    numpy.ndarray
+        Normalized differences with zero mean and unit variance.
+        If the standard deviation is zero (constant input), returns
+        an array of zeros.
+    """
+    diffs = np.asarray(diffs, dtype=np.float64)
+    mean = np.mean(diffs)
+    std = np.std(diffs)
+    return (diffs - mean) / (std + 1e-8)
+
+
+def evaluate(theta, model, time_budget):
+    """Evaluate a theta vector on a model instance.
+
+    Creates a PolynomialPredictor from theta, predicts solver parameters,
+    sets them on the model, runs solve(), and returns the training signal.
+
+    Parameters
+    ----------
+    theta : numpy.ndarray
+        Flat coefficient vector of shape (THETA_SIZE,).
+    model : Model
+        A closed CBQS Model instance (or FakeModel for testing).
+    time_budget : int or float
+        Solve time budget in seconds, set as stopping_time.
+
+    Returns
+    -------
+    tuple of (float, float)
+        Training signal: (best_objective, -time_to_best).
+    """
+    # Create predictor and get parameters
+    predictor = PolynomialPredictor(theta)
+    params = predictor.predict(model)
+
+    # Set time budget
+    model.set_param('stopping_time', int(time_budget))
+
+    # Set predicted parameters on model
+    model.set_param('branching_weights', params['branching_weights'])
+    model.set_param('variable_priorities', params['variable_priorities'])
+    model.set_param('branching_bias', params['branching_bias'])
+    model.set_param('branching_factor', params['branching_factor'])
+    model.set_param('bias_factor', params['bias_factor'])
+
+    # Solve and extract signal
+    result = model.solve()
+    return extract_signal(result)
