@@ -1,6 +1,6 @@
 # Product Requirements Document: CBQS Polynomial ES Training Pipeline
 
-**Version**: 2.0
+**Version**: 3.0
 **Date**: 2026-03-17
 **Status**: Draft
 
@@ -28,6 +28,8 @@ This PRD defines a replacement ML pipeline based on **polynomial parameter funct
 
 5. **Model loading overhead**: Large ExtraTrees ensembles (high `n_estimators`) take too long to load at prediction time.
 
+6. **Prediction pipeline overhead**: Feature extraction is implemented in pure Python loops over C-backed expression data. Profiling shows this dominates prediction time: ~4.2 seconds for n=3000 (99% of predict() time), scaling O(n²) due to co-occurrence set construction. This overhead eliminates any solver improvement the optimized parameters provide.
+
 ### 2.2 Desired Outcome
 
 A lightweight, scale-invariant model that:
@@ -37,6 +39,7 @@ A lightweight, scale-invariant model that:
 - Optimizes for best objective found, not speed-to-feasibility
 - Can be incrementally improved by adding more training instances
 - Loads instantly (just ~365 floating-point coefficients)
+- **Predicts in microseconds, not milliseconds** — feature extraction in C, not Python
 
 ---
 
@@ -103,13 +106,45 @@ Per-variable branching weights SHALL act as perturbations. The polynomial output
 #### FR-10: Phase-Specific Parameters
 The model SHALL output parameters for each solver phase (SAT, OPT-SAT, OPT) as defined in the existing phase-specific parameter infrastructure. Each phase uses its own polynomial coefficients, or a shared polynomial may be used with phase as an additional input.
 
+#### FR-11: C-Level Feature Extraction
+Feature extraction SHALL be implemented in C, operating directly on the solver's internal expression data structures (`dyn_expression_t`, variable metadata). A single-pass C function SHALL compute both per-variable features (n_vars × 9) and instance features (11,) in one traversal of the expression data — avoiding the redundant iteration that separate functions would require.
+
+The C function signature:
+```c
+void extract_features(
+    const dyn_expression_t *obj_exprs, int n_obj,
+    const dyn_expression_t *con_exprs, int n_con,
+    const variable_meta_t *vars, int n_vars,
+    double *out_var_features,   // (n_vars * 9) row-major
+    double *out_inst_features   // (11,)
+);
+```
+
+Features SHALL be z-score normalized (per-variable) and raw (instance-level), matching the current Python implementation exactly.
+
+#### FR-12: Consolidated Parameter Setter
+A single C function SHALL set all predicted parameters on the solver context, replacing the current ~12 separate Cython→C calls:
+
+```c
+void solver_ctx_set_predicted_params(
+    solver_ctx_t *ctx,
+    double bias, double branching_factor, double bias_factor,
+    const double *weights, const int *variable_order, int n
+);
+```
+
+This writes to all three phase stats (sat, opt_sat, opt) in one call. The Cython layer SHALL expose this as a single function call.
+
+#### FR-13: Option A / Option B Fallback
+The initial implementation (Option A) SHALL keep polynomial expansion and matrix multiplication in Python/numpy, with only feature extraction and parameter passing in C. If profiling shows this is insufficient, Option B SHALL move the entire prediction pipeline to C (load theta, extract features, polynomial expand, matmul, clip, write to solver_ctx) with zero Python involvement after initiation.
+
 ### 3.2 Non-Functional Requirements
 
 #### NFR-1: Model Size
 The complete model SHALL be storable as a single small file (~365 floating-point coefficients + metadata). Loading time SHALL be negligible.
 
 #### NFR-2: Prediction Speed
-Prediction for a new instance SHALL require only feature extraction + polynomial evaluation — no tree traversal or matrix operations. Prediction time SHALL be O(n_variables * n_features^2).
+Prediction for a new instance SHALL complete in sub-millisecond time for instances up to n=3000. Feature extraction in C SHALL be O(n_variables × n_constraints) with no Python loop overhead. The full predict() pipeline (C feature extraction + numpy polynomial math + C parameter setting) SHALL be at least 100x faster than the current pure-Python implementation.
 
 #### NFR-3: Training Compute
 Each training step requires 2K solver evaluations per batch instance (K perturbations, antithetic). With K=50 and batch size=5, this is 500 evaluations per step. Training on small instances (n<200) should be fast enough for interactive iteration.
@@ -178,19 +213,19 @@ Checkpoint every N steps:
   save(theta, optimizer_state, training_pool)
 ```
 
-### 4.3 Evaluation Function
+### 4.3 Evaluation Function (Option A: C features + numpy math)
 
 ```
 evaluate(theta, instance):
   W_var, W_inst = unpack(theta)
 
-  # Per-variable predictions
-  var_features = extract_variable_features(instance)  # (n_vars, 9)
-  var_terms = polynomial_expand(var_features, degree=2)  # (n_vars, 64)
+  # Feature extraction — C function, single pass over expressions
+  var_features, inst_features = c_extract_features(instance)  # C → numpy arrays
+
+  # Polynomial expansion + prediction — numpy (trusted, fast for small matrices)
+  var_terms = polynomial_expand(var_features, degree=2)  # (n_vars, 55)
   var_outputs = var_terms @ W_var.T  # (n_vars, 2) -> [weight, priority]
 
-  # Instance-level predictions
-  inst_features = extract_instance_features(instance)  # (11,)
   inst_terms = polynomial_expand(inst_features, degree=2)  # (78,)
   inst_outputs = inst_terms @ W_inst  # (3,) -> [bias_delta, branching_factor, bias_factor]
 
@@ -199,13 +234,23 @@ evaluate(theta, instance):
   branching_factor = max(0, inst_outputs[1])
   bias_factor = max(0, inst_outputs[2])
 
-  # Set params and solve
-  model.set_params(weights, priorities, bias, branching_factor, bias_factor)
-  result = model.solve(time_budget)
+  # Parameter passing — single consolidated C call
+  solver_ctx_set_predicted_params(ctx, bias, branching_factor, bias_factor, weights, order, n)
 
-  # Signal: best objective (primary), -time_to_best (tiebreaker)
+  result = model.solve(time_budget)
   return (result.best_objective, -result.time_to_best)
 ```
+
+### 4.3.1 Option B Fallback (full C pipeline)
+
+If Option A is insufficient, the entire prediction pipeline moves to C:
+
+```
+  # Single C call: load theta + extract features + poly expand + matmul + set params
+  c_predict_and_set_params(ctx, theta, obj_exprs, con_exprs, vars, n_vars)
+```
+
+No Python involvement after initiation. Requires reimplementing polynomial expansion and small matrix multiply in C (trivial for fixed-size matrices).
 
 ### 4.4 Data Flow
 
@@ -224,9 +269,10 @@ Training Instances (small/medium)
         |
         v
   Deployment (any instance size)
-  ├── Feature extraction
-  ├── Polynomial evaluation
+  ├── C feature extraction (single pass over expressions)
+  ├── numpy polynomial evaluation (small matrices)
   ├── Post-processing (clip, scale bias)
+  ├── C consolidated parameter setter (single call)
   └── model.solve()
 ```
 
@@ -242,6 +288,9 @@ Training Instances (small/medium)
 - [ ] Training log captures per-step metrics and is queryable
 - [ ] Model file is small (<10KB) and loads instantly
 - [ ] Per-variable weights act as perturbations (magnitudes remain small relative to bias)
+- [ ] C feature extraction produces identical results to Python implementation (verified by tests)
+- [ ] Full predict() pipeline completes in <1ms for n=3000 instances (vs current ~4200ms)
+- [ ] Consolidated parameter setter replaces multi-call Cython propagation
 
 ---
 
@@ -259,8 +308,10 @@ The new pipeline replaces the ExtraTreesRegressor-based pipeline entirely:
 | Size generalization | Poor (no extrapolation) | By design (scale-invariant) |
 | Model file size | Large (.joblib) | Tiny (~365 floats) |
 | Incremental training | warm_start (add trees) | Resume from checkpoint |
+| Feature extraction | Pure Python loops (~4.2s for n=3000) | C single-pass (~ms) |
+| Parameter passing | ~12 separate Cython→C calls | Single consolidated C call |
 
-The existing feature extraction (`features.py`) is reused. The existing phase-specific parameter infrastructure (three BranchingStats, variable ordering) is reused. Only the training pipeline and predictor are replaced.
+The existing feature extraction logic is reimplemented in C for performance. The Python version (`features.py`) is retained as reference/test oracle. The existing phase-specific parameter infrastructure (three BranchingStats, variable ordering) is reused.
 
 ---
 
@@ -273,6 +324,8 @@ The existing feature extraction (`features.py`) is reused. The existing phase-sp
 | ±3% delta bound too restrictive | Model can't learn meaningful improvements | Bound is configurable; start conservative, relax if needed |
 | Training compute cost (2K evals per step per instance) | Slow training | Use small instances; parallelize evaluations |
 | Polynomial cross-terms overfit on small training pools | Poor generalization | Z-score normalization, small coefficients via regularization |
+| C feature extraction diverges from Python | Silent correctness bugs | Bit-exact comparison tests against Python reference implementation |
+| Option A still too slow for large instances | Predict overhead still visible | Fall back to Option B (full C pipeline) |
 
 ---
 
@@ -283,3 +336,5 @@ The existing feature extraction (`features.py`) is reused. The existing phase-sp
 - **Learned sigma schedule**: Adapt perturbation scale during training based on gradient signal-to-noise ratio
 - **Multi-threaded evaluation**: Evaluate perturbations in parallel across CPU cores to speed up training
 - **Neural network upgrade**: If polynomial capacity is limiting, replace with a small neural network while keeping the ES training framework
+- **Option B (full C pipeline)**: If Option A numpy overhead matters, move polynomial expansion + matmul to C as well — trivial for fixed-size matrices
+- **Multi-threaded feature extraction**: For very large instances, parallelize the constraint iteration loop across threads

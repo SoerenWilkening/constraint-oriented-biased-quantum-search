@@ -154,9 +154,9 @@ def main():
         print(f"\nLoading ES predictor from: {predictor_path}")
         try:
             from cbqs.ml.polynomial import PolynomialPredictor
+            tmp_model = build_knapsack_model(weights, values, capacity)
             t0 = time.monotonic()
             predictor = PolynomialPredictor.load(predictor_path)
-            tmp_model = build_knapsack_model(weights, values, capacity)
             predicted_params = predictor.predict(tmp_model)
             predict_overhead = time.monotonic() - t0
             configs.append(("ES-predicted", predicted_params))
