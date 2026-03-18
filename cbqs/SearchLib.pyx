@@ -594,6 +594,90 @@ def c_extract_features(Model mod):
 	return var_features, inst_features
 
 
+def c_predict_params(Model mod, W_var_np, W_inst_np, double delta_pct):
+	"""Fused prediction pipeline: features → poly → matmul → params, all in C.
+
+	Parameters
+	----------
+	mod : Model
+		A closed Model instance.
+	W_var_np : numpy.ndarray
+		Per-variable weight matrix, shape (2, 55), row-major float64.
+	W_inst_np : numpy.ndarray
+		Instance-level weight matrix, shape (3, 78), row-major float64.
+	delta_pct : float
+		Max bias delta as fraction of n/4.
+
+	Returns
+	-------
+	dict
+		Parameter dict with keys: branching_weights, variable_priorities,
+		branching_bias, branching_factor, bias_factor.
+	"""
+	if not mod.constraints_compiled:
+		raise ValueError("Model must be closed before prediction")
+
+	cdef int n = int(mod.n)
+	if n == 0:
+		return {
+			'branching_weights': np.zeros(0, dtype=np.float64),
+			'variable_priorities': np.zeros(0, dtype=np.int32),
+			'branching_bias': 0.0,
+			'branching_factor': 0.0,
+			'bias_factor': 0.0,
+		}
+
+	# Build variable metadata
+	cdef variable_meta_t *vmeta = <variable_meta_t *> calloc(n, sizeof(variable_meta_t))
+	if vmeta == NULL:
+		raise MemoryError("Failed to allocate variable metadata")
+
+	var_indices = sorted(mod.variables.keys())
+	for i in range(n):
+		idx = var_indices[i]
+		var = mod.variables[idx]
+		vmeta[i].lb = <double> var.lb
+		vmeta[i].ub = <double> var.ub
+		vmeta[i].is_integer = 1 if var.vtype == INTEGER else 0
+
+	# Ensure contiguous C-order arrays
+	cdef double[::1] w_var_view = np.ascontiguousarray(W_var_np, dtype=np.float64).ravel()
+	cdef double[::1] w_inst_view = np.ascontiguousarray(W_inst_np, dtype=np.float64).ravel()
+
+	# Allocate output arrays
+	weights = np.zeros(n, dtype=np.float64)
+	priorities = np.zeros(n, dtype=np.int32)
+
+	cdef double[::1] wt_view = weights
+	cdef int[::1] pr_view = priorities
+	cdef double bias, bf, bif
+
+	predict_params(
+		mod.mod[0].obj,
+		mod.mod[0].con,
+		vmeta,
+		n,
+		&w_var_view[0],
+		&w_inst_view[0],
+		delta_pct,
+		&wt_view[0],
+		&pr_view[0],
+		&bias,
+		&bf,
+		&bif
+	)
+
+	free(vmeta)
+
+	return {
+		'branching_weights': weights,
+		'variable_priorities': priorities,
+		'branching_bias': float(bias),
+		'branching_factor': float(bf),
+		'bias_factor': float(bif),
+	}
+
+
 def set_predicted_params(mod, double bias, double branching_factor,
                          double bias_factor, weights, variable_priorities, int n):
 	"""Set all predicted parameters on the model in one call.

@@ -186,16 +186,19 @@ class PolynomialPredictor:
             Parameter dict with keys: branching_weights, variable_priorities,
             branching_bias, branching_factor, bias_factor.
         """
-        # Extract features via C implementation (lazy import to avoid circular).
-        # Falls back to Python FeatureExtractor for non-Model objects (e.g. tests).
+        # Fused C pipeline: features → poly → matmul → params in one call.
+        # Falls back to Python path for non-Model objects (e.g. tests).
         try:
-            from cbqs.SearchLib import c_extract_features
-            var_features, inst_features = c_extract_features(model)
+            from cbqs.SearchLib import c_predict_params
+            return c_predict_params(model, self.W_var, self.W_inst, self.delta_pct)
         except TypeError:
-            from cbqs.ml.features import FeatureExtractor
-            _fe = FeatureExtractor()
-            var_features = _fe.extract_variable_features(model)
-            inst_features = _fe.extract_instance_features(model)
+            pass
+
+        # Python fallback
+        from cbqs.ml.features import FeatureExtractor
+        _fe = FeatureExtractor()
+        var_features = _fe.extract_variable_features(model)
+        inst_features = _fe.extract_instance_features(model)
 
         # Per-variable predictions
         var_terms = poly_expand(var_features, degree=2)

@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbqs import Model, MAXIMIZE
 from cbqs.ml.features import FeatureExtractor
-from cbqs.SearchLib import c_extract_features
+from cbqs.SearchLib import c_extract_features, c_predict_params
 from cbqs.ml.polynomial import (
     PolynomialPredictor, poly_expand, unpack_theta, THETA_SIZE,
     N_VAR_TERMS, N_INST_TERMS, N_VAR_OUTPUTS, N_INST_OUTPUTS,
@@ -154,7 +154,12 @@ def profile_model(model, theta, label, n_reps=100):
     print(f"  {'Full predict() end-to-end':<35} {mean:>10.1f} {std:>10.1f} {mn:>10.1f}")
     print(f"  {'Sum of stages':<35} {total_mean:>10.1f}")
 
-    # Stage 8: Parameter passing (set_param calls)
+    # Stage 8: Fused C pipeline (features + poly + matmul + postprocess)
+    mean, std, mn = profile_stage(
+        lambda: c_predict_params(model, W_var, W_inst, 0.03), n_reps)
+    print(f"  {'Fused C predict_params()':<35} {mean:>10.1f} {std:>10.1f} {mn:>10.1f}")
+
+    # Stage 9: Parameter passing (set_param calls)
     params = predictor.predict(model)
 
     def set_params():
