@@ -8,7 +8,10 @@ The model learns small perturbations around the known-good default bias of n/4,
 with bias delta bounded to +/-3% of n/4. Per-variable weights act as direct
 perturbations. Factors are clipped to non-negative values.
 
-Total learnable parameters: 344 (110 per-variable + 234 instance-level).
+The instance-level model uses a sub-linear form (intercept + linear terms only,
+no cross or squared terms) for 12 terms total.
+
+Total learnable parameters: 146 (110 per-variable + 36 instance-level).
 """
 import numpy as np
 
@@ -16,10 +19,14 @@ import numpy as np
 N_VAR_FEATURES = 9
 N_INST_FEATURES = 11
 N_VAR_TERMS = 55    # 1 + 9 + 36 + 9
-N_INST_TERMS = 78   # 1 + 11 + 55 + 11
+N_INST_TERMS = 12   # 1 + 11  (sub-linear: intercept + linear only)
 N_VAR_OUTPUTS = 2   # weight, priority
 N_INST_OUTPUTS = 3  # bias_delta, branching_factor, bias_factor
-THETA_SIZE = N_VAR_OUTPUTS * N_VAR_TERMS + N_INST_OUTPUTS * N_INST_TERMS  # 344
+THETA_SIZE = N_VAR_OUTPUTS * N_VAR_TERMS + N_INST_OUTPUTS * N_INST_TERMS  # 146
+
+# Legacy constant for backward compatibility with old checkpoints.
+_LEGACY_INST_TERMS = 78   # 1 + 11 + 55 + 11  (degree-2 full polynomial)
+_LEGACY_THETA_SIZE = N_VAR_OUTPUTS * N_VAR_TERMS + N_INST_OUTPUTS * _LEGACY_INST_TERMS  # 344
 
 # Default clipping bound for bias delta as fraction of n/4.
 DEFAULT_DELTA_PCT = 0.03
@@ -82,6 +89,70 @@ def poly_expand(X, degree=2):
     if is_1d:
         return result[0]
     return result
+
+
+def linear_expand(X):
+    """Expand features into intercept + linear terms only (sub-linear model).
+
+    Produces terms: [1, x1, ..., xn].
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        Feature array of shape (n_samples, n_features) or (n_features,) for a
+        single sample.
+
+    Returns
+    -------
+    numpy.ndarray
+        Expanded feature array. Shape (n_samples, 1 + n_features) for 2D input,
+        or (1 + n_features,) for 1D input.
+    """
+    is_1d = X.ndim == 1
+    if is_1d:
+        X = X.reshape(1, -1)
+
+    n_samples, n_features = X.shape
+    result = np.empty((n_samples, 1 + n_features), dtype=np.float64)
+    result[:, 0] = 1.0
+    result[:, 1:] = X
+
+    if is_1d:
+        return result[0]
+    return result
+
+
+def migrate_theta_v1_to_v2(theta_v1):
+    """Migrate a legacy 344-element theta to the new 146-element layout.
+
+    The legacy layout used degree-2 polynomial (78 terms) for instance-level
+    predictions. The new layout uses sub-linear (12 terms: intercept + linear).
+    Migration extracts only the intercept and linear coefficients from each
+    instance output row, discarding cross and squared terms.
+
+    Parameters
+    ----------
+    theta_v1 : numpy.ndarray
+        Legacy coefficient vector of shape (344,).
+
+    Returns
+    -------
+    numpy.ndarray
+        New coefficient vector of shape (146,).
+    """
+    if theta_v1.shape != (_LEGACY_THETA_SIZE,):
+        raise ValueError(
+            f"Expected legacy theta of shape ({_LEGACY_THETA_SIZE},), "
+            f"got {theta_v1.shape}"
+        )
+    split = N_VAR_OUTPUTS * N_VAR_TERMS  # 110
+    W_var_flat = theta_v1[:split]
+
+    # Legacy W_inst is (3, 78). Extract columns [0, 1..12) = intercept + linear.
+    W_inst_old = theta_v1[split:].reshape(N_INST_OUTPUTS, _LEGACY_INST_TERMS)
+    W_inst_new = W_inst_old[:, :N_INST_TERMS]  # (3, 12)
+
+    return np.concatenate([W_var_flat, W_inst_new.ravel()])
 
 
 def pack_theta(W_var, W_inst):
@@ -207,8 +278,8 @@ class PolynomialPredictor:
         priority_scores = var_out[:, 1]
         priorities = np.argsort(-priority_scores)
 
-        # Instance-level predictions
-        inst_terms = poly_expand(inst_features, degree=2)
+        # Instance-level predictions (sub-linear: intercept + linear only)
+        inst_terms = linear_expand(inst_features)
         inst_out = self.W_inst @ inst_terms  # (3,)
 
         # Post-process
@@ -243,6 +314,10 @@ class PolynomialPredictor:
     def load(cls, path):
         """Load a predictor from a .npz file.
 
+        Supports both current (146-element) and legacy (344-element) theta
+        vectors. Legacy checkpoints are automatically migrated by extracting
+        intercept and linear coefficients from the old degree-2 instance model.
+
         Parameters
         ----------
         path : str
@@ -256,4 +331,6 @@ class PolynomialPredictor:
         data = np.load(path)
         theta = data['theta']
         delta_pct = float(data['delta_pct']) if 'delta_pct' in data else DEFAULT_DELTA_PCT
+        if theta.shape == (_LEGACY_THETA_SIZE,):
+            theta = migrate_theta_v1_to_v2(theta)
         return cls(theta, delta_pct=delta_pct)

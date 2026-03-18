@@ -13,8 +13,10 @@ import pytest
 from cbqs.Model import Model
 from cbqs.ml.polynomial import (
     poly_expand,
+    linear_expand,
     pack_theta,
     unpack_theta,
+    migrate_theta_v1_to_v2,
     PolynomialPredictor,
     N_VAR_FEATURES,
     N_INST_FEATURES,
@@ -23,6 +25,8 @@ from cbqs.ml.polynomial import (
     N_VAR_OUTPUTS,
     N_INST_OUTPUTS,
     THETA_SIZE,
+    _LEGACY_INST_TERMS,
+    _LEGACY_THETA_SIZE,
 )
 
 
@@ -419,9 +423,9 @@ class TestSaveLoad:
 
 class TestConstants:
 
-    def test_theta_size_is_344(self):
-        """THETA_SIZE = 344."""
-        assert THETA_SIZE == 344
+    def test_theta_size_is_146(self):
+        """THETA_SIZE = 146 (110 per-variable + 36 instance-level)."""
+        assert THETA_SIZE == 146
 
     def test_theta_size_formula(self):
         """THETA_SIZE = N_VAR_OUTPUTS * N_VAR_TERMS + N_INST_OUTPUTS * N_INST_TERMS."""
@@ -433,11 +437,19 @@ class TestConstants:
         expected = 1 + n + n * (n - 1) // 2 + n
         assert N_VAR_TERMS == expected == 55
 
-    def test_inst_terms_is_78(self):
-        """N_INST_TERMS = 1 + 11 + 55 + 11 = 78."""
+    def test_inst_terms_is_12(self):
+        """N_INST_TERMS = 1 + 11 = 12 (sub-linear: intercept + linear)."""
+        assert N_INST_TERMS == 1 + N_INST_FEATURES == 12
+
+    def test_legacy_inst_terms_is_78(self):
+        """_LEGACY_INST_TERMS = 78 (old degree-2 polynomial)."""
         n = N_INST_FEATURES
         expected = 1 + n + n * (n - 1) // 2 + n
-        assert N_INST_TERMS == expected == 78
+        assert _LEGACY_INST_TERMS == expected == 78
+
+    def test_legacy_theta_size_is_344(self):
+        """_LEGACY_THETA_SIZE = 344."""
+        assert _LEGACY_THETA_SIZE == 344
 
     def test_var_features_count(self):
         """N_VAR_FEATURES = 9."""
@@ -454,3 +466,127 @@ class TestConstants:
     def test_inst_outputs_count(self):
         """N_INST_OUTPUTS = 3 (bias_delta, branching_factor, bias_factor)."""
         assert N_INST_OUTPUTS == 3
+
+
+# ------------------------------------------------------------------
+# linear_expand
+# ------------------------------------------------------------------
+
+class TestLinearExpand:
+
+    def test_shape_11_features(self):
+        """11 instance features expand to 12 terms."""
+        x = np.random.randn(11)
+        result = linear_expand(x)
+        assert result.shape == (12,)
+
+    def test_shape_2d_input(self):
+        """2D input is handled correctly."""
+        X = np.random.randn(5, 11)
+        result = linear_expand(X)
+        assert result.shape == (5, 12)
+
+    def test_intercept_is_one(self):
+        """First term is always 1 (intercept)."""
+        X = np.random.randn(3, 11)
+        result = linear_expand(X)
+        np.testing.assert_array_equal(result[:, 0], 1.0)
+
+    def test_linear_terms_match(self):
+        """Remaining terms match the original features."""
+        x = np.array([2.0, 3.0, 5.0])
+        result = linear_expand(x)
+        assert result.shape == (4,)
+        assert result[0] == 1.0
+        np.testing.assert_array_equal(result[1:], x)
+
+    def test_zeros_input(self):
+        """Zero input produces intercept=1 and zeros."""
+        x = np.zeros(11)
+        result = linear_expand(x)
+        assert result[0] == 1.0
+        np.testing.assert_array_equal(result[1:], 0.0)
+
+
+# ------------------------------------------------------------------
+# migrate_theta_v1_to_v2
+# ------------------------------------------------------------------
+
+class TestMigrateTheta:
+
+    def test_output_shape(self):
+        """Migration produces correct theta size."""
+        theta_old = np.random.randn(_LEGACY_THETA_SIZE)
+        theta_new = migrate_theta_v1_to_v2(theta_old)
+        assert theta_new.shape == (THETA_SIZE,)
+
+    def test_var_weights_preserved(self):
+        """Per-variable coefficients are preserved exactly."""
+        theta_old = np.random.randn(_LEGACY_THETA_SIZE)
+        theta_new = migrate_theta_v1_to_v2(theta_old)
+        split = N_VAR_OUTPUTS * N_VAR_TERMS
+        np.testing.assert_array_equal(theta_old[:split], theta_new[:split])
+
+    def test_inst_intercept_and_linear_preserved(self):
+        """Instance intercept and linear terms are preserved."""
+        rng = np.random.RandomState(42)
+        theta_old = rng.randn(_LEGACY_THETA_SIZE)
+        theta_new = migrate_theta_v1_to_v2(theta_old)
+
+        split = N_VAR_OUTPUTS * N_VAR_TERMS
+        W_inst_old = theta_old[split:].reshape(N_INST_OUTPUTS, _LEGACY_INST_TERMS)
+        W_inst_new = theta_new[split:].reshape(N_INST_OUTPUTS, N_INST_TERMS)
+
+        np.testing.assert_array_equal(W_inst_old[:, :12], W_inst_new)
+
+    def test_wrong_size_raises(self):
+        """Migration raises ValueError for non-legacy theta size."""
+        with pytest.raises(ValueError, match="Expected legacy theta"):
+            migrate_theta_v1_to_v2(np.zeros(100))
+
+    def test_roundtrip_with_zero_cross_terms(self):
+        """If old theta has zero cross/squared terms, migration is lossless."""
+        rng = np.random.RandomState(99)
+        W_var = rng.randn(N_VAR_OUTPUTS, N_VAR_TERMS)
+        W_inst_old = np.zeros((N_INST_OUTPUTS, _LEGACY_INST_TERMS))
+        W_inst_old[:, :12] = rng.randn(N_INST_OUTPUTS, 12)
+        theta_old = np.concatenate([W_var.ravel(), W_inst_old.ravel()])
+
+        theta_new = migrate_theta_v1_to_v2(theta_old)
+        W_var_new, W_inst_new = unpack_theta(theta_new)
+
+        np.testing.assert_array_equal(W_var, W_var_new)
+        np.testing.assert_array_equal(W_inst_old[:, :12], W_inst_new)
+
+
+# ------------------------------------------------------------------
+# Backward-compatible load
+# ------------------------------------------------------------------
+
+class TestBackwardCompatibleLoad:
+
+    def test_load_legacy_checkpoint(self, tmp_path, small_model):
+        """Loading a legacy 344-element theta auto-migrates to 146."""
+        rng = np.random.RandomState(77)
+        theta_old = rng.randn(_LEGACY_THETA_SIZE) * 0.01
+        path = str(tmp_path / "legacy_model.npz")
+        np.savez(path, theta=theta_old, delta_pct=np.array(0.03))
+
+        loaded = PolynomialPredictor.load(path)
+        theta_loaded = pack_theta(loaded.W_var, loaded.W_inst)
+        assert theta_loaded.shape == (THETA_SIZE,)
+
+        result = loaded.predict(small_model)
+        assert 'branching_bias' in result
+
+    def test_load_new_checkpoint(self, tmp_path, small_model):
+        """Loading a current 146-element theta works normally."""
+        theta = np.zeros(THETA_SIZE)
+        predictor = PolynomialPredictor(theta)
+        path = str(tmp_path / "new_model.npz")
+        predictor.save(path)
+
+        loaded = PolynomialPredictor.load(path)
+        result = loaded.predict(small_model)
+        n = len(small_model.variables)
+        assert result['branching_bias'] == pytest.approx(n / 4.0)
