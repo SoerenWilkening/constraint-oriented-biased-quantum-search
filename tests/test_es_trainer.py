@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from cbqs.ml.es_trainer import ESTrainer, ESTrainerConfig
-from cbqs.ml.polynomial import THETA_SIZE
+from cbqs.ml.es_checkpoint import save_checkpoint
+from cbqs.ml.polynomial import THETA_SIZE, _LEGACY_THETA_SIZE
 
 
 # ---------------------------------------------------------------------------
@@ -412,3 +413,100 @@ class TestEndToEnd:
             # Checkpoints at steps 0 and 5
             assert os.path.isfile(os.path.join(ckpt_dir, 'step_000000.npz'))
             assert os.path.isfile(os.path.join(ckpt_dir, 'step_000005.npz'))
+
+
+# ---------------------------------------------------------------------------
+# Legacy checkpoint migration tests
+# ---------------------------------------------------------------------------
+
+def _save_legacy_checkpoint(path, step=5):
+    """Create a legacy 344-dim checkpoint on disk."""
+    theta_legacy = np.random.RandomState(99).randn(_LEGACY_THETA_SIZE)
+    m_legacy = np.random.RandomState(100).randn(_LEGACY_THETA_SIZE) * 0.01
+    v_legacy = np.abs(np.random.RandomState(101).randn(_LEGACY_THETA_SIZE)) * 0.001
+    best_legacy = np.random.RandomState(102).randn(_LEGACY_THETA_SIZE)
+    opt_state = {'m': m_legacy, 'v': v_legacy, 't': 10}
+    save_checkpoint(
+        path=path,
+        theta=theta_legacy,
+        optimizer_state=opt_state,
+        training_pool=['inst_a.npz', 'inst_b.npz'],
+        step=step,
+        config={'lr': 0.001, 'sigma': 0.02},
+        log_path='',
+        best_theta=best_legacy,
+        best_validation_signal=-1.5,
+    )
+    return theta_legacy, best_legacy
+
+
+class TestLegacyCheckpointMigration:
+    @patch('cbqs.ml.es_trainer.evaluate', side_effect=_theta_dependent_evaluate)
+    def test_resume_migrates_legacy_theta(self, mock_eval):
+        """Resuming from a 344-dim checkpoint should migrate theta to 146."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_path = os.path.join(tmpdir, 'legacy_ckpt')
+            _save_legacy_checkpoint(ckpt_path, step=5)
+
+            cfg = ESTrainerConfig(max_steps=7, K=3, batch_size=1,
+                                  sigma=0.02, lr=0.001)
+            trainer = ESTrainer(cfg)
+            pool = _make_pool(3)
+            np.random.seed(42)
+            theta = trainer.resume(ckpt_path, pool)
+            assert theta.shape == (THETA_SIZE,)
+
+    @patch('cbqs.ml.es_trainer.evaluate', side_effect=_theta_dependent_evaluate)
+    def test_resume_resets_adam_on_migration(self, mock_eval):
+        """Adam state should be reset when resuming from a legacy checkpoint."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_path = os.path.join(tmpdir, 'legacy_ckpt')
+            _save_legacy_checkpoint(ckpt_path, step=5)
+
+            cfg = ESTrainerConfig(max_steps=7, K=3, batch_size=1,
+                                  sigma=0.02, lr=0.001)
+            trainer = ESTrainer(cfg)
+            pool = _make_pool(3)
+            np.random.seed(42)
+            trainer.resume(ckpt_path, pool)
+            # After reset + 1 step (range(6, 7)), optimizer _t should be 1
+            assert trainer._optimizer._t == 1
+
+    @patch('cbqs.ml.es_trainer.evaluate', side_effect=_theta_dependent_evaluate)
+    def test_resume_migrates_best_theta(self, mock_eval):
+        """best_theta should also be migrated from 344 to 146."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_path = os.path.join(tmpdir, 'legacy_ckpt')
+            _save_legacy_checkpoint(ckpt_path, step=5)
+
+            cfg = ESTrainerConfig(max_steps=6, K=3, batch_size=1,
+                                  sigma=0.02, lr=0.001)
+            trainer = ESTrainer(cfg)
+            pool = _make_pool(3)
+            np.random.seed(42)
+            trainer.resume(ckpt_path, pool)
+            assert trainer._best_theta is not None
+            assert trainer._best_theta.shape == (THETA_SIZE,)
+
+    @patch('cbqs.ml.es_trainer.evaluate', side_effect=_theta_dependent_evaluate)
+    def test_resume_current_checkpoint_preserves_adam(self, mock_eval):
+        """Resuming from a current 146-dim checkpoint preserves Adam state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_dir = os.path.join(tmpdir, 'ckpts')
+            os.makedirs(ckpt_dir)
+            pool = _make_pool(5)
+
+            cfg = ESTrainerConfig(max_steps=3, K=3, batch_size=1,
+                                  sigma=0.02, lr=0.001,
+                                  checkpoint_interval=1)
+            trainer = ESTrainer(cfg, checkpoint_dir=ckpt_dir)
+            np.random.seed(42)
+            trainer.train(pool)
+
+            ckpt_path = os.path.join(ckpt_dir, 'step_000002')
+            cfg2 = ESTrainerConfig(max_steps=5, K=3, batch_size=1,
+                                   sigma=0.02, lr=0.001)
+            trainer2 = ESTrainer(cfg2)
+            trainer2.resume(ckpt_path, pool)
+            # Adam state preserved: _t=2 from checkpoint + 2 new steps = 4
+            assert trainer2._optimizer._t == 4

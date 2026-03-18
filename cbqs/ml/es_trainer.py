@@ -20,7 +20,9 @@ import numpy as np
 from cbqs.ml.adam import Adam
 from cbqs.ml.es_checkpoint import save_checkpoint, load_checkpoint
 from cbqs.ml.es_evaluator import evaluate, normalize_signals
-from cbqs.ml.polynomial import THETA_SIZE
+from cbqs.ml.polynomial import (
+    THETA_SIZE, _LEGACY_THETA_SIZE, migrate_theta_v1_to_v2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,15 +173,38 @@ class ESTrainer:
         """
         ckpt = load_checkpoint(checkpoint_path)
 
-        # Restore theta
-        self._theta = np.asarray(ckpt['theta'], dtype=np.float64)
+        # Detect legacy 344-dim checkpoint and migrate
+        theta = np.asarray(ckpt['theta'], dtype=np.float64)
+        migrated = False
+        if theta.shape == (_LEGACY_THETA_SIZE,):
+            logger.info(
+                "Migrating legacy %d-dim checkpoint to %d-dim",
+                _LEGACY_THETA_SIZE, THETA_SIZE,
+            )
+            theta = migrate_theta_v1_to_v2(theta)
+            migrated = True
+        self._theta = theta
 
-        # Restore optimizer state
+        # Restore optimizer state (reset if dimensions changed)
         self._optimizer = Adam(lr=self._config.lr)
-        self._optimizer.load_state_dict(ckpt['optimizer_state'])
+        opt_state = ckpt['optimizer_state']
+        if migrated or (opt_state['m'] is not None
+                        and opt_state['m'].shape != (THETA_SIZE,)):
+            logger.info(
+                "Resetting Adam state (parameter dimensions changed)"
+            )
+            # Leave optimizer in fresh state; moments will initialize on
+            # the first call to step().
+        else:
+            self._optimizer.load_state_dict(opt_state)
 
-        # Restore best theta
-        self._best_theta = ckpt.get('best_theta')
+        # Restore best theta (migrate if legacy)
+        best = ckpt.get('best_theta')
+        if best is not None:
+            best = np.asarray(best, dtype=np.float64)
+            if best.shape == (_LEGACY_THETA_SIZE,):
+                best = migrate_theta_v1_to_v2(best)
+        self._best_theta = best
         self._best_validation_signal = ckpt.get('best_validation_signal',
                                                   float('-inf'))
 
