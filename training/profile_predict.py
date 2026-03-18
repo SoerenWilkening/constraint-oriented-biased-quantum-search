@@ -4,7 +4,7 @@
 Measures time for each stage:
   1. Model file load (np.load + unpack theta)
   2. Feature extraction (variable + instance features)
-  3. Polynomial expansion
+  3. Feature expansion (poly for per-variable, linear for instance)
   4. Matrix multiply + post-processing
   5. Parameter passing (set_param calls)
 
@@ -24,7 +24,7 @@ from cbqs import Model, MAXIMIZE
 from cbqs.ml.features import FeatureExtractor
 from cbqs.SearchLib import c_extract_features, c_predict_params
 from cbqs.ml.polynomial import (
-    PolynomialPredictor, poly_expand, unpack_theta, THETA_SIZE,
+    PolynomialPredictor, poly_expand, linear_expand, unpack_theta, THETA_SIZE,
     N_VAR_TERMS, N_INST_TERMS, N_VAR_OUTPUTS, N_INST_OUTPUTS,
 )
 
@@ -83,7 +83,7 @@ def profile_model(model, theta, label, n_reps=100):
     var_features = extractor.extract_variable_features(model)
     inst_features = extractor.extract_instance_features(model)
     var_terms = poly_expand(var_features, degree=2)
-    inst_terms = poly_expand(inst_features, degree=2)
+    inst_terms = linear_expand(inst_features)
 
     n = len(model.variables)
 
@@ -121,10 +121,10 @@ def profile_model(model, theta, label, n_reps=100):
     print(f"  {'Poly expand (variable)':<35} {mean:>10.1f} {std:>10.1f} {mn:>10.1f}")
     total_mean += mean
 
-    # Stage 4: Polynomial expansion (instance)
+    # Stage 4: Linear expansion (instance)
     mean, std, mn = profile_stage(
-        lambda: poly_expand(inst_features, degree=2), n_reps)
-    print(f"  {'Poly expand (instance)':<35} {mean:>10.1f} {std:>10.1f} {mn:>10.1f}")
+        lambda: linear_expand(inst_features), n_reps)
+    print(f"  {'Linear expand (instance)':<35} {mean:>10.1f} {std:>10.1f} {mn:>10.1f}")
     total_mean += mean
 
     # Stage 5: Matrix multiply + post-process (variable)

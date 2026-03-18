@@ -604,7 +604,7 @@ def c_predict_params(Model mod, W_var_np, W_inst_np, double delta_pct):
 	W_var_np : numpy.ndarray
 		Per-variable weight matrix, shape (2, 55), row-major float64.
 	W_inst_np : numpy.ndarray
-		Instance-level weight matrix, shape (3, 78), row-major float64.
+		Instance-level weight matrix, shape (3, 12), row-major float64.
 	delta_pct : float
 		Max bias delta as fraction of n/4.
 
