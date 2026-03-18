@@ -21,6 +21,13 @@
 #define ML_VAR_TERMS  55   /* 1 + 9 + 36 + 9 */
 #define ML_INST_TERMS 78   /* 1 + 11 + 55 + 11 */
 
+/* Sub-linear term count for instance-level outputs: 1 intercept + 11 features */
+#define ML_INST_TERMS_SUBLINEAR 12
+
+/* Bitmask of feature indices that get log(1+|f|) transform (unbounded features).
+ * Indices: 0=n_variables, 1=n_constraints, 6=coeff_mean, 7=coeff_std, 8=coeff_max */
+#define ML_INST_LOG_FEATURES 0x1C3u  /* bits 0,1,6,7,8 = 0b111000011 */
+
 /* Output dimensions */
 #define ML_VAR_OUTPUTS  2  /* weight, priority_score */
 #define ML_INST_OUTPUTS 3  /* bias_delta, branching_factor, bias_factor */
@@ -66,7 +73,7 @@ void extract_features(
  * @param vars             Per-variable metadata (length n_vars)
  * @param n_vars           Number of variables
  * @param W_var            Weight matrix (2 x 55), row-major
- * @param W_inst           Weight matrix (3 x 78), row-major
+ * @param W_inst           Weight matrix (3 x ML_INST_TERMS_SUBLINEAR), row-major
  * @param delta_pct        Max bias delta as fraction of n/4 (e.g. 0.03)
  * @param out_weights      Output: per-variable branching weights (n_vars,), clipped >= 0
  * @param out_priorities   Output: variable priority ordering (n_vars,), argsort of scores

@@ -423,6 +423,33 @@ static inline double poly2_dot(
 }
 
 /* ------------------------------------------------------------------ */
+/* Sub-linear dot product for instance-level outputs.                 */
+/* Computes w[0] + sum_j w[1+j] * g(x[j]) where:                     */
+/*   g(x) = log(1 + |x|)  if bit j is set in ML_INST_LOG_FEATURES    */
+/*   g(x) = x              otherwise (bounded features)              */
+/* ------------------------------------------------------------------ */
+
+static inline double log_linear_dot(
+    const double *x,       /* feature vector (n_feat,) */
+    const double *w,       /* weight vector (ML_INST_TERMS_SUBLINEAR,) */
+    int n_feat
+)
+{
+    double result = w[0];  /* intercept */
+
+    for (int j = 0; j < n_feat; j++) {
+        double g;
+        if (ML_INST_LOG_FEATURES & (1u << j))
+            g = log(1.0 + fabs(x[j]));
+        else
+            g = x[j];
+        result += w[1 + j] * g;
+    }
+
+    return result;
+}
+
+/* ------------------------------------------------------------------ */
 /* Argsort helper: sort indices by descending value.                  */
 /* ------------------------------------------------------------------ */
 
@@ -449,7 +476,7 @@ void predict_params(
     const variable_meta_t *vars,
     int n_vars,
     const double *W_var,      /* (2, ML_VAR_TERMS) row-major */
-    const double *W_inst,     /* (3, ML_INST_TERMS) row-major */
+    const double *W_inst,     /* (3, ML_INST_TERMS_SUBLINEAR) row-major */
     double delta_pct,
     double *out_weights,      /* (n_vars,) */
     int *out_priorities,      /* (n_vars,) */
@@ -491,14 +518,14 @@ void predict_params(
     _argsort_values = priority_scores;
     qsort(out_priorities, n_vars, sizeof(int), cmp_desc);
 
-    /* Instance-level: fused poly_expand + matmul */
-    const double *w_bias_delta = W_inst;                     /* row 0 */
-    const double *w_bf = W_inst + ML_INST_TERMS;             /* row 1 */
-    const double *w_bif = W_inst + 2 * ML_INST_TERMS;       /* row 2 */
+    /* Instance-level: sub-linear log_linear_dot */
+    const double *w_bias_delta = W_inst;                              /* row 0 */
+    const double *w_bf = W_inst + ML_INST_TERMS_SUBLINEAR;            /* row 1 */
+    const double *w_bif = W_inst + 2 * ML_INST_TERMS_SUBLINEAR;      /* row 2 */
 
-    double bias_delta = poly2_dot(inst_feat, w_bias_delta, ML_NUM_INST_FEATURES);
-    double branching_factor = poly2_dot(inst_feat, w_bf, ML_NUM_INST_FEATURES);
-    double bias_factor = poly2_dot(inst_feat, w_bif, ML_NUM_INST_FEATURES);
+    double bias_delta = log_linear_dot(inst_feat, w_bias_delta, ML_NUM_INST_FEATURES);
+    double branching_factor = log_linear_dot(inst_feat, w_bf, ML_NUM_INST_FEATURES);
+    double bias_factor = log_linear_dot(inst_feat, w_bif, ML_NUM_INST_FEATURES);
 
     /* Post-process bias */
     double base_bias = n_vars / 4.0;
