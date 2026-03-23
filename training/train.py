@@ -163,16 +163,31 @@ def load_knapsack_file(filepath):
     return m
 
 
-def load_instances_from_dir(instances_dir, val_fraction=0.2, seed=42):
+def load_instances_from_dir(instances_dir, val_fraction=0.2, seed=42,
+                            dir_filter=None):
     """Load all .in files from a directory tree and split into train/val.
 
     Finds all .in files recursively, shuffles them, and splits by val_fraction.
     Returns (train_data, val_data) where each is a list of (problem_type, model).
+
+    Parameters
+    ----------
+    dir_filter : str or None
+        If set, only load from subdirectories whose name contains this
+        substring (e.g. ``"g_14"`` to skip g_6 instances).
     """
     base = Path(instances_dir)
-    in_files = sorted(base.rglob('*.in'))
+    if dir_filter:
+        in_files = sorted(
+            f for d in base.iterdir()
+            if d.is_dir() and dir_filter in d.name
+            for f in d.glob('*.in')
+        )
+    else:
+        in_files = sorted(base.rglob('*.in'))
     if not in_files:
-        raise FileNotFoundError(f"No .in files found in {instances_dir}")
+        raise FileNotFoundError(f"No .in files found in {instances_dir}"
+                                f" (filter={dir_filter!r})")
 
     rng = random.Random(seed)
     rng.shuffle(in_files)
@@ -339,13 +354,17 @@ def train_es(models, val_models, args, out_dir):
         max_steps=args.es_max_steps,
         checkpoint_interval=args.es_checkpoint_interval,
         eval_time=args.es_eval_time,
+        eval_repeats=args.es_eval_repeats,
         delta_pct=args.es_delta_pct,
+        greedy_init=not args.es_no_greedy,
+        signal_mode=args.es_signal_mode,
     )
 
     ckpt_dir = str(out_dir / 'es_checkpoints')
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    trainer = ESTrainer(cfg, checkpoint_dir=ckpt_dir)
+    log_path = str(out_dir / 'training_log.jsonl')
+    trainer = ESTrainer(cfg, checkpoint_dir=ckpt_dir, log_path=log_path)
 
     t0 = time.time()
     theta = trainer.train(models, val_pool=val_models)
@@ -377,6 +396,9 @@ def build_parser():
                         help='Directory with pre-generated .in instance files '
                              '(e.g. training/knapsack_instances). '
                              'When set, ignores --n-train, --n-val, --vars, --problems.')
+    parser.add_argument('--dir-filter', type=str, default=None,
+                        help='Only load subdirectories containing this string '
+                             '(e.g. "g_14" to skip easy g_6 instances)')
     parser.add_argument('--val-fraction', type=float, default=0.2,
                         help='Fraction of loaded instances for validation (default: 0.2)')
     parser.add_argument('--n-train', type=int, default=40,
@@ -397,7 +419,7 @@ def build_parser():
                         help='Random strategies per instance (default: 10)')
     parser.add_argument('--n-estimators', type=int, default=400,
                         help='Trees per ensemble (default: 200)')
-    parser.add_argument('--time-budget', type=float, default=25.0,
+    parser.add_argument('--time-budget', type=float, default=5.0,
                         help='Per-solve time budget in seconds (default: 15)')
     parser.add_argument('--refit-every', type=int, default=5,
                         help='Refit predictor every N models (default: 5)')
@@ -415,18 +437,25 @@ def build_parser():
                         help='ES Adam learning rate (default: 0.001)')
     parser.add_argument('--es-sigma', type=float, default=0.02,
                         help='ES perturbation scale (default: 0.02)')
-    parser.add_argument('--es-k', type=int, default=50,
-                        help='ES antithetic perturbation pairs (default: 50)')
-    parser.add_argument('--es-batch-size', type=int, default=5,
-                        help='ES instances per step (default: 5)')
-    parser.add_argument('--es-max-steps', type=int, default=1000,
-                        help='ES training steps (default: 1000)')
-    parser.add_argument('--es-checkpoint-interval', type=int, default=50,
-                        help='ES steps between checkpoints (default: 50)')
-    parser.add_argument('--es-eval-time', type=float, default=5.0,
-                        help='ES solver time budget per eval (default: 5.0)')
+    parser.add_argument('--es-k', type=int, default=20,
+                        help='ES antithetic perturbation pairs (default: 20)')
+    parser.add_argument('--es-batch-size', type=int, default=3,
+                        help='ES instances per step (default: 3)')
+    parser.add_argument('--es-max-steps', type=int, default=200,
+                        help='ES training steps (default: 200)')
+    parser.add_argument('--es-checkpoint-interval', type=int, default=10,
+                        help='ES steps between checkpoints (default: 10)')
+    parser.add_argument('--es-eval-time', type=float, default=10.0,
+                        help='ES solver time budget per eval (default: 10.0)')
+    parser.add_argument('--es-eval-repeats', type=int, default=1,
+                        help='ES independent solves per evaluation (default: 1)')
     parser.add_argument('--es-delta-pct', type=float, default=0.03,
                         help='ES max bias delta as fraction of n/4 (default: 0.03)')
+    parser.add_argument('--es-no-greedy', action='store_true',
+                        help='Start from zero solution instead of greedy init')
+    parser.add_argument('--es-signal-mode', type=str, default='mean',
+                        choices=['mean', 'best_of_k'],
+                        help='ES training signal: mean (default) or best_of_k')
 
     return parser
 
@@ -450,8 +479,11 @@ def main():
     # Load or generate instances
     if args.instances_dir:
         print(f"\nLoading instances from {args.instances_dir}...")
+        if args.dir_filter:
+            print(f"  Filtering directories by: {args.dir_filter!r}")
         train_data, val_data = load_instances_from_dir(
-            args.instances_dir, val_fraction=args.val_fraction, seed=args.seed)
+            args.instances_dir, val_fraction=args.val_fraction, seed=args.seed,
+            dir_filter=args.dir_filter)
     else:
         print(f"  Problems: {', '.join(args.problems)}")
         print(f"  Variables: {args.vars[0]}-{args.vars[1]}")
