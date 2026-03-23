@@ -294,33 +294,41 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	int64_t *potentials = malloc(C * sizeof(int64_t));
 	int64_t *ret_total1 = malloc(C * sizeof(int64_t));
 	int64_t *ret_total2 = malloc(C * sizeof(int64_t));
-	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL) {
+	int *ChangedBits = malloc(n * sizeof(int));
+	if (potentials == NULL || ret_total1 == NULL || ret_total2 == NULL || ChangedBits == NULL) {
 		free(potentials);
 		free(ret_total1);
 		free(ret_total2);
+		free(ChangedBits);
 		return 0;  /* allocation failure - treat as no improvement found */
 	}
-    memset(ret_total1, 0, C * sizeof(int64_t));
-    memset(ret_total2, 0, C * sizeof(int64_t));
+
+	/* Pre-allocate reusable sample state */
+	state_t *new_sol = init_state(0, NULL, n);
+	if (new_sol == NULL) {
+		free(potentials); free(ret_total1); free(ret_total2); free(ChangedBits);
+		return 0;
+	}
+
     int l;
+	int *var_order = ctx->active_stats->variable_order;
 	for (l = 0; l < 4 * j * j + 1; l++) {
-        state_t *new_sol = copy_state(cur_sol);
+		// Reset reusable state instead of alloc/free
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
-        
+
 		// Store which bit from the previous solution is flipped
 		int NumChanges = 0;
-		int *ChangedBits = calloc(n, sizeof(int));
 
 		// reset constraint rhs to initial values
-		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+		memcpy(potentials, con->rhs, C * sizeof(int64_t));
+        memset(ret_total1, 0, C * sizeof(int64_t));
+        memset(ret_total2, 0, C * sizeof(int64_t));
 
 		// initialize new solution
 		new_sol->tot_profit = cur_sol->tot_profit;
-		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -382,27 +390,27 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		}
 
 		int64_t val = cur_sol->tot_profit;
-		if (as1) val = objective_value(obj, new_sol);
+		if (as1) val = objective_value_incremental(obj, cur_sol, new_sol,
+		                                          cur_sol->tot_profit,
+		                                          ChangedBits, NumChanges);
 		if (as1 && cur_sol->tot_profit > val) {
 			cur_sol->tot_profit = val;
-			sw_clear(cur_sol->vector);
-			sw_clear(cur_sol->branch);
-			cur_sol->vector = sw_set(new_sol->vector);
-			cur_sol->branch = sw_set(new_sol->branch);
+			sw_set_inplace(cur_sol->vector, new_sol->vector);
+			sw_set_inplace(cur_sol->branch, new_sol->branch);
 			cur_sol->feasible = as1;
 
-			free(ChangedBits);
             free_state(new_sol, 1);
+            free(ChangedBits);
             *samples += l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
 			return 1;
 		}
-		free(ChangedBits);
-        free_state(new_sol, 1);
 	}
 	*samples += l;
+	free_state(new_sol, 1);
+	free(ChangedBits);
 	free(potentials);
 	free(ret_total1);
 	free(ret_total2);
@@ -426,23 +434,30 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		free(ret_total2);
 		return 0;  /* allocation failure */
 	}
-    memset(ret_total1, 0, C * sizeof(int64_t));
-    memset(ret_total2, 0, C * sizeof(int64_t));
+
+	/* Pre-allocate reusable sample state */
+	state_t *new_sol = init_state(0, NULL, n);
+	if (new_sol == NULL) {
+		free(potentials); free(ret_total1); free(ret_total2);
+		return 0;
+	}
+
     int l;
+	int *var_order = ctx->active_stats->variable_order;
 	for (l = 0; l < 4 * j * j + 1; l++) {
-        state_t *new_sol = copy_state(cur_sol);
+		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
-        
+
 		// reset constraint rhs to initial values
-		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+		memcpy(potentials, con->rhs, C * sizeof(int64_t));
+        memset(ret_total1, 0, C * sizeof(int64_t));
+        memset(ret_total2, 0, C * sizeof(int64_t));
 
 		// initialize new solution
 		new_sol->tot_profit = cur_sol->tot_profit;
-		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -508,11 +523,11 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			    // only sum up potentials
 			    total_violation += potentials[cnstr]; // all are >= 0
 		    }
-            sw_clear(cur_sol->vector);
-		    cur_sol->vector = sw_set(new_sol->vector);
+            sw_set_inplace(cur_sol->vector, new_sol->vector);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 1;
 		    *samples += l;
+		    free_state(new_sol, 1);
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
@@ -528,10 +543,8 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
         }
         //                                              \/ no feas sol    \/ preserves feasibility
 		if ((cur_sol->tot_profit > total_violation) && (direction == 1 || feasible)){ // lower violation was found
-		    sw_clear(cur_sol->vector);
-		    sw_clear(cur_sol->branch);
-		    cur_sol->vector = sw_set(new_sol->vector);
-		    cur_sol->branch = sw_set(new_sol->branch);
+		    sw_set_inplace(cur_sol->vector, new_sol->vector);
+		    sw_set_inplace(cur_sol->branch, new_sol->branch);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 0;
             free_state(new_sol, 1);
@@ -541,9 +554,9 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			free(ret_total2);
             return 1;
         }
-        free_state(new_sol, 1);
 	}
 	*samples += l;
+	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);
 	free(ret_total2);
@@ -567,23 +580,30 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		free(ret_total2);
 		return 0;  /* allocation failure */
 	}
-    memset(ret_total1, 0, C * sizeof(int64_t));
-    memset(ret_total2, 0, C * sizeof(int64_t));
+
+	/* Pre-allocate reusable sample state */
+	state_t *new_sol = init_state(0, NULL, n);
+	if (new_sol == NULL) {
+		free(potentials); free(ret_total1); free(ret_total2);
+		return 0;
+	}
+
     int l;
+	int *var_order = ctx->active_stats->variable_order;
 	for (l = 0; l < 4 * j * j + 1; l++) {
-        state_t *new_sol = copy_state(cur_sol);
+		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
-        
+
 		// reset constraint rhs to initial values
-		memcpy(potentials, con->rhs, con->num_constraints * sizeof(int64_t));
+		memcpy(potentials, con->rhs, C * sizeof(int64_t));
+        memset(ret_total1, 0, C * sizeof(int64_t));
+        memset(ret_total2, 0, C * sizeof(int64_t));
 
 		// initialize new solution
 		new_sol->tot_profit = cur_sol->tot_profit;
-		sw_set_ui_0(new_sol->vector);
 
 		int i;
-		int *var_order = ctx->active_stats->variable_order;
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -633,11 +653,9 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		if (cur_sol->tot_profit > val) {
 			// If solution is updated, change the array of fulfilled terms
 			cur_sol->tot_profit = val;
-			sw_clear(cur_sol->vector);
-			sw_clear(cur_sol->branch);
-			cur_sol->vector = sw_set(new_sol->vector);
-			cur_sol->branch = sw_set(new_sol->branch);
-            
+			sw_set_inplace(cur_sol->vector, new_sol->vector);
+			sw_set_inplace(cur_sol->branch, new_sol->branch);
+
             free_state(new_sol, 1);
             *samples += l;
 			free(potentials);
@@ -645,9 +663,9 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			free(ret_total2);
             return 1;
         }
-        free_state(new_sol, 1);
 	}
 	*samples += l;
+	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);
 	free(ret_total2);

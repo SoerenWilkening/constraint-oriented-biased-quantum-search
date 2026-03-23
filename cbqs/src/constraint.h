@@ -109,6 +109,9 @@ void preprocessing_sparse( int n, new_constraints_t *con);
 int eval_constraints(new_constraints_t *con, state_t *sol, int max_item);
 int num_satisfied_constrains(new_constraints_t *con, state_t *sol);
 int64_t objective_value(new_constraints_t *obj, state_t *sol);
+int64_t objective_value_incremental(new_constraints_t *obj, state_t *old_sol,
+                                    state_t *new_sol, int64_t old_objective,
+                                    const int *changed_bits, int num_changes);
 
 
 int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful);

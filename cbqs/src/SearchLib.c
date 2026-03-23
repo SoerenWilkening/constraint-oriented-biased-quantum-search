@@ -156,11 +156,10 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 	/* Register this context for signal handler access */
 	g_active_ctx = ctx;
+	signal(SIGINT, handle_signal);
+	signal(SIGTERM, handle_signal);
 
 	while (m_tot < mod->M && total_time < mod->stopping_time) {
-		signal(SIGINT, handle_signal);
-		signal(SIGTERM, handle_signal);
-
 		if (solver_ctx_should_stop(ctx)) {
 			g_active_ctx = NULL;
 			return 0;

@@ -537,6 +537,146 @@ int64_t prepare(new_constraints_t *obj, state_t *sol, array_t *ful) {
 	return total;
 }
 
+int64_t objective_value_incremental(new_constraints_t *obj, state_t *old_sol,
+                                    state_t *new_sol, int64_t old_objective,
+                                    const int *changed_bits, int num_changes) {
+	/* Compute new objective by adjusting old_objective for only the clauses
+	 * that involve changed variables.  Uses the preprocessing index
+	 * (positive_indices / positive_offsets / num_positive_indices) built by
+	 * preprocessing() or preprocessing_sparse() on the objective.
+	 *
+	 * For each changed variable we look up its clauses via the index, then
+	 * compute whether each clause was satisfied in old_sol vs new_sol.  The
+	 * delta is accumulated and added to old_objective.
+	 *
+	 * To avoid double-counting clauses that contain multiple changed
+	 * variables, we use a visited bitset.
+	 */
+	if (obj->positive_offsets == NULL) {
+		/* Fallback: no preprocessing index available */
+		return objective_value(obj, new_sol);
+	}
+
+	uint32_t cnstr = 0;  /* objective is always constraint 0 */
+	size_t clause_offset = first_clause_index(obj, cnstr);
+	uint32_t total_clauses = obj->num_clauses[cnstr];
+	size_t C = obj->num_constraints;  /* should be 1 for objective */
+
+	/* Visited bitset to avoid double-counting multi-variable clauses */
+	size_t visited_words = (total_clauses + 63) / 64;
+	uint64_t visited_stack[16];  /* fast path for up to 1024 clauses */
+	uint64_t *visited;
+	if (visited_words <= 16) {
+		visited = visited_stack;
+	} else {
+		visited = (uint64_t *)calloc(visited_words, sizeof(uint64_t));
+		if (!visited) return objective_value(obj, new_sol);
+	}
+	memset(visited, 0, visited_words * sizeof(uint64_t));
+
+	int64_t delta = 0;
+
+	for (int ci = 0; ci < num_changes; ci++) {
+		int item = changed_bits[ci];
+		/* Look up clauses containing this item via positive index.
+		 * For objective terms, all factors are positive (objective coefficients),
+		 * so we use the positive index.  Negative index covers negative factors. */
+
+		/* Positive-factor clauses */
+		uint64_t idx = (uint64_t)item * C + cnstr;
+		if (obj->sparsity == DENSE || obj->sparsity != SPARSE) {
+			uint32_t npi = obj->num_positive_indices[idx];
+			uint32_t off = obj->positive_offsets[idx];
+			for (uint32_t c = 0; c < npi; c++) {
+				uint32_t cl = obj->positive_indices[off + c];
+				/* Check visited */
+				size_t word = cl >> 6;
+				uint64_t bit = 1ULL << (cl & 63);
+				if (visited[word] & bit) continue;
+				visited[word] |= bit;
+
+				size_t clause_index = clause_offset + cl;
+				/* Evaluate clause for old and new solutions */
+				int old_assigned = 1, new_assigned = 1;
+				for (uint32_t k = 0; k < obj->clause_length[clause_index]; k++) {
+					size_t var = obj->variables[variable_index(cl, k, clause_offset)];
+					old_assigned &= sw_tstbit(old_sol->vector, var);
+					new_assigned &= sw_tstbit(new_sol->vector, var);
+				}
+				delta += obj->factors[clause_index] * (new_assigned - old_assigned);
+			}
+
+			/* Negative-factor clauses */
+			uint32_t nni = obj->num_negative_indices[idx];
+			uint32_t noff = obj->negative_offsets[idx];
+			for (uint32_t c = 0; c < nni; c++) {
+				uint32_t cl = obj->negative_indices[noff + c];
+				size_t word = cl >> 6;
+				uint64_t bit = 1ULL << (cl & 63);
+				if (visited[word] & bit) continue;
+				visited[word] |= bit;
+
+				size_t clause_index = clause_offset + cl;
+				int old_assigned = 1, new_assigned = 1;
+				for (uint32_t k = 0; k < obj->clause_length[clause_index]; k++) {
+					size_t var = obj->variables[variable_index(cl, k, clause_offset)];
+					old_assigned &= sw_tstbit(old_sol->vector, var);
+					new_assigned &= sw_tstbit(new_sol->vector, var);
+				}
+				delta += obj->factors[clause_index] * (new_assigned - old_assigned);
+			}
+		} else {
+			/* SPARSE path: use binary search via get_index */
+			int64_t si = get_index(obj->pos_cols, obj->pos_rows, item, cnstr, obj->nnz_pos, C);
+			if (si >= 0) {
+				uint32_t npi = obj->num_positive_indices[si];
+				uint32_t off = obj->positive_offsets[si];
+				for (uint32_t c = 0; c < npi; c++) {
+					uint32_t cl = obj->positive_indices[off + c];
+					size_t word = cl >> 6;
+					uint64_t bit = 1ULL << (cl & 63);
+					if (visited[word] & bit) continue;
+					visited[word] |= bit;
+
+					size_t clause_index = clause_offset + cl;
+					int old_assigned = 1, new_assigned = 1;
+					for (uint32_t k = 0; k < obj->clause_length[clause_index]; k++) {
+						size_t var = obj->variables[variable_index(cl, k, clause_offset)];
+						old_assigned &= sw_tstbit(old_sol->vector, var);
+						new_assigned &= sw_tstbit(new_sol->vector, var);
+					}
+					delta += obj->factors[clause_index] * (new_assigned - old_assigned);
+				}
+			}
+			si = get_index(obj->neg_cols, obj->neg_rows, item, cnstr, obj->nnz_neg, C);
+			if (si >= 0) {
+				uint32_t nni = obj->num_negative_indices[si];
+				uint32_t noff = obj->negative_offsets[si];
+				for (uint32_t c = 0; c < nni; c++) {
+					uint32_t cl = obj->negative_indices[noff + c];
+					size_t word = cl >> 6;
+					uint64_t bit = 1ULL << (cl & 63);
+					if (visited[word] & bit) continue;
+					visited[word] |= bit;
+
+					size_t clause_index = clause_offset + cl;
+					int old_assigned = 1, new_assigned = 1;
+					for (uint32_t k = 0; k < obj->clause_length[clause_index]; k++) {
+						size_t var = obj->variables[variable_index(cl, k, clause_offset)];
+						old_assigned &= sw_tstbit(old_sol->vector, var);
+						new_assigned &= sw_tstbit(new_sol->vector, var);
+					}
+					delta += obj->factors[clause_index] * (new_assigned - old_assigned);
+				}
+			}
+		}
+	}
+
+	if (visited != visited_stack) free(visited);
+	return old_objective + delta;
+}
+
+
 int constraint_violation(new_constraints_t *con, state_t *sol, size_t cnstr) {
 	int64_t total = 0;
 	size_t clause_offset = first_clause_index(con, cnstr);

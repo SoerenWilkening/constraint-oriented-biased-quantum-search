@@ -10,9 +10,11 @@ Provides:
 - ESTrainer: Main trainer with train() and resume() methods.
 """
 
+import json
 import logging
 import os
 import random
+import time as time_mod
 from dataclasses import dataclass, asdict
 
 import numpy as np
@@ -21,10 +23,20 @@ from cbqs.ml.adam import Adam
 from cbqs.ml.es_checkpoint import save_checkpoint, load_checkpoint
 from cbqs.ml.es_evaluator import evaluate, normalize_signals
 from cbqs.ml.polynomial import (
-    THETA_SIZE, _LEGACY_THETA_SIZE, migrate_theta_v1_to_v2,
+    THETA_SIZE, _LEGACY_THETA_SIZE, default_theta, migrate_theta_v1_to_v2,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_time(seconds):
+    """Format seconds as HH:MM:SS or MM:SS."""
+    s = int(seconds)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -42,8 +54,13 @@ class ESTrainerConfig:
         batch_size: Number of training instances sampled per step.
         max_steps: Total number of training steps.
         checkpoint_interval: Steps between checkpoint saves.
-        eval_time: Solver time budget per evaluation (seconds).
+        eval_time: Total solver time budget per evaluation (seconds),
+            split across repeats.
+        eval_repeats: Number of independent solves per evaluation.
+            Each solve gets eval_time / eval_repeats seconds.
         delta_pct: Max bias delta as fraction of n/4.
+        greedy_init: Whether to initialise from greedy before solving.
+        signal_mode: ``"mean"`` or ``"best_of_k"``.
     """
     lr: float = 0.001
     sigma: float = 0.02
@@ -52,7 +69,10 @@ class ESTrainerConfig:
     max_steps: int = 1000
     checkpoint_interval: int = 50
     eval_time: float = 5.0
+    eval_repeats: int = 10
     delta_pct: float = 0.03
+    greedy_init: bool = True
+    signal_mode: str = "mean"
 
     def __post_init__(self):
         if self.lr <= 0:
@@ -74,16 +94,18 @@ class ESTrainerConfig:
 def _signal_diff(signal_plus, signal_minus):
     """Compute scalar difference between two signal tuples.
 
-    Signals are (best_objective, -time_to_best) tuples compared
-    lexicographically. We reduce to a scalar by comparing elements:
-    if the primary differs, use the primary difference; otherwise
-    use the secondary difference.
+    Supports both 2-tuple (mean mode) and 3-tuple (best_of_k mode)
+    signals. Elements are compared lexicographically: the first
+    element with a non-negligible difference is used.
+
+    2-tuple: (best_objective, -time_to_best)
+    3-tuple: (best_objective, hit_rate, -time_to_best)
     """
-    d0 = signal_plus[0] - signal_minus[0]
-    d1 = signal_plus[1] - signal_minus[1]
-    if abs(d0) > 1e-12:
-        return d0
-    return d1
+    for i in range(len(signal_plus)):
+        d = signal_plus[i] - signal_minus[i]
+        if abs(d) > 1e-12:
+            return d
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +147,7 @@ class ESTrainer:
                 )
             self._theta = theta_init.copy()
         else:
-            self._theta = np.zeros(THETA_SIZE, dtype=np.float64)
+            self._theta = default_theta()
 
         # Initialize optimizer
         self._optimizer = Adam(lr=config.lr)
@@ -241,8 +263,12 @@ class ESTrainer:
             Final theta vector.
         """
         cfg = self._config
+        train_start_time = time_mod.monotonic()
+        total_steps = cfg.max_steps - start_step
 
         for step in range(start_step, cfg.max_steps):
+            step_start_time = time_mod.monotonic()
+
             # Checkpoint at the start of checkpoint intervals
             if step % cfg.checkpoint_interval == 0:
                 self._save_checkpoint(step, pool)
@@ -260,15 +286,32 @@ class ESTrainer:
             # Compute gradient estimate with per-instance normalization
             gradient = np.zeros(THETA_SIZE, dtype=np.float64)
 
+            # Collect signals from perturbations for monitoring
+            # (avoids batch_size extra evaluate() calls)
+            all_objectives = []
+            all_ttbs = []
+
             for instance in batch:
                 # Compute signal diffs for all K perturbations
                 diffs = np.empty(cfg.K, dtype=np.float64)
                 for k, eps in enumerate(epsilons):
                     theta_plus = self._theta + cfg.sigma * eps
                     theta_minus = self._theta - cfg.sigma * eps
-                    sig_plus = evaluate(theta_plus, instance, cfg.eval_time)
-                    sig_minus = evaluate(theta_minus, instance, cfg.eval_time)
+                    # Use the same seed for the antithetic pair so that
+                    # signal differences reflect only the theta change,
+                    # not solver randomness.
+                    pair_seed = random.randint(0, 2**31 - 1)
+                    sig_plus = evaluate(theta_plus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init, signal_mode=cfg.signal_mode)
+                    sig_minus = evaluate(theta_minus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init, signal_mode=cfg.signal_mode)
                     diffs[k] = _signal_diff(sig_plus, sig_minus)
+
+                    # Collect objectives and ttb from both perturbations
+                    # for monitoring (midpoint of plus/minus approximates
+                    # current theta since sigma is small)
+                    all_objectives.append(sig_plus[0])
+                    all_objectives.append(sig_minus[0])
+                    all_ttbs.append(-sig_plus[1])
+                    all_ttbs.append(-sig_minus[1])
 
                 # Per-instance normalization
                 norm_diffs = normalize_signals(diffs)
@@ -277,11 +320,36 @@ class ESTrainer:
                 for k, eps in enumerate(epsilons):
                     gradient += norm_diffs[k] * eps
 
+            # Derive monitoring signal from perturbation data
+            # (average of sig_plus/sig_minus across all K pairs and batch)
+            mean_obj = float(np.mean(all_objectives))
+            mean_ttb = float(np.mean(all_ttbs))
+
             # Scale gradient
             gradient /= (2.0 * cfg.sigma * cfg.K * cfg.batch_size)
 
             # Adam update
             self._theta = self._optimizer.step(self._theta, gradient)
+
+            # Extract current instance-level params for monitoring
+            from cbqs.ml.polynomial import (
+                unpack_theta, N_INST_TERMS,
+            )
+            _, W_inst = unpack_theta(self._theta)
+            # Intercept-only approximation (feature-independent baseline)
+            bias_delta_intercept = float(W_inst[0, 0])
+            branching_factor_intercept = float(max(0.0, W_inst[1, 0]))
+            bias_factor_intercept = float(max(0.0, W_inst[2, 0]))
+
+            # Timing
+            step_end_time = time_mod.monotonic()
+            step_duration = step_end_time - step_start_time
+            elapsed = step_end_time - train_start_time
+            steps_done = step - start_step + 1
+            steps_remaining = total_steps - steps_done
+            avg_step_time = elapsed / steps_done
+            eta = avg_step_time * steps_remaining
+            pct = 100.0 * steps_done / total_steps
 
             # Log step
             grad_norm = float(np.linalg.norm(gradient))
@@ -289,11 +357,42 @@ class ESTrainer:
                 'step': step,
                 'grad_norm': grad_norm,
                 'theta_norm': float(np.linalg.norm(self._theta)),
+                'mean_objective': mean_obj,
+                'mean_time_to_best': mean_ttb,
+                'bias_factor': bias_factor_intercept,
+                'branching_factor': branching_factor_intercept,
+                'bias_delta': bias_delta_intercept,
+                'step_time': round(step_duration, 2),
+                'elapsed': round(elapsed, 2),
+                'eta': round(eta, 2),
             })
-            logger.debug("step=%d  grad_norm=%.6f  theta_norm=%.6f",
-                         step, grad_norm,
-                         float(np.linalg.norm(self._theta)))
+            logger.info(
+                "step=%d  obj=%.4f  ttb=%.4f  bias_f=%.4f  branch_f=%.4f  "
+                "bias_d=%.4f  grad=%.6f",
+                step, mean_obj, mean_ttb, bias_factor_intercept,
+                branching_factor_intercept, bias_delta_intercept, grad_norm,
+            )
 
+            # Progress bar
+            bar_width = 30
+            filled = int(bar_width * pct / 100.0)
+            bar = '=' * filled + '>' + '.' * (bar_width - filled - 1)
+            elapsed_str = _fmt_time(elapsed)
+            eta_str = _fmt_time(eta)
+            print(
+                f"\r[{bar}] {pct:5.1f}% | "
+                f"step {step}/{cfg.max_steps} | "
+                f"{elapsed_str} elapsed, {eta_str} remaining | "
+                f"obj={mean_obj:.0f}",
+                end='', flush=True,
+            )
+
+            # Append to log file for live monitoring (tail -f)
+            if self._log_path:
+                with open(self._log_path, 'a') as f:
+                    f.write(json.dumps(self._step_log[-1]) + '\n')
+
+        print()  # newline after progress bar
         return self._theta
 
     def _save_checkpoint(self, step, pool):
