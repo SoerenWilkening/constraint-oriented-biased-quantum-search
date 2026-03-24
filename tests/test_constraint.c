@@ -243,6 +243,236 @@ static void test_preprocessing(void **state) {
 }
 
 /* ------------------------------------------------------------------ */
+/* test_preprocessing_exact_indices: verify exact index array contents */
+/* for a small known problem with multiple constraints                */
+/* ------------------------------------------------------------------ */
+static void test_preprocessing_exact_indices(void **state) {
+    (void)state;
+    int n = 4;
+    new_constraints_t con = init_new_constraint();
+
+    /* Constraint 0: 2*x0 + 3*x1 - 1*x2 <= 5 */
+    int64_t c0[] = {2, 3, -1, 0};
+    expression_t *e0 = build_linear_expression(n, c0, LOWER, 5);
+    add_expression_to_constraints(&con, e0);
+    free_expression(e0);
+
+    /* Constraint 1: -4*x1 + 5*x3 <= 10 */
+    int64_t c1[] = {0, -4, 0, 5};
+    expression_t *e1 = build_linear_expression(n, c1, LOWER, 10);
+    add_expression_to_constraints(&con, e1);
+    free_expression(e1);
+
+    preprocessing(n, &con);
+
+    uint64_t C = con.num_constraints;
+    assert_int_equal(C, 2);
+
+    /* x0: appears in constraint 0 with positive factor => 1 positive, 0 negative */
+    assert_int_equal(con.num_positive_indices[0 * C + 0], 1);
+    assert_int_equal(con.num_negative_indices[0 * C + 0], 0);
+    assert_int_equal(con.num_positive_indices[0 * C + 1], 0);
+    assert_int_equal(con.num_negative_indices[0 * C + 1], 0);
+
+    /* x1: constraint 0 positive, constraint 1 negative */
+    assert_int_equal(con.num_positive_indices[1 * C + 0], 1);
+    assert_int_equal(con.num_negative_indices[1 * C + 0], 0);
+    assert_int_equal(con.num_positive_indices[1 * C + 1], 0);
+    assert_int_equal(con.num_negative_indices[1 * C + 1], 1);
+
+    /* x2: constraint 0 negative */
+    assert_int_equal(con.num_positive_indices[2 * C + 0], 0);
+    assert_int_equal(con.num_negative_indices[2 * C + 0], 1);
+
+    /* x3: constraint 1 positive */
+    assert_int_equal(con.num_positive_indices[3 * C + 0], 0);
+    assert_int_equal(con.num_positive_indices[3 * C + 1], 1);
+
+    /* Verify total lengths */
+    assert_int_equal(con.positive_array_length, 3);  /* x0:c0, x1:c0, x3:c1 */
+    assert_int_equal(con.negative_array_length, 2);  /* x2:c0, x1:c1 */
+
+    free_constraints(&con);
+}
+
+/* ------------------------------------------------------------------ */
+/* test_preprocessing_sparse_vs_dense: verify sparse produces same    */
+/* clause mappings as dense for a multi-constraint problem            */
+/* ------------------------------------------------------------------ */
+static void test_preprocessing_sparse_vs_dense(void **state) {
+    (void)state;
+    int n = 6;
+    new_constraints_t con_d = init_new_constraint();
+    new_constraints_t con_s = init_new_constraint();
+
+    /* Build identical constraints in both */
+    int64_t c0[] = {1, -2, 3, 0, 0, 0};
+    int64_t c1[] = {0, 0, 0, -1, 2, -3};
+    int64_t c2[] = {1, 0, 0, 0, 0, 1};
+
+    for (int pass = 0; pass < 2; pass++) {
+        new_constraints_t *target = (pass == 0) ? &con_d : &con_s;
+        expression_t *e;
+        e = build_linear_expression(n, c0, LOWER, 10);
+        add_expression_to_constraints(target, e);
+        free_expression(e);
+        e = build_linear_expression(n, c1, LOWER, 5);
+        add_expression_to_constraints(target, e);
+        free_expression(e);
+        e = build_linear_expression(n, c2, LOWER, 3);
+        add_expression_to_constraints(target, e);
+        free_expression(e);
+    }
+
+    preprocessing(n, &con_d);
+    preprocessing_sparse(n, &con_s);
+
+    uint64_t C = con_d.num_constraints;
+
+    /* Total index lengths must match */
+    assert_int_equal(con_d.positive_array_length, con_s.positive_array_length);
+    assert_int_equal(con_d.negative_array_length, con_s.negative_array_length);
+
+    /* For each (item, cnstr): the clause indices stored must match */
+    for (int item = 0; item < n; item++) {
+        for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
+            /* Dense lookup */
+            uint32_t npi_d = con_d.num_positive_indices[item * C + cnstr];
+            uint32_t nni_d = con_d.num_negative_indices[item * C + cnstr];
+
+            /* Sparse lookup */
+            int64_t idx_pos = get_index(con_s.pos_cols, con_s.pos_rows, item, cnstr, con_s.nnz_pos, C);
+            int64_t idx_neg = get_index(con_s.neg_cols, con_s.neg_rows, item, cnstr, con_s.nnz_neg, C);
+            uint32_t npi_s = (idx_pos >= 0) ? con_s.num_positive_indices[idx_pos] : 0;
+            uint32_t nni_s = (idx_neg >= 0) ? con_s.num_negative_indices[idx_neg] : 0;
+
+            assert_int_equal(npi_d, npi_s);
+            assert_int_equal(nni_d, nni_s);
+
+            /* Check actual clause indices match */
+            for (uint32_t k = 0; k < npi_d; k++) {
+                uint32_t cls_d = con_d.positive_indices[con_d.positive_offsets[item * C + cnstr] + k];
+                uint32_t cls_s = con_s.positive_indices[con_s.positive_offsets[idx_pos] + k];
+                assert_int_equal(cls_d, cls_s);
+            }
+            for (uint32_t k = 0; k < nni_d; k++) {
+                uint32_t cls_d = con_d.negative_indices[con_d.negative_offsets[item * C + cnstr] + k];
+                uint32_t cls_s = con_s.negative_indices[con_s.negative_offsets[idx_neg] + k];
+                assert_int_equal(cls_d, cls_s);
+            }
+        }
+    }
+
+    free_constraints(&con_d);
+    free_constraints(&con_s);
+}
+
+/* ------------------------------------------------------------------ */
+/* test_preprocessing_many_vars: verify with a larger problem (50 vars) */
+/* that incremental evaluation still matches full recalc               */
+/* ------------------------------------------------------------------ */
+static void test_preprocessing_many_vars(void **state) {
+    (void)state;
+    int n = 50;
+    new_constraints_t con = init_new_constraint();
+
+    /* Build 3 constraints with various coefficients */
+    int64_t *c0 = calloc(n, sizeof(int64_t));
+    int64_t *c1 = calloc(n, sizeof(int64_t));
+    int64_t *c2 = calloc(n, sizeof(int64_t));
+    for (int i = 0; i < n; i++) {
+        c0[i] = (i % 3 == 0) ? (i + 1) : ((i % 3 == 1) ? -(i + 1) : 0);
+        c1[i] = (i % 5 == 0) ? (2 * i + 1) : 0;
+        c2[i] = (i < 10) ? 1 : ((i > 40) ? -1 : 0);
+    }
+
+    expression_t *e;
+    e = build_linear_expression(n, c0, LOWER, 100);
+    add_expression_to_constraints(&con, e); free_expression(e);
+    e = build_linear_expression(n, c1, LOWER, 200);
+    add_expression_to_constraints(&con, e); free_expression(e);
+    e = build_linear_expression(n, c2, LOWER, 5);
+    add_expression_to_constraints(&con, e); free_expression(e);
+
+    preprocessing(n, &con);
+
+    /* Verify all offsets and counts are consistent */
+    uint64_t C = con.num_constraints;
+    uint32_t total_pos = 0, total_neg = 0;
+    for (int item = 0; item < n; item++) {
+        for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
+            uint32_t npi = con.num_positive_indices[item * C + cnstr];
+            uint32_t nni = con.num_negative_indices[item * C + cnstr];
+            if (npi > 0) {
+                assert_true(con.positive_offsets[item * C + cnstr] + npi <= con.positive_array_length);
+            }
+            if (nni > 0) {
+                assert_true(con.negative_offsets[item * C + cnstr] + nni <= con.negative_array_length);
+            }
+            total_pos += npi;
+            total_neg += nni;
+        }
+    }
+    assert_int_equal(total_pos, con.positive_array_length);
+    assert_int_equal(total_neg, con.negative_array_length);
+
+    /* Verify incremental evaluation still works with new preprocessing */
+    int *arr = calloc(n, sizeof(int));
+    for (int i = 0; i < n; i += 2) arr[i] = 1;
+    state_t *sol = init_state(0, arr, n);
+
+    int64_t *remainings = malloc(C * sizeof(int64_t));
+    for (uint32_t i = 0; i < C; ++i)
+        remainings[i] = constraint_violation(&con, sol, i);
+
+    /* Test a few variable flips */
+    for (int flip_var = 0; flip_var < n; flip_var += 7) {
+        sw_flpbit(sol->vector, flip_var);
+
+        int64_t *full_after = malloc(C * sizeof(int64_t));
+        for (uint32_t i = 0; i < C; ++i)
+            full_after[i] = constraint_violation(&con, sol, i);
+
+        sw_flpbit(sol->vector, flip_var);
+        array_t ful_con = sw_init(con.total_clauses);
+        prepare_constraints(&con, sol, &ful_con);
+        sw_flpbit(sol->vector, flip_var);
+
+        int64_t *totals = calloc(C, sizeof(int64_t));
+        array_t inv = sw_init(con.total_clauses);
+        int *changed_con = calloc(MINSIZE, sizeof(int));
+        int num_con_changes = 0;
+
+        adjusted_constraint_violation(&con, flip_var,
+            con.positive_indices, con.num_positive_indices,
+            con.positive_offsets, sol, POSITIVE,
+            totals, &ful_con, &changed_con, &num_con_changes, &inv);
+        adjusted_constraint_violation(&con, flip_var,
+            con.negative_indices, con.num_negative_indices,
+            con.negative_offsets, sol, NEGATIVE,
+            totals, &ful_con, &changed_con, &num_con_changes, &inv);
+
+        for (uint32_t c = 0; c < C; ++c) {
+            int64_t incremental_result = remainings[c] - totals[c];
+            assert_int_equal(full_after[c], incremental_result);
+        }
+
+        sw_flpbit(sol->vector, flip_var);
+        free(changed_con);
+        sw_clear(inv);
+        sw_clear(ful_con);
+        free(totals);
+        free(full_after);
+    }
+
+    free(remainings);
+    free_state(sol, 1);
+    free(arr);
+    free(c0); free(c1); free(c2);
+    free_constraints(&con);
+}
+
+/* ------------------------------------------------------------------ */
 /* test_eval_all_zero_state: x0 + x1 <= 5, state (0,0) => satisfied  */
 /* ------------------------------------------------------------------ */
 static void test_eval_all_zero_state(void **state) {
@@ -367,6 +597,9 @@ int main(void) {
         cmocka_unit_test(test_constraint_violation),
         cmocka_unit_test(test_constraint_violation_satisfied),
         cmocka_unit_test(test_preprocessing),
+        cmocka_unit_test(test_preprocessing_exact_indices),
+        cmocka_unit_test(test_preprocessing_sparse_vs_dense),
+        cmocka_unit_test(test_preprocessing_many_vars),
         cmocka_unit_test(test_eval_all_zero_state),
         cmocka_unit_test(test_incremental_vs_full_recalc),
     };

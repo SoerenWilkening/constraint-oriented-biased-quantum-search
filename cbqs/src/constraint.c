@@ -105,6 +105,45 @@ void print_new_constraint(new_constraints_t *con) {
 }
 
 /*
+ * Bucket entry for single-pass preprocessing.
+ * Records that a variable appears in clause `cls` of constraint `cnstr`
+ * with the given sign (0 = negative factor, 1 = positive/zero factor).
+ */
+typedef struct {
+	uint32_t cnstr;
+	uint32_t cls;
+	int sign;  /* 1 = positive/zero factor, 0 = negative factor */
+} bucket_entry_t;
+
+typedef struct {
+	bucket_entry_t *entries;
+	uint32_t count;
+	uint32_t capacity;
+} bucket_t;
+
+static inline void bucket_init(bucket_t *b) {
+	b->entries = NULL;
+	b->count = 0;
+	b->capacity = 0;
+}
+
+static inline void bucket_push(bucket_t *b, uint32_t cnstr, uint32_t cls, int sign) {
+	if (b->count == b->capacity) {
+		uint32_t new_cap = (b->capacity == 0) ? 4 : b->capacity * 2;
+		b->entries = realloc(b->entries, new_cap * sizeof(bucket_entry_t));
+		b->capacity = new_cap;
+	}
+	b->entries[b->count].cnstr = cnstr;
+	b->entries[b->count].cls = cls;
+	b->entries[b->count].sign = sign;
+	b->count++;
+}
+
+static inline void bucket_free(bucket_t *b) {
+	free(b->entries);
+}
+
+/*
  * preprocessing -- Build dense index structures for constraint evaluation.
  *
  * Purpose: For each (variable, constraint) pair, build arrays that map to the
@@ -120,113 +159,97 @@ void print_new_constraint(new_constraints_t *con) {
  *   negative_offsets[]      -- offset into negative_indices for each (item, cnstr)
  *   num_negative_indices[]  -- count of negative clause entries per (item, cnstr)
  *
- * Separation into positive/negative is needed because the branching direction
- * (assign 0 vs 1) has opposite effects on positive and negative terms when
- * computing constraint potential updates.
+ * Algorithm: Single-pass O(total_variable_occurrences) using per-variable buckets.
+ * 1. Scan all clauses once, recording (cnstr, cls, sign) per variable.
+ * 2. Flatten buckets in (item, cnstr) order into the output arrays.
  *
  * Called once during model.close() on the main thread before any parallel solve.
- *
- * Reads:  con->num_constraints, con->num_clauses[], con->clause_length[],
- *         con->variables[], con->factors[]
- * Writes: All index arrays above, con->sparsity = DENSE, con->array_length
  */
 void preprocessing(
 		int n,
 		new_constraints_t *con
 ) {
-    con->sparsity = DENSE;
-    int size_steps = 1 << 14;
+	con->sparsity = DENSE;
 	uint64_t C = con->num_constraints;
 
-	con->positive_indices = calloc(size_steps, sizeof(uint32_t));
-	con->negative_indices = calloc(size_steps, sizeof(uint32_t));
 	con->positive_offsets = malloc((uint64_t) n * C * sizeof(uint32_t));
 	con->negative_offsets = malloc((uint64_t) n * C * sizeof(uint32_t));
-	con->num_positive_indices = malloc((uint64_t) n * C * sizeof(uint32_t));
-	con->num_negative_indices = malloc((uint64_t) n * C * sizeof(uint32_t));
+	con->num_positive_indices = calloc((uint64_t) n * C, sizeof(uint32_t));
+	con->num_negative_indices = calloc((uint64_t) n * C, sizeof(uint32_t));
 
 	con->positive_array_length = 0;
 	con->negative_array_length = 0;
 	con->array_length = n * C;
-	// preprocess the constraints for usage in the sampling routine
-	// go through every item and collect all the constraint indices containing the items
-	// sort indices by positive and negative coefficients
-	// an item can appear more than once in a constraint (linear + quadratic terms ...)
-	// simplifications can be made:
-	//  - in a clause, items are always sorted in ascending order
-	//  - non-linear factors only come into play, if the last non-assigned item is investigated
-	//      -> only store index of clause for last item
-	// for every constraint, for every item an array is needed to store all the clauses
-	// categorize for positive and negative constraints
-	// improvement: use 1d-array implementations:
-	//      - positive_indices      -> 1d array storing indices
-	//                              -> length not fixed
-	//      - positive_offsets      -> 1d array storing location of values in "positive_indices" given (item, cnstr)
-	//                              -> length fixed
-	//      - num_positive_indices  -> 1d array storing number of values in "positive_indices" at location from
-	//                              -> given (item, cnstr)
-	//                              -> length fixed
 
+	/* Step 1: Allocate per-variable buckets and scan all clauses once */
+	bucket_t *buckets = malloc(n * sizeof(bucket_t));
+	for (int i = 0; i < n; i++)
+		bucket_init(&buckets[i]);
+
+	for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
+		size_t clause_offset = first_clause_index(con, cnstr);
+		for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+			size_t clause_index = clause_offset + cls;
+			int64_t factor = con->factors[clause_index];
+			int sign = (factor < 0) ? 0 : 1;
+			size_t prev_var = SIZE_MAX;
+			for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
+				size_t var = con->variables[variable_index(cls, k, clause_offset)];
+				if (var != prev_var && (int)var < n) {
+					bucket_push(&buckets[var], (uint32_t)cnstr, cls, sign);
+				}
+				prev_var = var;
+			}
+		}
+	}
+
+	/* Step 2: Count totals to allocate index arrays */
+	size_t total_pos = 0, total_neg = 0;
+	for (int item = 0; item < n; item++) {
+		for (uint32_t e = 0; e < buckets[item].count; e++) {
+			if (buckets[item].entries[e].sign)
+				total_pos++;
+			else
+				total_neg++;
+		}
+	}
+
+	con->positive_indices = (total_pos > 0) ? malloc(total_pos * sizeof(uint32_t)) : NULL;
+	con->negative_indices = (total_neg > 0) ? malloc(total_neg * sizeof(uint32_t)) : NULL;
+	con->positive_array_length = (uint32_t)total_pos;
+	con->negative_array_length = (uint32_t)total_neg;
+
+	/* Step 3: Flatten buckets in (item, cnstr) order */
 	size_t counter_positive = 0;
 	size_t counter_negative = 0;
 	for (int item = 0; item < n; item++) {
+		/* Bucket entries are already ordered by cnstr (we scanned cnstr 0..C-1) */
+		uint32_t be = 0;  /* bucket entry index */
 		for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
-			size_t clause_offset = first_clause_index(con, cnstr);
-			unsigned int npi = 0;
-			unsigned int nni = 0;
-			for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
-				size_t clause_index = clause_offset + cls;
-				int64_t factor = con->factors[clause_index];
-				size_t prev_var = SIZE_MAX;
-				for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
-					size_t var = con->variables[variable_index(cls, k, clause_offset)];
-
-					if ((size_t)item == var && var != prev_var) {
-						if (factor < 0) {
-							// add index to "negative_indices"
-							if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
-							    con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
-							con->negative_indices[counter_negative++] = cls;
-							nni++;
-							con->negative_array_length++;
-						} else {
-							// add index to "positive_indices"
-							if ((counter_positive & (size_steps - 1)) == 0 && counter_positive > 0)
-							    con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
-							con->positive_indices[counter_positive++] = cls;
-							npi++;
-							con->positive_array_length++;
-						}
-					}
-					prev_var = var;
+			uint32_t npi = 0, nni = 0;
+			/* Consume all bucket entries for this constraint */
+			while (be < buckets[item].count && buckets[item].entries[be].cnstr == cnstr) {
+				bucket_entry_t *ent = &buckets[item].entries[be];
+				if (ent->sign) {
+					con->positive_indices[counter_positive++] = ent->cls;
+					npi++;
+				} else {
+					con->negative_indices[counter_negative++] = ent->cls;
+					nni++;
 				}
+				be++;
 			}
-			con->num_negative_indices[item * C + cnstr] = nni;
-			con->negative_offsets[item * C + cnstr] = counter_negative - nni;
 			con->num_positive_indices[item * C + cnstr] = npi;
-			con->positive_offsets[item * C + cnstr] = counter_positive - npi;
+			con->positive_offsets[item * C + cnstr] = (uint32_t)(counter_positive - npi);
+			con->num_negative_indices[item * C + cnstr] = nni;
+			con->negative_offsets[item * C + cnstr] = (uint32_t)(counter_negative - nni);
 		}
-	}
-	if (con->positive_array_length == 0) {
-		free(con->positive_indices);
-		con->positive_indices = NULL;
-	} else {
-		uint32_t *new_pos = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
-		if (new_pos != NULL) {
-			con->positive_indices = new_pos;
-		}
-		/* If realloc fails, keep original (over-allocated but not leaked) */
 	}
 
-	if (con->negative_array_length == 0) {
-		free(con->negative_indices);
-		con->negative_indices = NULL;
-	} else {
-		uint32_t *new_neg = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
-		if (new_neg != NULL) {
-			con->negative_indices = new_neg;
-		}
-	}
+	/* Free buckets */
+	for (int i = 0; i < n; i++)
+		bucket_free(&buckets[i]);
+	free(buckets);
 }
 
 
@@ -266,136 +289,122 @@ int64_t get_index(const uint32_t *columns, const uint32_t *rows, int item, size_
  *   pos_rows[], pos_cols[]  -- (row=constraint, col=variable) for positive terms
  *   neg_rows[], neg_cols[]  -- same for negative terms
  *
- * Lookup during solving uses binary search via get_index() on the sorted row/column
- * structure, trading O(1) dense access for O(log nnz) sparse access with much less
- * memory when constraints are sparse.
+ * Algorithm: Single-pass O(total_variable_occurrences) using per-variable buckets,
+ * same as preprocessing() but only storing non-zero (item, cnstr) pairs.
  */
 void preprocessing_sparse(
     int n,
     new_constraints_t *con
 ) {
     con->sparsity = SPARSE;
-    int size_steps = 1 << 14;
     uint64_t C = con->num_constraints;
-    
-    con->positive_indices = calloc(size_steps, sizeof(uint32_t));
-    con->negative_indices = calloc(size_steps, sizeof(uint32_t));
-    con->positive_offsets = malloc(size_steps * sizeof(uint32_t));
-    con->negative_offsets = malloc(size_steps * sizeof(uint32_t));
-    con->num_positive_indices = malloc(size_steps * sizeof(uint32_t));
-    con->num_negative_indices = malloc(size_steps * sizeof(uint32_t));
-    con->neg_cols = malloc(size_steps * sizeof(uint32_t));
-    con->pos_rows = malloc(size_steps * sizeof(uint32_t));
-    con->pos_cols = malloc(size_steps * sizeof(uint32_t));
-    con->neg_rows = malloc(size_steps * sizeof(uint32_t));
+
     con->nnz_pos = 0;
     con->nnz_neg = 0;
-    
     con->positive_array_length = 0;
     con->negative_array_length = 0;
     con->array_length = n * C;
-    // preprocess the constraints for usage in the sampling routine
-    // go through every item and collect all the constraint indices containing the items
-    // sort indices by positive and negative coefficients
-    // an item can appear more than once in a constraint (linear + quadratic terms ...)
-    // simplifications can be made:
-    //  - in a clause, items are always sorted in ascending order
-    //  - non-linear factors only come into play, if the last non-assigned item is investigated
-    //      -> only store index of clause for last item
-    // for every constraint, for every item an array is needed to store all the clauses
-    // categorize for positive and negative constraints
-    // improvement: use 1d-array implementations:
-    //      - positive_indices      -> 1d array storing indices
-    //                              -> length not fixed
-    //      - positive_offsets      -> 1d array storing location of values in "positive_indices" given (item, cnstr)
-    //                              -> length fixed
-    //      - num_positive_indices  -> 2d array storing number of values in "positive_indices" at location from
-    //                              -> given (item, cnstr)
-    //                              -> length fixed
-    
+
+    /* Step 1: Allocate per-variable buckets and scan all clauses once */
+    bucket_t *buckets = malloc(n * sizeof(bucket_t));
+    for (int i = 0; i < n; i++)
+        bucket_init(&buckets[i]);
+
+    for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
+        size_t clause_offset = first_clause_index(con, cnstr);
+        for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
+            size_t clause_index = clause_offset + cls;
+            int64_t factor = con->factors[clause_index];
+            int sign = (factor < 0) ? 0 : 1;
+            size_t prev_var = SIZE_MAX;
+            for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
+                size_t var = con->variables[variable_index(cls, k, clause_offset)];
+                if (var != prev_var && (int)var < n) {
+                    bucket_push(&buckets[var], (uint32_t)cnstr, cls, sign);
+                }
+                prev_var = var;
+            }
+        }
+    }
+
+    /* Step 2: Count totals and nnz entries to pre-allocate */
+    size_t total_pos = 0, total_neg = 0;
+    size_t nnz_pos_count = 0, nnz_neg_count = 0;
+    for (int item = 0; item < n; item++) {
+        uint32_t be = 0;
+        for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
+            uint32_t npi = 0, nni = 0;
+            while (be < buckets[item].count && buckets[item].entries[be].cnstr == cnstr) {
+                if (buckets[item].entries[be].sign) npi++;
+                else nni++;
+                be++;
+            }
+            if (npi > 0) { total_pos += npi; nnz_pos_count++; }
+            if (nni > 0) { total_neg += nni; nnz_neg_count++; }
+        }
+    }
+
+    con->positive_indices = (total_pos > 0) ? malloc(total_pos * sizeof(uint32_t)) : NULL;
+    con->negative_indices = (total_neg > 0) ? malloc(total_neg * sizeof(uint32_t)) : NULL;
+    con->positive_offsets = malloc((nnz_pos_count > 0 ? nnz_pos_count : 1) * sizeof(uint32_t));
+    con->negative_offsets = malloc((nnz_neg_count > 0 ? nnz_neg_count : 1) * sizeof(uint32_t));
+    con->num_positive_indices = malloc((nnz_pos_count > 0 ? nnz_pos_count : 1) * sizeof(uint32_t));
+    con->num_negative_indices = malloc((nnz_neg_count > 0 ? nnz_neg_count : 1) * sizeof(uint32_t));
+    con->pos_cols = malloc((nnz_pos_count > 0 ? nnz_pos_count : 1) * sizeof(uint32_t));
+    con->pos_rows = malloc((nnz_pos_count > 0 ? nnz_pos_count : 1) * sizeof(uint32_t));
+    con->neg_cols = malloc((nnz_neg_count > 0 ? nnz_neg_count : 1) * sizeof(uint32_t));
+    con->neg_rows = malloc((nnz_neg_count > 0 ? nnz_neg_count : 1) * sizeof(uint32_t));
+    con->positive_array_length = (uint32_t)total_pos;
+    con->negative_array_length = (uint32_t)total_neg;
+
+    /* Step 3: Flatten buckets in (item, cnstr) order, storing only non-zero pairs */
     size_t counter_positive = 0;
     size_t counter_negative = 0;
     for (int item = 0; item < n; item++) {
+        uint32_t be = 0;
         for (uint64_t cnstr = 0; cnstr < C; cnstr++) {
-            size_t clause_offset = first_clause_index(con, cnstr);
-            unsigned int npi = 0;
-            unsigned int nni = 0;
-            for (uint32_t cls = 0; cls < con->num_clauses[cnstr]; cls++) {
-                size_t clause_index = clause_offset + cls;
-                int64_t factor = con->factors[clause_index];
-                size_t prev_var = SIZE_MAX;
-                for (uint32_t k = 0; k < con->clause_length[clause_index]; k++) {
-                    size_t var = con->variables[variable_index(cls, k, clause_offset)];
-
-                    if ((size_t)item == var && var != prev_var) {
-                        if (factor < 0) {
-                            // add index to "negative_indices"
-                            if ((counter_negative & (size_steps - 1)) == 0 && counter_negative > 0)
-                                con->negative_indices = realloc(con->negative_indices, (counter_negative + size_steps) * sizeof(uint32_t));
-                            con->negative_indices[counter_negative++] = cls;
-                            nni++;
-                            con->negative_array_length++;
-                        } else {
-                            // add index to "positive_indices"
-                            if ((counter_positive & (size_steps - 1)) == 0 && counter_positive > 0)
-                                con->positive_indices = realloc(con->positive_indices, (counter_positive + size_steps) * sizeof(uint32_t));
-                            con->positive_indices[counter_positive++] = cls;
-                            npi++;
-                            con->positive_array_length++;
-                        }
-                    }
-                    prev_var = var;
-                }
+            uint32_t npi = 0, nni = 0;
+            uint32_t be_start = be;
+            /* Count entries for this (item, cnstr) */
+            while (be < buckets[item].count && buckets[item].entries[be].cnstr == cnstr) {
+                if (buckets[item].entries[be].sign) npi++;
+                else nni++;
+                be++;
             }
-            if (nni != 0) {
-                if ((con->nnz_neg & (size_steps - 1)) == 0 && con->nnz_neg > 0){
-                    // allocate more memory
-                    con->neg_cols = realloc(con->neg_cols, (con->nnz_neg + size_steps) * sizeof(unsigned int));
-                    con->neg_rows = realloc(con->neg_rows, (con->nnz_neg + size_steps) * sizeof(unsigned int));
-                    con->num_negative_indices = realloc(con->num_negative_indices, (con->nnz_neg + size_steps) * sizeof(unsigned int));
-                    con->negative_offsets = realloc(con->negative_offsets, (con->nnz_neg + size_steps) * sizeof(unsigned int));
-                }
-                con->neg_cols[con->nnz_neg] = item;
-                con->neg_rows[con->nnz_neg] = cnstr;
-                con->num_negative_indices[con->nnz_neg] = nni;
-                con->negative_offsets[con->nnz_neg] = counter_negative - nni;
-                con->nnz_neg++;
-            }
-            if (npi != 0) {
-                if ((con->nnz_pos & (size_steps - 1)) == 0 && con->nnz_pos > 0){
-                    con->pos_cols = realloc(con->pos_cols, (con->nnz_pos + size_steps) * sizeof(unsigned int));
-                    con->pos_rows = realloc(con->pos_rows, (con->nnz_pos + size_steps) * sizeof(unsigned int));
-                    con->num_positive_indices = realloc(con->num_positive_indices, (con->nnz_pos + size_steps) * sizeof(unsigned int));
-                    con->positive_offsets = realloc(con->positive_offsets, (con->nnz_pos + size_steps) * sizeof(unsigned int));
-                }
+            /* Write positive entries */
+            if (npi > 0) {
                 con->pos_cols[con->nnz_pos] = item;
                 con->pos_rows[con->nnz_pos] = cnstr;
                 con->num_positive_indices[con->nnz_pos] = npi;
-                con->positive_offsets[con->nnz_pos] = counter_positive - npi;
+                con->positive_offsets[con->nnz_pos] = (uint32_t)counter_positive;
                 con->nnz_pos++;
+                /* Replay bucket entries for this (item, cnstr) to write indices */
+                for (uint32_t i = be_start; i < be; i++) {
+                    if (buckets[item].entries[i].sign) {
+                        con->positive_indices[counter_positive++] = buckets[item].entries[i].cls;
+                    }
+                }
+            }
+            /* Write negative entries */
+            if (nni > 0) {
+                con->neg_cols[con->nnz_neg] = item;
+                con->neg_rows[con->nnz_neg] = cnstr;
+                con->num_negative_indices[con->nnz_neg] = nni;
+                con->negative_offsets[con->nnz_neg] = (uint32_t)counter_negative;
+                con->nnz_neg++;
+                for (uint32_t i = be_start; i < be; i++) {
+                    if (!buckets[item].entries[i].sign) {
+                        con->negative_indices[counter_negative++] = buckets[item].entries[i].cls;
+                    }
+                }
             }
         }
     }
-    if (con->positive_array_length == 0) {
-        free(con->positive_indices);
-        con->positive_indices = NULL;
-    } else {
-        uint32_t *new_pos = realloc(con->positive_indices, con->positive_array_length * sizeof(uint32_t));
-        if (new_pos != NULL) {
-            con->positive_indices = new_pos;
-        }
-        /* If realloc fails, keep original (over-allocated but not leaked) */
-    }
 
-    if (con->negative_array_length == 0) {
-        free(con->negative_indices);
-        con->negative_indices = NULL;
-    } else {
-        uint32_t *new_neg = realloc(con->negative_indices, con->negative_array_length * sizeof(uint32_t));
-        if (new_neg != NULL) {
-            con->negative_indices = new_neg;
-        }
-    }
+    /* Free buckets */
+    for (int i = 0; i < n; i++)
+        bucket_free(&buckets[i]);
+    free(buckets);
 }
 
 
