@@ -25,7 +25,18 @@ int compare_tuples(const void *a, const void *b) {
 
 void sort_expression(expression_t *expr) {
 	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
 	qsort(lits, expr->expr_size, sizeof(int64_t) * MAX_VARS_PER_TERM, compare_tuples);
+	/* Recompute len_literal from the padding values after sorting,
+	   since qsort only moved literals but not the parallel lens array. */
+	for (size_t i = 0; i < expr->expr_size; i++) {
+		int len = 1; /* at least the coefficient */
+		for (int j = 1; j < MAX_VARS_PER_TERM; j++) {
+			if (lits[i * MAX_VARS_PER_TERM + j] == -1) break;
+			len++;
+		}
+		lens[i] = len;
+	}
 }
 
 size_t expr_index(size_t lit, int ind) {

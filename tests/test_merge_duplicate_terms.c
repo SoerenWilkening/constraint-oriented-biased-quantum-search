@@ -195,6 +195,52 @@ static void test_merge_mixed(void **state) {
 	free_expression(expr);
 }
 
+/* test_merge_quadratic_with_linear: 2*x0*x1 + 3*x0 + 5*x0*x1 -> 7*x0*x1 + 3*x0 */
+static void test_merge_quadratic_with_linear(void **state) {
+	(void)state;
+
+	expression_t *expr = init_expression();
+	/* Add 2*x0*x1 */
+	int64_t vars_q[] = {0, 1};
+	dyn_expr_add_term(expr, 2, vars_q, 2);
+	/* Add 3*x0 */
+	int64_t vars_l[] = {0};
+	dyn_expr_add_term(expr, 3, vars_l, 1);
+	/* Add 5*x0*x1 */
+	dyn_expr_add_term(expr, 5, vars_q, 2);
+
+	assert_int_equal(expr->expr_size, 3);
+
+	int found = merge_duplicate_variable_terms(expr);
+	assert_int_equal(found, 1);
+
+	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
+
+	int64_t coeff_x0x1 = 0, coeff_x0 = 0;
+	int quad_count = 0, lin_count = 0;
+	for (size_t i = 0; i < expr->expr_size; i++) {
+		if (lens[i] == 3) {
+			/* quadratic term: coefficient + 2 vars */
+			coeff_x0x1 = lits[expr_index(i, 0)];
+			assert_int_equal(lits[expr_index(i, 1)], 0);
+			assert_int_equal(lits[expr_index(i, 2)], 1);
+			quad_count++;
+		} else if (lens[i] == 2) {
+			/* linear term */
+			coeff_x0 = lits[expr_index(i, 0)];
+			assert_int_equal(lits[expr_index(i, 1)], 0);
+			lin_count++;
+		}
+	}
+	assert_int_equal(quad_count, 1);
+	assert_int_equal(lin_count, 1);
+	assert_int_equal(coeff_x0x1, 7);
+	assert_int_equal(coeff_x0, 3);
+
+	free_expression(expr);
+}
+
 /* test_empty_expression: no crash on empty expression */
 static void test_empty_expression(void **state) {
 	(void)state;
@@ -213,6 +259,7 @@ int main(void) {
 		cmocka_unit_test(test_merge_unsorted_vars),
 		cmocka_unit_test(test_merge_constants_untouched),
 		cmocka_unit_test(test_merge_mixed),
+		cmocka_unit_test(test_merge_quadratic_with_linear),
 		cmocka_unit_test(test_empty_expression),
 	};
 	return cmocka_run_group_tests(tests, NULL, NULL);
