@@ -22,6 +22,7 @@ from .Constraint cimport add_expression_to_constraints, process_constraints
 from .Expression cimport expression_t
 from libc.stdlib cimport srand
 from .SearchLib import (run_local_search, run_quantum_local_search, reset_c_flags)
+from .VariableVector import _make_variable_vector, CVariableVector
 from .SearchLib import run_sampling
 from .StateGenerator import exact_simulator
 from .state_sampler import approximate_state
@@ -475,12 +476,11 @@ or {self.runtime}s sampling
 		self.n += 1
 		return x
 
-	def add_variables(self, n: int = 1, name: str = "x", bound = 1) -> dict:
+	def add_variables(self, n: int = 1, name: str = "x", bound = 1):
 		"""Add multiple decision variables to the model.
 
-		Creates *n* variables and returns a dictionary mapping indices to
-		``Variable`` objects (for binary) or ``Expression`` objects (for
-		bounded integers).
+		Creates *n* variables and returns a :class:`CVariableVector` for
+		binary variables or a ``dict`` for bounded integers.
 
 		Parameters
 		----------
@@ -495,8 +495,9 @@ or {self.runtime}s sampling
 
 		Returns
 		-------
-		dict
-			Mapping of variable index to ``Variable`` or ``Expression``.
+		CVariableVector or dict
+			For binary (bound=1): CVariableVector with dict-like access.
+			For bounded integer: dict mapping index to Expression.
 
 		Raises
 		------
@@ -508,19 +509,21 @@ or {self.runtime}s sampling
 		>>> x = m.add_variables(5)          # 5 binary variables
 		>>> y = m.add_variables(3, bound=7) # 3 integer variables 0..7
 		"""
+		cdef int i
+		cdef int start
 		if n < 1:
 			raise ValueError(f"Number of variables must be >= 1, got {n}")
-		x = {}
 		if bound > 1:
+			x = {}
 			for i in range(n):
 				x[i] = self.add_variable(self.n, name = name, bound = bound)
 			return x
+		start = self.n
+		vec = _make_variable_vector(self, start, n, name_prefix=name)
 		for i in range(n):
-			x[self.n + i] = Variable(self.n + i, f"{name}{self.n + i}")
-			self.variables[self.n + i] = x[self.n + i]
+			self.variables[start + i] = Variable(start + i, f"{name}{start + i}")
 		self.n += n
-
-		return x
+		return vec
 
 	def set_objective(self, Expression objective = None, sense: int = MAXIMIZE, validate = True) -> None:
 		"""Set the objective function and optimization sense.

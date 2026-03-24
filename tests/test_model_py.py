@@ -50,10 +50,10 @@ class TestModelVariables:
         assert m.n == 2
 
     def test_add_variables_batch(self):
-        """add_variables(n) returns dict with n variables."""
+        """add_variables(n) returns CVariableVector with n variables."""
         m = Model()
         xs = m.add_variables(5)
-        assert isinstance(xs, dict)
+        assert not isinstance(xs, dict)  # now CVariableVector
         assert len(xs) == 5
         assert m.n == 5
         # All indices should be unique

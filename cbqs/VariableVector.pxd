@@ -15,3 +15,5 @@ cdef class CVariableVector:
 	cdef bint _owns
 	cdef object _model
 	cdef object _name_prefix
+	cdef inline object _variable_at(self, int pos)
+	cdef inline int _pos_for_key(self, int key) except -1

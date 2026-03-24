@@ -1,7 +1,7 @@
-"""Tests for CVariableVector Cython wrapper."""
+"""Tests for CVariableVector Cython wrapper with dict-compatible interface."""
 import pytest
 from cbqs.VariableVector import CVariableVector, _make_variable_vector
-from cbqs.Expression import Variable
+from cbqs.Expression import Variable, Expression
 from cbqs.Constants import INTEGER
 
 
@@ -18,11 +18,11 @@ class TestCVariableVectorLen:
 
 
 class TestCVariableVectorGetitem:
-    """__getitem__ returns a Variable with correct metadata."""
+    """__getitem__ accepts variable indices (dict-key style)."""
 
     def test_basic_access(self):
         vec = _make_variable_vector(None, 10, 3)
-        v = vec[0]
+        v = vec[10]
         assert isinstance(v, Variable)
         assert v.index == 10
         assert v.name == "x10"
@@ -30,24 +30,19 @@ class TestCVariableVectorGetitem:
         assert v.ub == 1
         assert v.vtype == INTEGER
 
-    def test_sequential_indices(self):
+    def test_sequential_keys(self):
         vec = _make_variable_vector(None, 5, 4)
-        assert vec[0].index == 5
-        assert vec[1].index == 6
-        assert vec[2].index == 7
-        assert vec[3].index == 8
+        assert vec[5].index == 5
+        assert vec[6].index == 6
+        assert vec[7].index == 7
+        assert vec[8].index == 8
 
-    def test_negative_index(self):
-        vec = _make_variable_vector(None, 0, 3)
-        assert vec[-1].index == 2
-        assert vec[-3].index == 0
-
-    def test_out_of_range_raises(self):
-        vec = _make_variable_vector(None, 0, 3)
-        with pytest.raises(IndexError):
-            vec[3]
-        with pytest.raises(IndexError):
-            vec[-4]
+    def test_missing_key_raises(self):
+        vec = _make_variable_vector(None, 10, 3)
+        with pytest.raises(KeyError):
+            vec[0]
+        with pytest.raises(KeyError):
+            vec[13]
 
     def test_non_int_key_raises(self):
         vec = _make_variable_vector(None, 0, 3)
@@ -69,40 +64,67 @@ class TestCVariableVectorGetitem:
 
 
 class TestCVariableVectorIter:
-    """__iter__ yields Variable objects in order."""
+    """__iter__ yields integer variable indices (dict-key compatible)."""
 
     def test_iter_count(self):
         vec = _make_variable_vector(None, 0, 5)
-        items = list(vec)
-        assert len(items) == 5
+        keys = list(vec)
+        assert len(keys) == 5
 
-    def test_iter_order(self):
+    def test_iter_yields_keys(self):
         vec = _make_variable_vector(None, 10, 3)
-        indices = [v.index for v in vec]
-        assert indices == [10, 11, 12]
+        keys = list(vec)
+        assert keys == [10, 11, 12]
 
     def test_iter_empty(self):
         vec = CVariableVector()
         assert list(vec) == []
 
+    def test_dict_pattern(self):
+        """for i in x: x[i] works like a dict."""
+        vec = _make_variable_vector(None, 5, 3)
+        variables = [vec[i] for i in vec]
+        assert len(variables) == 3
+        assert variables[0].index == 5
+        assert variables[2].index == 7
+
 
 class TestCVariableVectorContains:
-    """__contains__ checks by Variable.index."""
+    """__contains__ checks integer variable indices."""
 
     def test_present(self):
         vec = _make_variable_vector(None, 0, 5)
-        v = Variable(3)
-        assert v in vec
+        assert 3 in vec
 
     def test_absent(self):
         vec = _make_variable_vector(None, 0, 5)
-        v = Variable(10)
-        assert v not in vec
+        assert 10 not in vec
 
-    def test_non_variable(self):
+    def test_non_int(self):
         vec = _make_variable_vector(None, 0, 5)
-        assert 3 not in vec
         assert "x0" not in vec
+
+
+class TestCVariableVectorDictCompat:
+    """keys(), values(), items() for dict compatibility."""
+
+    def test_keys(self):
+        vec = _make_variable_vector(None, 10, 3)
+        assert vec.keys() == [10, 11, 12]
+
+    def test_values(self):
+        vec = _make_variable_vector(None, 10, 3)
+        vals = vec.values()
+        assert len(vals) == 3
+        assert all(isinstance(v, Variable) for v in vals)
+        assert [v.index for v in vals] == [10, 11, 12]
+
+    def test_items(self):
+        vec = _make_variable_vector(None, 10, 2)
+        items = vec.items()
+        assert len(items) == 2
+        assert items[0][0] == 10
+        assert items[0][1].index == 10
 
 
 class TestCVariableVectorModel:
@@ -130,12 +152,9 @@ class TestCVariableVectorArithmetic:
     def test_add_variables(self):
         vec = _make_variable_vector(None, 0, 3)
         expr = vec[0] + vec[1]
-        # Should create an Expression without error
-        from cbqs.Expression import Expression
         assert isinstance(expr, Expression)
 
     def test_multiply_variable(self):
         vec = _make_variable_vector(None, 0, 3)
         expr = 3 * vec[0]
-        from cbqs.Expression import Expression
         assert isinstance(expr, Expression)

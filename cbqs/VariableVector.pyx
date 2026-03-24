@@ -5,7 +5,8 @@ from .Constants import INTEGER
 cdef class CVariableVector:
 	"""Compact vector of variables backed by a C array.
 
-	Supports ``__getitem__``, ``__len__``, ``__iter__``, and ``__contains__``.
+	Dict-compatible interface: keys are variable indices, iteration yields
+	integer keys, ``__getitem__`` accepts variable indices.
 	Variable Python objects are created lazily on access.
 	Holds a reference to the owning Model for lifetime safety.
 	"""
@@ -23,44 +24,61 @@ cdef class CVariableVector:
 	def __len__(self):
 		return self._vec.n
 
-	def __getitem__(self, key):
-		cdef int idx
-		cdef int size = self._vec.n
-		if isinstance(key, int):
-			idx = <int>key
-			if idx < 0:
-				idx += size
-			if idx < 0 or idx >= size:
-				raise IndexError(f"index {key} out of range for CVariableVector of size {size}")
-			return Variable(
-				self._vec.indices[idx],
-				f"{self._name_prefix}{self._vec.indices[idx]}",
-				self._vec.lb[idx],
-				self._vec.ub[idx],
-				self._vec.vtype[idx],
-			)
-		raise TypeError(f"indices must be integers, not {type(key).__name__}")
+	cdef inline object _variable_at(self, int pos):
+		"""Create a Variable for position *pos* (0-based)."""
+		return Variable(
+			self._vec.indices[pos],
+			f"{self._name_prefix}{self._vec.indices[pos]}",
+			self._vec.lb[pos],
+			self._vec.ub[pos],
+			self._vec.vtype[pos],
+		)
 
-	def __iter__(self):
+	cdef inline int _pos_for_key(self, int key) except -1:
+		"""Map a variable-index key to a 0-based position, or raise KeyError."""
 		cdef int i
 		for i in range(self._vec.n):
-			yield Variable(
-				self._vec.indices[i],
-				f"{self._name_prefix}{self._vec.indices[i]}",
-				self._vec.lb[i],
-				self._vec.ub[i],
-				self._vec.vtype[i],
-			)
+			if self._vec.indices[i] == key:
+				return i
+		raise KeyError(key)
+
+	def __getitem__(self, key):
+		if not isinstance(key, int):
+			raise TypeError(f"indices must be integers, not {type(key).__name__}")
+		cdef int pos = self._pos_for_key(<int>key)
+		return self._variable_at(pos)
+
+	def __iter__(self):
+		"""Yield variable indices (dict-key compatible)."""
+		cdef int i
+		for i in range(self._vec.n):
+			yield self._vec.indices[i]
 
 	def __contains__(self, item):
-		if not isinstance(item, Variable):
+		"""Check if an integer variable index is present."""
+		if not isinstance(item, int):
 			return False
-		cdef int target = item.index
+		cdef int target = <int>item
 		cdef int i
 		for i in range(self._vec.n):
 			if self._vec.indices[i] == target:
 				return True
 		return False
+
+	def keys(self):
+		"""Variable indices, like dict.keys()."""
+		return list(self)
+
+	def values(self):
+		"""Variable objects, like dict.values()."""
+		cdef int i
+		return [self._variable_at(i) for i in range(self._vec.n)]
+
+	def items(self):
+		"""(index, Variable) pairs, like dict.items()."""
+		cdef int i
+		return [(self._vec.indices[i], self._variable_at(i))
+		        for i in range(self._vec.n)]
 
 	def __repr__(self):
 		return f"CVariableVector(size={self._vec.n})"
