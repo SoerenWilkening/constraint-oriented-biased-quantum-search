@@ -87,6 +87,16 @@ cdef class CVariableVector:
 	def __repr__(self):
 		return f"CVariableVector(size={self._vec.n})"
 
+	def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+		"""Handle numpy ufunc dispatch for matmul."""
+		if ufunc is np.matmul and method == '__call__' and len(inputs) == 2:
+			lhs, rhs = inputs
+			if isinstance(rhs, CVariableVector):
+				return rhs.__rmatmul__(lhs)
+			if isinstance(lhs, CVariableVector):
+				return lhs.__matmul__(rhs)
+		return NotImplemented
+
 	@property
 	def model(self):
 		return self._model
@@ -153,7 +163,7 @@ cdef class ExpressionVector:
 	"""
 
 	@staticmethod
-	cdef ExpressionVector _create(cnp.ndarray matrix, CVariableVector var_vec):
+	cdef ExpressionVector _create(object matrix, CVariableVector var_vec):
 		cdef ExpressionVector ev = ExpressionVector.__new__(ExpressionVector)
 		ev._matrix = matrix
 		ev._var_vec = var_vec

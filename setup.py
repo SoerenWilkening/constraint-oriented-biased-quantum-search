@@ -50,6 +50,7 @@ lib_cbqs_core = ('cbqs_core', {
         'cbqs/src/prng.c',
         'cbqs/src/arena.c',
         'cbqs/src/variable_vector.c',
+        'cbqs/src/ml_features.c',
     ],
     # SearchLib.c includes <Python.h>, so build_clib needs the Python
     # include directory in addition to the project source directory.

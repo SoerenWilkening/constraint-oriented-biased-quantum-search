@@ -34,3 +34,6 @@ cdef class ExpressionVector:
 	cdef int _m              # rows
 	cdef int _n              # cols
 	cdef object _var_vec     # CVariableVector reference (prevents GC)
+
+	@staticmethod
+	cdef ExpressionVector _create(object matrix, CVariableVector var_vec)
