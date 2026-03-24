@@ -49,7 +49,7 @@ lib_cbqs_core = ('cbqs_core', {
         'cbqs/src/solver_ctx.c',
         'cbqs/src/prng.c',
         'cbqs/src/arena.c',
-        'cbqs/src/ml_features.c',
+        'cbqs/src/variable_vector.c',
     ],
     # SearchLib.c includes <Python.h>, so build_clib needs the Python
     # include directory in addition to the project source directory.
@@ -97,6 +97,7 @@ for ext_name, pyx_file in [
     ("cbqs.state_sampler", "cbqs/state_sampler.pyx"),
     ("cbqs.state",         "cbqs/state.pyx"),
     ("cbqs.Constraint",    "cbqs/Constraint.pyx"),
+    ("cbqs.VariableVector", "cbqs/VariableVector.pyx"),
 ]:
     extensions.append(
         Extension(ext_name, [pyx_file],
