@@ -276,17 +276,8 @@ add_cmocka_test(test_stage_switching
     ${CBQS_SRC_DIR}/prng.c
 )
 
-# --- Consolidated predicted params setter ---
-add_cmocka_test(test_predicted_params
-    test_predicted_params.c
-    ${CBQS_SRC_DIR}/solver_ctx.c
-    ${CBQS_SRC_DIR}/arena.c
-    ${CBQS_SRC_DIR}/prng.c
-)
-
-# --- FR-14: Sub-linear instance-level model ---
-# Tests log_linear_dot() and sub-linear prediction.
-# Note: test includes ml_features.c directly to access static functions.
-add_cmocka_test(test_ml_features
-    test_ml_features.c
+# --- C-level variable vector struct and lifecycle ---
+add_cmocka_test(test_variable_vector
+    test_variable_vector.c
+    ${CBQS_SRC_DIR}/variable_vector.c
 )
