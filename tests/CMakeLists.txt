@@ -280,4 +280,14 @@ add_cmocka_test(test_stage_switching
 add_cmocka_test(test_variable_vector
     test_variable_vector.c
     ${CBQS_SRC_DIR}/variable_vector.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+)
+
+# --- bilinear_reduce / linear_reduce ---
+add_cmocka_test(test_reduce_ops
+    test_reduce_ops.c
+    ${CBQS_SRC_DIR}/variable_vector.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
 )
