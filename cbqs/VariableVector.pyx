@@ -1,5 +1,9 @@
+from libc.stdint cimport int64_t
 from .Expression import Variable
+from .Expression cimport Expression, expression_t, free_expression
 from .Constants import INTEGER
+import numpy as np
+cimport numpy as cnp
 
 
 cdef class CVariableVector:
@@ -86,6 +90,90 @@ cdef class CVariableVector:
 	@property
 	def model(self):
 		return self._model
+
+	def __matmul__(self, other):
+		"""CVariableVector @ ExpressionVector → Expression (bilinear_reduce)."""
+		cdef ExpressionVector ev
+		cdef expression_t *result
+		cdef Expression expr
+		if not isinstance(other, ExpressionVector):
+			return NotImplemented
+		ev = <ExpressionVector>other
+		if self._vec.n != ev._m:
+			raise ValueError(
+				f"vector size ({self._vec.n}) != matrix rows ({ev._m})")
+		result = bilinear_reduce(
+			self._vec.indices, self._vec.n,
+			<const int64_t *>cnp.PyArray_DATA(ev._matrix),
+			ev._var_indices, ev._n,
+		)
+		if result is NULL:
+			raise MemoryError("bilinear_reduce failed")
+		expr = Expression()
+		free_expression(expr.expr)
+		expr.expr = result
+		return expr
+
+	def __rmatmul__(self, other):
+		"""numpy array @ CVariableVector → ExpressionVector or Expression."""
+		cdef cnp.ndarray arr
+		cdef expression_t *result
+		cdef Expression expr
+		if not isinstance(other, np.ndarray):
+			return NotImplemented
+		arr = np.ascontiguousarray(other, dtype=np.int64)
+		if arr.ndim == 2:
+			if arr.shape[1] != self._vec.n:
+				raise ValueError(
+					f"matrix columns ({arr.shape[1]}) != vector size ({self._vec.n})")
+			return ExpressionVector._create(arr, self)
+		elif arr.ndim == 1:
+			if arr.shape[0] != self._vec.n:
+				raise ValueError(
+					f"vector length ({arr.shape[0]}) != variable count ({self._vec.n})")
+			result = linear_reduce(
+				<const int64_t *>cnp.PyArray_DATA(arr),
+				self._vec.indices, self._vec.n,
+			)
+			if result is NULL:
+				raise MemoryError("linear_reduce failed")
+			expr = Expression()
+			free_expression(expr.expr)
+			expr.expr = result
+			return expr
+		else:
+			raise ValueError(f"expected 1D or 2D array, got {arr.ndim}D")
+
+
+cdef class ExpressionVector:
+	"""Lazy representation of matrix @ variables (not yet reduced).
+
+	Holds a reference to the numpy matrix and variable indices.
+	Reduction happens when a CVariableVector is matmul'd with this.
+	"""
+
+	@staticmethod
+	cdef ExpressionVector _create(cnp.ndarray matrix, CVariableVector var_vec):
+		cdef ExpressionVector ev = ExpressionVector.__new__(ExpressionVector)
+		ev._matrix = matrix
+		ev._var_vec = var_vec
+		ev._var_indices = var_vec._vec.indices
+		ev._m = matrix.shape[0]
+		ev._n = matrix.shape[1]
+		return ev
+
+	def __repr__(self):
+		return f"ExpressionVector(m={self._m}, n={self._n})"
+
+	def __rmatmul__(self, other):
+		"""CVariableVector @ ExpressionVector → Expression."""
+		if isinstance(other, CVariableVector):
+			return (<CVariableVector>other).__matmul__(self)
+		return NotImplemented
+
+	@property
+	def shape(self):
+		return (self._m, self._n)
 
 
 def _make_variable_vector(model, int start, int count, str name_prefix="x",

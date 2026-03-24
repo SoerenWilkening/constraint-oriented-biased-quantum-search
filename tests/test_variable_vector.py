@@ -1,6 +1,7 @@
 """Tests for CVariableVector Cython wrapper with dict-compatible interface."""
 import pytest
-from cbqs.VariableVector import CVariableVector, _make_variable_vector
+import numpy as np
+from cbqs.VariableVector import CVariableVector, _make_variable_vector, ExpressionVector
 from cbqs.Expression import Variable, Expression
 from cbqs.Constants import INTEGER
 
@@ -158,3 +159,73 @@ class TestCVariableVectorArithmetic:
         vec = _make_variable_vector(None, 0, 3)
         expr = 3 * vec[0]
         assert isinstance(expr, Expression)
+
+
+class TestMatmul2D:
+    """numpy 2D @ CVariableVector → ExpressionVector."""
+
+    def test_2d_returns_expression_vector(self):
+        vec = _make_variable_vector(None, 0, 3)
+        mat = np.array([[1, 0, 2], [0, 3, 0]], dtype=np.int64)
+        result = mat @ vec
+        assert isinstance(result, ExpressionVector)
+        assert result.shape == (2, 3)
+
+    def test_2d_dtype_coercion(self):
+        """Non-int64 input is coerced to int64."""
+        vec = _make_variable_vector(None, 0, 2)
+        mat = np.array([[1.0, 2.0]], dtype=np.float64)
+        result = mat @ vec
+        assert isinstance(result, ExpressionVector)
+
+    def test_2d_dimension_mismatch(self):
+        vec = _make_variable_vector(None, 0, 3)
+        mat = np.array([[1, 2]], dtype=np.int64)  # 1x2, but vec has 3 vars
+        with pytest.raises(ValueError, match="columns"):
+            mat @ vec
+
+
+class TestMatmul1D:
+    """numpy 1D @ CVariableVector → Expression."""
+
+    def test_1d_returns_expression(self):
+        vec = _make_variable_vector(None, 0, 3)
+        coeffs = np.array([5, 0, -3], dtype=np.int64)
+        result = coeffs @ vec
+        assert isinstance(result, Expression)
+
+    def test_1d_dimension_mismatch(self):
+        vec = _make_variable_vector(None, 0, 3)
+        coeffs = np.array([1, 2], dtype=np.int64)
+        with pytest.raises(ValueError, match="length"):
+            coeffs @ vec
+
+
+class TestMatmulBilinear:
+    """CVariableVector @ ExpressionVector → Expression (bilinear_reduce)."""
+
+    def test_bilinear_returns_expression(self):
+        x = _make_variable_vector(None, 0, 3)
+        y = _make_variable_vector(None, 10, 2)
+        mat = np.array([[1, 0, 2], [0, 3, 0]], dtype=np.int64)
+        ev = mat @ x
+        result = y @ ev
+        assert isinstance(result, Expression)
+
+    def test_bilinear_dimension_mismatch(self):
+        x = _make_variable_vector(None, 0, 3)
+        y = _make_variable_vector(None, 10, 5)  # 5 vars, but matrix has 2 rows
+        mat = np.array([[1, 0, 2], [0, 3, 0]], dtype=np.int64)
+        ev = mat @ x
+        with pytest.raises(ValueError, match="rows"):
+            y @ ev
+
+
+class TestMatmul3D:
+    """3D array @ CVariableVector raises ValueError."""
+
+    def test_3d_raises(self):
+        vec = _make_variable_vector(None, 0, 2)
+        arr = np.ones((2, 2, 2), dtype=np.int64)
+        with pytest.raises(ValueError, match="1D or 2D"):
+            arr @ vec

@@ -60,7 +60,9 @@ lib_cbqs_core = ('cbqs_core', {
 # ---------------------------------------------------------------------------
 # Extensions
 # ---------------------------------------------------------------------------
+import numpy as np
 include_src = [os.path.join("cbqs", "src")]
+include_src_numpy = include_src + [np.get_include()]
 
 extensions = [
     # Pure-Python Cython compilations (no C sources)
@@ -99,10 +101,11 @@ for ext_name, pyx_file in [
     ("cbqs.Constraint",    "cbqs/Constraint.pyx"),
     ("cbqs.VariableVector", "cbqs/VariableVector.pyx"),
 ]:
+    inc = include_src_numpy if "VariableVector" in ext_name else include_src
     extensions.append(
         Extension(ext_name, [pyx_file],
                   extra_compile_args=compiler_args,
-                  include_dirs=include_src,
+                  include_dirs=inc,
                   libraries=['cbqs_core'])
     )
 
