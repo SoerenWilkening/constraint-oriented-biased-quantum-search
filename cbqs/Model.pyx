@@ -539,7 +539,10 @@ or {self.runtime}s sampling
 			``MAXIMIZE`` or ``MINIMIZE``. Default: ``MAXIMIZE``.
 		validate : bool, optional
 			Whether to validate inputs and merge duplicate terms.
-			Default: True.
+			Default: True. Pass ``False`` to skip both ``merge()``
+			and ``_merge_duplicate_variable_terms()`` for expressions
+			that are already clean (e.g. produced by ``bilinear_reduce``
+			/ matmul, where each (i,j) pair appears exactly once).
 
 		Raises
 		------
@@ -553,25 +556,19 @@ or {self.runtime}s sampling
 		>>> x = m.add_variables(3)
 		>>> m.set_objective(x[0] + 2*x[1] + x[2], MAXIMIZE)
 		"""
+		if sense not in [MINIMIZE, MAXIMIZE]:
+			raise TypeError(
+				f"Invalid sense {sense}. Use MAXIMIZE ({MAXIMIZE}) or MINIMIZE ({MINIMIZE})"
+			)
 		if validate:
 			if objective is None:
 				raise ValueError("Objective expression cannot be None")
-			if sense not in [MINIMIZE, MAXIMIZE]:
-				raise TypeError(
-					f"Invalid sense {sense}. Use MAXIMIZE ({MAXIMIZE}) or MINIMIZE ({MINIMIZE})"
-				)
-		else:
-			# Even without validation, sense check is critical for correctness
-			if sense not in [MINIMIZE, MAXIMIZE]:
-				raise TypeError(
-					f"Invalid sense {sense}. Use MAXIMIZE ({MAXIMIZE}) or MINIMIZE ({MINIMIZE})"
-				)
 
 		self.sense = sense
 		self.mod.solver = OPTIMIZE
 		expr = objective
-		expr.merge()
 		if validate:
+			expr.merge()
 			_merge_duplicate_variable_terms(expr)
 		if sense == MINIMIZE:
 			expr = expr <= 0
@@ -596,7 +593,10 @@ or {self.runtime}s sampling
 			e.g., ``expr <= 5`` or ``expr == 0``.
 		validate : bool, optional
 			Whether to validate inputs and merge duplicate terms.
-			Default: True.
+			Default: True. Pass ``False`` to skip both ``merge()``
+			and ``_merge_duplicate_variable_terms()`` for expressions
+			that are already clean (e.g. produced by ``bilinear_reduce``
+			/ matmul, where each (i,j) pair appears exactly once).
 
 		Raises
 		------
@@ -618,8 +618,8 @@ or {self.runtime}s sampling
 					"(e.g., expr <= 5)"
 				)
 		expr = constraint
-		expr.merge()
 		if validate:
+			expr.merge()
 			_merge_duplicate_variable_terms(expr)
 		add_expression_to_constraints(self.mod.con, <expression_t *> constraint.expr)
 		self.constraint.add_expression(expr)

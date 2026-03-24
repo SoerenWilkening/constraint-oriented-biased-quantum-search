@@ -24,14 +24,16 @@ def bench_quantum(size, index, max_m = -1, stop_val = 1, f = "plots/res.csv", st
 	c3_lower = np.tril(c3).astype(np.int64)
 
 	# Objective: sum(c1[i][j] * x[i] * x[j] for i >= j)
-	m.set_objective(x @ (c1_lower @ x), sense=MAXIMIZE)
+	# validate=False: matmul-produced expressions are already clean
+	# (each (i,j) pair appears exactly once), so merge() is unnecessary.
+	m.set_objective(x @ (c1_lower @ x), sense=MAXIMIZE, validate=False)
 
 	# Constraints using matrix ops
 	c3_sum = int(np.tril(c3).sum())
-	m.add_constraint(x @ (2 * c3_lower @ x) <= c3_sum)
+	m.add_constraint(x @ (2 * c3_lower @ x) <= c3_sum, validate=False)
 
 	c2_sum = int(np.tril(c2).sum())
-	m.add_constraint(x @ (2 * c2_lower @ x) >= c2_sum)
+	m.add_constraint(x @ (2 * c2_lower @ x) >= c2_sum, validate=False)
 
 	m.close()
 	modeling_time = time() - t1
