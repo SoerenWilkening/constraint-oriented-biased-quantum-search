@@ -4,7 +4,7 @@ import fcntl
 import sys
 from time import time
 
-sys.path.append('../Thesis/')
+import numpy as np
 from cbqs import MAXIMIZE
 from cbqs import Model
 
@@ -17,17 +17,27 @@ def bench_quantum(size, index, max_m = -1, stop_val = 1, f = "plots/res.csv", st
 	t1 = time()
 	m = Model()
 	x = m.add_variables(size)
-	m.set_objective(sum(int(c1[i][j]) * x[i] * x[j] for i in x for j in x if i >= j), sense = MAXIMIZE)
-	m.add_constraint(sum(2 * int(c3[i][j]) * x[i] * x[j] for i in x for j in x if i >= j) <= sum(int(c3[i][j]) for i in x for j in x if i >= j))
-	m.add_constraint(sum(2 * int(c2[i][j]) * x[i] * x[j] for i in x for j in x if i >= j) >= sum(int(c2[i][j]) for i in x for j in x if i >= j))
+
+	# Lower-triangular matrices (i >= j) for objective and constraints
+	c1_lower = np.tril(c1).astype(np.int64)
+	c2_lower = np.tril(c2).astype(np.int64)
+	c3_lower = np.tril(c3).astype(np.int64)
+
+	# Objective: sum(c1[i][j] * x[i] * x[j] for i >= j)
+	m.set_objective(x @ (c1_lower @ x), sense=MAXIMIZE)
+
+	# Constraints using matrix ops
+	c3_sum = int(np.tril(c3).sum())
+	m.add_constraint(x @ (2 * c3_lower @ x) <= c3_sum)
+
+	c2_sum = int(np.tril(c2).sum())
+	m.add_constraint(x @ (2 * c2_lower @ x) >= c2_sum)
+
 	m.close()
-	# print(m.objective)
 	modeling_time = time() - t1
 	print("Modeling time:", modeling_time)
-	# print(m.constraint)
 
 	def callback(a, b, c, d):
-		# pass
 		file = open(f, "a")
 		try:
 			fcntl.flock(file, fcntl.LOCK_EX)
@@ -38,16 +48,18 @@ def bench_quantum(size, index, max_m = -1, stop_val = 1, f = "plots/res.csv", st
 			fcntl.flock(file, fcntl.LOCK_UN)
 			file.close()
 
-	br = m.solve(M = max_m, num_workers = 1, results = "min", callback = callback, stop_val = -stop_val, stopping_time = int(stop_time))
+	m.set_param('M', max_m)
+	m.set_param('num_workers', 1)
+	m.set_param('callback', callback)
+	m.set_param('stop_val', -stop_val)
+	m.set_param('stopping_time', int(stop_time))
+	m.solve()
 	sol = m.final_state
 	val = -m.objective_value
 	m.reset()
 	del x, m
 
-	# print(br)
-	# print(2 * 22.5 * int(2 ** (br / 2)))
-	# file = open(f, "a")
-	# file.write(f"{size},{index},{0},{modeling_time},{45 * int(2 ** (br / 2))},{0},nested-qs\n")
-	# file.close()
-
 	return sol, val
+
+
+# bench_quantum(500, 0)
