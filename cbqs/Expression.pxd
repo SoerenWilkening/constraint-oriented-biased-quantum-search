@@ -12,6 +12,7 @@ cdef extern from "src/Expression.h":
 	int expr_index(int lit, int ind);
 	void free_expression(expression_t *expr);
 	void merge_expression(expression_t *expr);
+	int merge_duplicate_variable_terms(expression_t *expr);
 
 	void add_constant(expression_t *expr, int64_t constant);
 	void add_variable(expression_t *expr, int64_t index);

@@ -25,7 +25,18 @@ int compare_tuples(const void *a, const void *b) {
 
 void sort_expression(expression_t *expr) {
 	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
 	qsort(lits, expr->expr_size, sizeof(int64_t) * MAX_VARS_PER_TERM, compare_tuples);
+	/* Recompute len_literal from the padding values after sorting,
+	   since qsort only moved literals but not the parallel lens array. */
+	for (size_t i = 0; i < expr->expr_size; i++) {
+		int len = 1; /* at least the coefficient */
+		for (int j = 1; j < MAX_VARS_PER_TERM; j++) {
+			if (lits[i * MAX_VARS_PER_TERM + j] == -1) break;
+			len++;
+		}
+		lens[i] = len;
+	}
 }
 
 size_t expr_index(size_t lit, int ind) {
@@ -49,6 +60,62 @@ void merge_expression(expression_t *expr) {
 			break;
 		}
 	}
+}
+
+int merge_duplicate_variable_terms(expression_t *expr) {
+	int64_t *lits = dyn_expr_literals(expr);
+	int *lens = dyn_expr_len_literal(expr);
+	int found_dup = 0;
+
+	/* Sort variable indices within each term so that
+	   e.g. [coeff, 3, 1] becomes [coeff, 1, 3]. */
+	for (size_t i = 0; i < expr->expr_size; i++) {
+		int ll = lens[i];
+		if (ll < 3) continue;  /* 0 or 1 vars -- nothing to sort */
+		int num_vars = ll - 1;
+		/* Simple insertion sort on the variable indices (positions 1..ll-1) */
+		for (int j = 1; j < num_vars; j++) {
+			int64_t key = lits[expr_index(i, j + 1)];
+			int k = j;
+			while (k > 0 && lits[expr_index(i, k)] > key) {
+				lits[expr_index(i, k + 1)] = lits[expr_index(i, k)];
+				k--;
+			}
+			lits[expr_index(i, k + 1)] = key;
+		}
+	}
+
+	/* Sort all terms by variable indices (compare_tuples skips coeff at [0]) */
+	sort_expression(expr);
+
+	/* Refresh pointers after sort (sort_expression uses dyn_expr_literals) */
+	lits = dyn_expr_literals(expr);
+	lens = dyn_expr_len_literal(expr);
+
+	/* Linear scan: merge adjacent terms with identical variable indices */
+	for (size_t i = 0; i < expr->expr_size; i++) {
+		if (lens[i] < 2) continue;  /* skip constants and zeroed terms */
+		for (size_t j = i + 1; j < expr->expr_size; j++) {
+			if (lens[j] < 2) continue;
+			if (lens[j] != lens[i]) break;  /* different length -> different vars */
+			/* Compare variable indices (positions 1..len-1) */
+			int same = 1;
+			for (int k = 1; k < lens[i]; k++) {
+				if (lits[expr_index(i, k)] != lits[expr_index(j, k)]) {
+					same = 0;
+					break;
+				}
+			}
+			if (!same) break;  /* sorted, so no more matches */
+			/* Merge: add j's coefficient to i, zero out j */
+			lits[expr_index(i, 0)] += lits[expr_index(j, 0)];
+			lits[expr_index(j, 0)] = 0;
+			lens[j] = 0;
+			found_dup = 1;
+		}
+	}
+
+	return found_dup;
 }
 
 void print_expression(expression_t *expr) {

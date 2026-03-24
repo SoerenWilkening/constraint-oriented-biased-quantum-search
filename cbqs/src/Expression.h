@@ -19,6 +19,7 @@ void copy_expression_contents(expression_t *dest, expression_t *src);
 void print_expression(expression_t *expr);
 void sort_expression(expression_t *expr);
 void merge_expression(expression_t *expr);
+int merge_duplicate_variable_terms(expression_t *expr);
 
 void add_constant(expression_t *expr, int64_t constant);
 void add_variable(expression_t *expr, int64_t index);
