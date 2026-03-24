@@ -19,7 +19,7 @@ from .state import state_py
 from .state cimport init_state
 from .Constraint import new_constraint
 from .Constraint cimport add_expression_to_constraints, process_constraints
-from .Expression cimport expression_t
+from .Expression cimport expression_t, merge_duplicate_variable_terms as c_merge_duplicate_variable_terms
 from libc.stdlib cimport srand
 from .SearchLib import (run_local_search, run_quantum_local_search, reset_c_flags)
 from .SearchLib import run_sampling
@@ -37,38 +37,10 @@ from .ml.phase_params import (
 def _merge_duplicate_variable_terms(Expression expr):
 	"""Merge duplicate variable terms in an expression.
 
-	Scans all terms and if two terms have the same set of variable indices,
-	adds the coefficient of the later term to the earlier one and zeroes
-	the later term. For example, 3*x1 + 5*x1 becomes 8*x1.
-
-	This operates directly on the C expression_t structure for efficiency.
+	Sorts terms by variable indices in C, then merges adjacent duplicates
+	via a linear scan. O(T log T) in C with small constant factor.
 	"""
-	cdef int i, j, k
-	cdef int expr_size = expr.expr[0].expr_size
-	cdef int found_dup = 0
-
-	# Build a dict mapping variable-index tuples to term index
-	# Only consider terms with len_literal >= 2 (variable terms, not constants)
-	term_map = {}  # frozenset of variable indices -> first term index
-	for i in range(expr_size):
-		ll = expr.expr[0].len_literal[i]
-		if ll < 2:
-			continue  # skip constants and zeroed terms
-		# Extract variable indices (everything after the coefficient at position 0)
-		var_indices = tuple(sorted(
-			expr.expr[0].literals[MAXCLAUSESIZE * i + k] for k in range(1, ll)
-		))
-		if var_indices in term_map:
-			# Duplicate found -- merge coefficient into the earlier term
-			first_idx = term_map[var_indices]
-			expr.expr[0].literals[MAXCLAUSESIZE * first_idx] += expr.expr[0].literals[MAXCLAUSESIZE * i]
-			# Zero out this duplicate term
-			expr.expr[0].literals[MAXCLAUSESIZE * i] = 0
-			expr.expr[0].len_literal[i] = 0
-			found_dup = 1
-		else:
-			term_map[var_indices] = i
-
+	cdef int found_dup = c_merge_duplicate_variable_terms(expr.expr)
 	if found_dup:
 		warnings.warn(
 			"Duplicate variable terms detected and merged in expression",

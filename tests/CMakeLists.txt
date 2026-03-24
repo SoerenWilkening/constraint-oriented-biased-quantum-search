@@ -66,6 +66,12 @@ add_cmocka_test(test_expression
     ${CBQS_SRC_DIR}/dyn_expr.c
 )
 
+add_cmocka_test(test_merge_duplicate_terms
+    test_merge_duplicate_terms.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+)
+
 add_cmocka_test(test_state
     test_state.c
     ${CBQS_SRC_DIR}/state.c
