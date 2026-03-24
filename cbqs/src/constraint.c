@@ -415,25 +415,30 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
+
+	/* Pre-allocate factors/clause_length and variables arrays in one shot
+	 * based on expr->expr_size (upper bound on non-zero clauses). */
+	size_t max_clauses = expr->expr_size;
+	size_t required_factors = clause_offset + max_clauses;
+	if (con->allocated_factors < required_factors) {
+		con->factors = realloc(con->factors, required_factors * sizeof(int64_t));
+		con->clause_length = realloc(con->clause_length, required_factors * sizeof(uint32_t));
+		con->allocated_factors = required_factors;
+	}
+	size_t required_variables = (clause_offset + max_clauses) * (CONSTRAINT_VARS_PER_CLAUSE - 1);
+	if (con->allocated_variables < required_variables) {
+		con->variables = realloc(con->variables, required_variables * sizeof(uint32_t));
+		con->allocated_variables = required_variables;
+	}
+
 	for (size_t cls = 0; cls < expr->expr_size; ++cls) {
 		int lenght = expr->len_literal[cls];
 		if (lenght != 0) {
 			for (int i = 1; i < lenght; ++i) {
 				size_t index = variable_index(clause_counter, i - 1, clause_offset);
-				if (con->allocated_variables <= index) {
-					size_t new_size = index + MINARRAYSIZE;
-					con->variables = realloc(con->variables, new_size * sizeof(uint32_t));
-					con->allocated_variables = index + MINARRAYSIZE;
-				}
 				con->variables[index] = expr->literals[expr_index(cls, i)];
 			}
 			con->total_variables += CONSTRAINT_VARS_PER_CLAUSE - 1;
-			if (con->allocated_factors <= clause_offset + clause_counter) {
-				con->clause_length = realloc(con->clause_length,
-				                             (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint32_t));
-				con->factors = realloc(con->factors, (clause_offset + clause_counter + MINARRAYSIZE) * sizeof(uint64_t));
-				con->allocated_factors = clause_offset + clause_counter + MINARRAYSIZE;
-			}
 			con->clause_length[clause_offset + clause_counter] = lenght - 1;
 			con->factors[clause_offset + clause_counter] = expr->literals[expr_index(cls, 0)];
 			clause_counter++;
