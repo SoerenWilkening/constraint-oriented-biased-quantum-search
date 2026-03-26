@@ -1,15 +1,15 @@
 """ES evaluation functions: wire PolynomialPredictor to the CBQS solver.
 
 Provides evaluate() which creates a PolynomialPredictor from a theta vector,
-sets predicted parameters on a Model, runs solve(), and returns a training
-signal tuple (best_objective, -time_to_best). Also provides normalize_signals()
-for per-instance zero-mean unit-variance normalization of signal differences
-before gradient aggregation.
+sets predicted parameters on a Model, runs solve(), and returns a scalar
+training signal (best objective value, higher is better).
+
+Also provides normalize_signals() for per-instance zero-mean unit-variance
+normalization of signal differences before gradient aggregation.
 """
 import numpy as np
 
 from cbqs.ml.polynomial import PolynomialPredictor
-
 
 def _make_history_callback(model):
     """Create a callback that tracks the best objective and time-to-best.
@@ -43,10 +43,6 @@ def _make_history_callback(model):
 def extract_signal(result):
     """Extract the ES training signal from a solver result.
 
-    The signal is a 2-tuple for lexicographic comparison:
-    - First element: best objective value (higher is better).
-    - Second element: negative time-to-best (faster is better as tiebreaker).
-
     Parameters
     ----------
     result : OptimizeResult
@@ -54,15 +50,10 @@ def extract_signal(result):
 
     Returns
     -------
-    tuple of (float, float)
-        (best_objective, -time_to_best).
+    float
+        Best objective value (higher is better).
     """
-    best_objective = float(result.objective)
-    if result.history:
-        time_to_best = float(result.history[-1][1])
-    else:
-        time_to_best = 0.0
-    return (best_objective, -time_to_best)
+    return float(result.objective)
 
 
 def normalize_signals(diffs):
@@ -90,34 +81,25 @@ def normalize_signals(diffs):
     return (diffs - mean) / (std + 1e-8)
 
 
-def evaluate(theta, model, time_budget):
-    """Evaluate a theta vector on a model instance.
+def _single_solve(model, theta, time_budget, seed=None, greedy_init=True):
+    """Run a single solve and return (best_objective, time_to_best).
 
-    Creates a PolynomialPredictor from theta, predicts solver parameters,
-    sets them on the model, runs solve(), and returns the training signal.
-
-    Parameters
-    ----------
-    theta : numpy.ndarray
-        Flat coefficient vector of shape (THETA_SIZE,).
-    model : Model
-        A closed CBQS Model instance (or FakeModel for testing).
-    time_budget : int or float
-        Solve time budget in seconds, set as stopping_time.
-
-    Returns
-    -------
-    tuple of (float, float)
-        Training signal: (best_objective, -time_to_best).
+    Resets the model, optionally runs greedy init, sets predicted
+    parameters, and solves once.
     """
-    # Create predictor and get parameters
+    model.reset()
+
+    if greedy_init:
+        model.general_greedy()
+
+    if seed is not None:
+        model.seed = seed
+
     predictor = PolynomialPredictor(theta)
     params = predictor.predict(model)
 
-    # Set time budget
-    model.set_param('stopping_time', int(time_budget))
+    model.set_param('stopping_time', float(time_budget))
 
-    # Set all predicted parameters in one call via consolidated setter
     from cbqs.SearchLib import set_predicted_params
     n = len(model.variables)
     set_predicted_params(
@@ -130,17 +112,55 @@ def evaluate(theta, model, time_budget):
         n,
     )
 
-    # Install a manual callback to track best objective and time-to-best,
-    # bypassing the broken built-in history callback.
     cb, state = _make_history_callback(model)
     model.set_param('callback', cb)
 
-    # Solve
-    result = model.solve()
+    model.solve()
 
-    # Build signal from callback state (falls back to result.objective_value)
     best_obj = state['best_objective']
     if best_obj is None:
         best_obj = float(model.objective_value or 0)
     time_to_best = state['time_to_best']
-    return (float(best_obj), -float(time_to_best))
+    return (float(best_obj), float(time_to_best))
+
+
+def evaluate(theta, model, time_budget, seed=None, repeats=10,
+             greedy_init=True, **kwargs):
+    """Evaluate a theta vector on a model instance.
+
+    Runs the solver ``repeats`` times, each with ``time_budget / repeats``
+    seconds, and returns the mean objective value.
+
+    Parameters
+    ----------
+    theta : numpy.ndarray
+        Flat coefficient vector of shape (THETA_SIZE,).
+    model : Model
+        A closed CBQS Model instance (or FakeModel for testing).
+    time_budget : int or float
+        Total solve time budget in seconds, split across repeats.
+    seed : int or None
+        Base random seed. When provided, each repeat uses a
+        deterministic derived seed (seed + i). When the same base
+        seed is used for antithetic pairs (theta_plus / theta_minus),
+        each repeat pair shares the same solver randomness.
+    repeats : int
+        Number of independent solves to average over (default: 10).
+    greedy_init : bool
+        Whether to initialise from greedy before solving (default: True).
+
+    Returns
+    -------
+    float
+        Mean objective value across repeats (higher is better).
+    """
+    per_solve_budget = time_budget / repeats
+    objectives = []
+
+    for i in range(repeats):
+        rep_seed = (seed + i) if seed is not None else None
+        obj, _ttb = _single_solve(model, theta, per_solve_budget,
+                                  seed=rep_seed, greedy_init=greedy_init)
+        objectives.append(obj)
+
+    return float(np.mean(objectives))

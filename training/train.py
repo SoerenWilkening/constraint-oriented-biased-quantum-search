@@ -136,6 +136,44 @@ GENERATORS = {
 # Loading pre-generated instances from .in files
 # ------------------------------------------------------------------
 
+def load_quadratic_instance(instance_dir, min_size=50):
+    """Load a quadratic constrained instance and return a CBQS Model.
+
+    Uses greedy initialization since zeros-init often fails to find
+    feasible solutions for these instances.  Skips instances smaller
+    than *min_size*.
+    """
+    c1 = np.load(os.path.join(instance_dir, 'c1.npy'))
+    c2 = np.load(os.path.join(instance_dir, 'c2.npy'))
+    c3 = np.load(os.path.join(instance_dir, 'c3.npy'))
+
+    size = c1.shape[0]
+    if size < min_size:
+        return None
+
+    # Sort by efficiency ratio
+    efficiency = np.sum(c1, axis=1) / (np.sum(c2, axis=1) + np.sum(c3, axis=1))
+    sorting = np.argsort(-efficiency)
+    c1 = c1[np.ix_(sorting, sorting)]
+    c2 = c2[np.ix_(sorting, sorting)]
+    c3 = c3[np.ix_(sorting, sorting)]
+
+    c1_lower = np.tril(c1).astype(np.int64)
+    c2_lower = np.tril(c2).astype(np.int64)
+    c3_lower = np.tril(c3).astype(np.int64)
+
+    m = Model()
+    x = m.add_variables(size)
+    m.set_objective(x @ (c1_lower @ x), sense=MAXIMIZE, validate=False)
+    c3_sum = int(np.tril(c3).sum())
+    m.add_constraint(x @ (2 * c3_lower @ x) <= c3_sum, validate=False)
+    c2_sum = int(np.tril(c2).sum())
+    m.add_constraint(x @ (2 * c2_lower @ x) >= c2_sum, validate=False)
+    m.close()
+    m.general_greedy()
+    return m
+
+
 def load_knapsack_file(filepath):
     """Parse a knapsack .in file and return a CBQS Model.
 
@@ -164,10 +202,10 @@ def load_knapsack_file(filepath):
 
 
 def load_instances_from_dir(instances_dir, val_fraction=0.2, seed=42,
-                            dir_filter=None):
-    """Load all .in files from a directory tree and split into train/val.
+                            dir_filter=None, quadratic_dir=None,
+                            quadratic_min_size=50):
+    """Load .in files and/or quadratic instances, split into train/val.
 
-    Finds all .in files recursively, shuffles them, and splits by val_fraction.
     Returns (train_data, val_data) where each is a list of (problem_type, model).
 
     Parameters
@@ -175,38 +213,72 @@ def load_instances_from_dir(instances_dir, val_fraction=0.2, seed=42,
     dir_filter : str or None
         If set, only load from subdirectories whose name contains this
         substring (e.g. ``"g_14"`` to skip g_6 instances).
+    quadratic_dir : str or None
+        Directory with quadratic constrained instances (subdirs with c1/c2/c3.npy).
+    quadratic_min_size : int
+        Minimum variable count for quadratic instances.
     """
-    base = Path(instances_dir)
-    if dir_filter:
-        in_files = sorted(
-            f for d in base.iterdir()
-            if d.is_dir() and dir_filter in d.name
-            for f in d.glob('*.in')
-        )
-    else:
-        in_files = sorted(base.rglob('*.in'))
-    if not in_files:
-        raise FileNotFoundError(f"No .in files found in {instances_dir}"
-                                f" (filter={dir_filter!r})")
+    models = []
+
+    # Knapsack .in files
+    if instances_dir:
+        base = Path(instances_dir)
+        if base.is_dir():
+            if dir_filter:
+                in_files = sorted(
+                    f for d in base.iterdir()
+                    if d.is_dir() and dir_filter in d.name
+                    for f in d.glob('*.in')
+                )
+            else:
+                in_files = sorted(base.rglob('*.in'))
+
+            for f in in_files:
+                try:
+                    model = load_knapsack_file(f)
+                    models.append(('knapsack', model))
+                    print(f"  Loaded {f.relative_to(base)} ({model.n} vars)")
+                except Exception as e:
+                    print(f"  Warning: skipping {f}: {e}")
+
+    n_kp = len(models)
+
+    # Quadratic constrained instances
+    n_qc = 0
+    if quadratic_dir:
+        qc_base = Path(quadratic_dir)
+        if qc_base.is_dir():
+            instance_dirs = sorted(
+                d for d in qc_base.iterdir()
+                if d.is_dir() and (d / 'c1.npy').exists()
+            )
+            for d in instance_dirs:
+                try:
+                    model = load_quadratic_instance(str(d),
+                                                    min_size=quadratic_min_size)
+                    if model is not None:
+                        models.append(('quadratic', model))
+                        n_qc += 1
+                        print(f"  Loaded quadratic {d.name} ({model.n} vars)")
+                except Exception as e:
+                    print(f"  Warning: skipping {d.name}: {e}")
+
+    if not models:
+        raise FileNotFoundError(
+            f"No instances found"
+            + (f" in {instances_dir}" if instances_dir else "")
+            + (f" or {quadratic_dir}" if quadratic_dir else ""))
 
     rng = random.Random(seed)
-    rng.shuffle(in_files)
-
-    models = []
-    for f in in_files:
-        try:
-            model = load_knapsack_file(f)
-            models.append(('knapsack', model))
-            print(f"  Loaded {f.relative_to(base)} ({model.n} vars)")
-        except Exception as e:
-            print(f"  Warning: skipping {f}: {e}")
+    rng.shuffle(models)
 
     n_val = max(1, int(len(models) * val_fraction))
     val_data = models[:n_val]
     train_data = models[n_val:]
 
     print(f"  Total: {len(models)} instances "
-          f"({len(train_data)} train, {len(val_data)} val)")
+          f"({n_kp} knapsack, {n_qc} quadratic)")
+    print(f"  Split: {len(train_data)} train, {len(val_data)} val")
     return train_data, val_data
 
 
@@ -357,7 +429,6 @@ def train_es(models, val_models, args, out_dir):
         eval_repeats=args.es_eval_repeats,
         delta_pct=args.es_delta_pct,
         greedy_init=not args.es_no_greedy,
-        signal_mode=args.es_signal_mode,
     )
 
     ckpt_dir = str(out_dir / 'es_checkpoints')
@@ -432,6 +503,13 @@ def build_parser():
     parser.add_argument('--output', type=str, default=None,
                         help='Output directory (default: training/output/<timestamp>)')
 
+    # Quadratic instance arguments
+    parser.add_argument('--quadratic-dir', type=str, default=None,
+                        help='Directory with quadratic constrained instances '
+                             '(subdirs with c1/c2/c3.npy)')
+    parser.add_argument('--quadratic-min-size', type=int, default=50,
+                        help='Minimum variable count for quadratic instances (default: 50)')
+
     # ES-specific arguments
     parser.add_argument('--es-lr', type=float, default=0.001,
                         help='ES Adam learning rate (default: 0.001)')
@@ -443,7 +521,7 @@ def build_parser():
                         help='ES instances per step (default: 3)')
     parser.add_argument('--es-max-steps', type=int, default=200,
                         help='ES training steps (default: 200)')
-    parser.add_argument('--es-checkpoint-interval', type=int, default=10,
+    parser.add_argument('--es-checkpoint-interval', type=int, default=1,
                         help='ES steps between checkpoints (default: 10)')
     parser.add_argument('--es-eval-time', type=float, default=10.0,
                         help='ES solver time budget per eval (default: 10.0)')
@@ -453,9 +531,6 @@ def build_parser():
                         help='ES max bias delta as fraction of n/4 (default: 0.03)')
     parser.add_argument('--es-no-greedy', action='store_true',
                         help='Start from zero solution instead of greedy init')
-    parser.add_argument('--es-signal-mode', type=str, default='mean',
-                        choices=['mean', 'best_of_k'],
-                        help='ES training signal: mean (default) or best_of_k')
 
     return parser
 
@@ -477,13 +552,19 @@ def main():
     print(f"  Time budget: {args.time_budget}s per solve")
 
     # Load or generate instances
-    if args.instances_dir:
-        print(f"\nLoading instances from {args.instances_dir}...")
+    if args.instances_dir or args.quadratic_dir:
+        print(f"\nLoading instances...")
+        if args.instances_dir:
+            print(f"  Knapsack dir: {args.instances_dir}")
+        if args.quadratic_dir:
+            print(f"  Quadratic dir: {args.quadratic_dir} "
+                  f"(min size: {args.quadratic_min_size})")
         if args.dir_filter:
             print(f"  Filtering directories by: {args.dir_filter!r}")
         train_data, val_data = load_instances_from_dir(
             args.instances_dir, val_fraction=args.val_fraction, seed=args.seed,
-            dir_filter=args.dir_filter)
+            dir_filter=args.dir_filter, quadratic_dir=args.quadratic_dir,
+            quadratic_min_size=args.quadratic_min_size)
     else:
         print(f"  Problems: {', '.join(args.problems)}")
         print(f"  Variables: {args.vars[0]}-{args.vars[1]}")

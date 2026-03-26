@@ -21,9 +21,10 @@ import numpy as np
 
 from cbqs.ml.adam import Adam
 from cbqs.ml.es_checkpoint import save_checkpoint, load_checkpoint
-from cbqs.ml.es_evaluator import evaluate, normalize_signals
+from cbqs.ml.es_evaluator import evaluate, normalize_signals  # noqa: F401
 from cbqs.ml.polynomial import (
     THETA_SIZE, _LEGACY_THETA_SIZE, default_theta, migrate_theta_v1_to_v2,
+    PolynomialPredictor,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,6 @@ class ESTrainerConfig:
             Each solve gets eval_time / eval_repeats seconds.
         delta_pct: Max bias delta as fraction of n/4.
         greedy_init: Whether to initialise from greedy before solving.
-        signal_mode: ``"mean"`` or ``"best_of_k"``.
     """
     lr: float = 0.001
     sigma: float = 0.02
@@ -72,7 +72,6 @@ class ESTrainerConfig:
     eval_repeats: int = 10
     delta_pct: float = 0.03
     greedy_init: bool = True
-    signal_mode: str = "mean"
 
     def __post_init__(self):
         if self.lr <= 0:
@@ -92,20 +91,8 @@ class ESTrainerConfig:
 # ---------------------------------------------------------------------------
 
 def _signal_diff(signal_plus, signal_minus):
-    """Compute scalar difference between two signal tuples.
-
-    Supports both 2-tuple (mean mode) and 3-tuple (best_of_k mode)
-    signals. Elements are compared lexicographically: the first
-    element with a non-negligible difference is used.
-
-    2-tuple: (best_objective, -time_to_best)
-    3-tuple: (best_objective, hit_rate, -time_to_best)
-    """
-    for i in range(len(signal_plus)):
-        d = signal_plus[i] - signal_minus[i]
-        if abs(d) > 1e-12:
-            return d
-    return 0.0
+    """Compute scalar difference between two signals."""
+    return signal_plus - signal_minus
 
 
 # ---------------------------------------------------------------------------
@@ -287,9 +274,7 @@ class ESTrainer:
             gradient = np.zeros(THETA_SIZE, dtype=np.float64)
 
             # Collect signals from perturbations for monitoring
-            # (avoids batch_size extra evaluate() calls)
             all_objectives = []
-            all_ttbs = []
 
             for instance in batch:
                 # Compute signal diffs for all K perturbations
@@ -301,17 +286,12 @@ class ESTrainer:
                     # signal differences reflect only the theta change,
                     # not solver randomness.
                     pair_seed = random.randint(0, 2**31 - 1)
-                    sig_plus = evaluate(theta_plus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init, signal_mode=cfg.signal_mode)
-                    sig_minus = evaluate(theta_minus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init, signal_mode=cfg.signal_mode)
+                    sig_plus = evaluate(theta_plus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init)
+                    sig_minus = evaluate(theta_minus, instance, cfg.eval_time, seed=pair_seed, repeats=cfg.eval_repeats, greedy_init=cfg.greedy_init)
                     diffs[k] = _signal_diff(sig_plus, sig_minus)
 
-                    # Collect objectives and ttb from both perturbations
-                    # for monitoring (midpoint of plus/minus approximates
-                    # current theta since sigma is small)
-                    all_objectives.append(sig_plus[0])
-                    all_objectives.append(sig_minus[0])
-                    all_ttbs.append(-sig_plus[1])
-                    all_ttbs.append(-sig_minus[1])
+                    all_objectives.append(sig_plus)
+                    all_objectives.append(sig_minus)
 
                 # Per-instance normalization
                 norm_diffs = normalize_signals(diffs)
@@ -321,9 +301,7 @@ class ESTrainer:
                     gradient += norm_diffs[k] * eps
 
             # Derive monitoring signal from perturbation data
-            # (average of sig_plus/sig_minus across all K pairs and batch)
             mean_obj = float(np.mean(all_objectives))
-            mean_ttb = float(np.mean(all_ttbs))
 
             # Scale gradient
             gradient /= (2.0 * cfg.sigma * cfg.K * cfg.batch_size)
@@ -358,7 +336,6 @@ class ESTrainer:
                 'grad_norm': grad_norm,
                 'theta_norm': float(np.linalg.norm(self._theta)),
                 'mean_objective': mean_obj,
-                'mean_time_to_best': mean_ttb,
                 'bias_factor': bias_factor_intercept,
                 'branching_factor': branching_factor_intercept,
                 'bias_delta': bias_delta_intercept,
@@ -367,9 +344,9 @@ class ESTrainer:
                 'eta': round(eta, 2),
             })
             logger.info(
-                "step=%d  obj=%.4f  ttb=%.4f  bias_f=%.4f  branch_f=%.4f  "
+                "step=%d  obj=%.4f  bias_f=%.4f  branch_f=%.4f  "
                 "bias_d=%.4f  grad=%.6f",
-                step, mean_obj, mean_ttb, bias_factor_intercept,
+                step, mean_obj, bias_factor_intercept,
                 branching_factor_intercept, bias_delta_intercept, grad_norm,
             )
 
@@ -386,6 +363,13 @@ class ESTrainer:
                 f"obj={mean_obj:.0f}",
                 end='', flush=True,
             )
+
+            # Save intermediate predictor after each step
+            if self._checkpoint_dir is not None:
+                pred = PolynomialPredictor(self._theta,
+                                           delta_pct=cfg.delta_pct)
+                pred.save(os.path.join(self._checkpoint_dir,
+                                       f"predictor_step_{step:06d}.npz"))
 
             # Append to log file for live monitoring (tail -f)
             if self._log_path:

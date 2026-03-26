@@ -65,7 +65,7 @@ class Adam:
         v_hat = self._v / (1.0 - self.beta2 ** self._t)
 
         # Compute update and return new theta
-        theta_new = np.array(theta, dtype=np.float64) - self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+        theta_new = np.array(theta, dtype=np.float64) + self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
         return theta_new
 
     def state_dict(self) -> dict:
