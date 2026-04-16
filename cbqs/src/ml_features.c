@@ -14,21 +14,13 @@
  */
 
 #include "ml_features.h"
+#include "platform.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-/* Use compiler intrinsic popcount where available */
-#ifdef __GNUC__
-#define POPCOUNT64(x) __builtin_popcountll(x)
-#else
-static inline int popcount64_fallback(uint64_t x) {
-    int c = 0;
-    while (x) { c++; x &= x - 1; }
-    return c;
-}
-#define POPCOUNT64(x) popcount64_fallback(x)
-#endif
+/* Route popcount through platform.h for MSVC/GCC/Clang/pure-C coverage */
+#define POPCOUNT64(x) cbqs_popcount64(x)
 
 /* ------------------------------------------------------------------ */
 /* Phase 1: Scan coefficient statistics from constraints.             */
@@ -297,7 +289,7 @@ static void extract_features_internal(
             for (int w = 0; w < co_stride; w++) {
                 uint64_t bits = row_bits[w];
                 while (bits) {
-                    int bit = w * 64 + __builtin_ctzll(bits);
+                    int bit = w * 64 + cbqs_ctz64(bits);
                     if (bit < n_vars)
                         sum_deg += degree[bit];
                     bits &= bits - 1;
