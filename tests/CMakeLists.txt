@@ -36,6 +36,8 @@ function(add_cmocka_test NAME)
     target_link_libraries(${NAME} PRIVATE cmocka-static)
     if(NOT WIN32)
         target_link_libraries(${NAME} PRIVATE pthread m)
+    else()
+        target_link_libraries(${NAME} PRIVATE bcrypt)
     endif()
 
     if(ASAN)
@@ -127,36 +129,38 @@ add_cmocka_test(test_solver
     ${CBQS_SRC_DIR}/platform.c
 )
 
-# SearchLib.c includes Python.h -- find Python for include path
-find_package(Python3 COMPONENTS Development)
-if(Python3_FOUND)
-    set(PYTHON_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
-else()
-    execute_process(
-        COMMAND python3 -c "import sysconfig; print(sysconfig.get_path('include'))"
-        OUTPUT_VARIABLE PYTHON_INCLUDE_DIRS
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-endif()
+if(NOT CMAKE_CROSSCOMPILING)
+    # SearchLib.c includes Python.h -- find Python for include path
+    find_package(Python3 COMPONENTS Development)
+    if(Python3_FOUND)
+        set(PYTHON_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
+    else()
+        execute_process(
+            COMMAND python3 -c "import sysconfig; print(sysconfig.get_path('include'))"
+            OUTPUT_VARIABLE PYTHON_INCLUDE_DIRS
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    endif()
 
-add_cmocka_test(test_searchlib
-    test_searchlib.c
-    ${CBQS_SRC_DIR}/SearchLib.c
-    ${CBQS_SRC_DIR}/solver.c
-    ${CBQS_SRC_DIR}/Branching.c
-    ${CBQS_SRC_DIR}/model.c
-    ${CBQS_SRC_DIR}/constraint.c
-    ${CBQS_SRC_DIR}/Expression.c
-    ${CBQS_SRC_DIR}/dyn_expr.c
-    ${CBQS_SRC_DIR}/quantum_search.c
-    ${CBQS_SRC_DIR}/state.c
-    ${CBQS_SRC_DIR}/intarray.c
-    ${CBQS_SRC_DIR}/prng.c
-    ${CBQS_SRC_DIR}/platform.c
-    ${CBQS_SRC_DIR}/solver_ctx.c
-    ${CBQS_SRC_DIR}/arena.c
-)
-target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
+    add_cmocka_test(test_searchlib
+        test_searchlib.c
+        ${CBQS_SRC_DIR}/SearchLib.c
+        ${CBQS_SRC_DIR}/solver.c
+        ${CBQS_SRC_DIR}/Branching.c
+        ${CBQS_SRC_DIR}/model.c
+        ${CBQS_SRC_DIR}/constraint.c
+        ${CBQS_SRC_DIR}/Expression.c
+        ${CBQS_SRC_DIR}/dyn_expr.c
+        ${CBQS_SRC_DIR}/quantum_search.c
+        ${CBQS_SRC_DIR}/state.c
+        ${CBQS_SRC_DIR}/intarray.c
+        ${CBQS_SRC_DIR}/prng.c
+        ${CBQS_SRC_DIR}/platform.c
+        ${CBQS_SRC_DIR}/solver_ctx.c
+        ${CBQS_SRC_DIR}/arena.c
+    )
+    target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
+endif()
 
 add_cmocka_test(test_integration
     test_integration.c
