@@ -10,7 +10,6 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include "intarray.h"
 #include "definitions.h"
 #include "state.h"
