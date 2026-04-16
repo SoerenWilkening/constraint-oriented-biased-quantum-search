@@ -103,6 +103,7 @@ add_cmocka_test(test_branching
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
 )
@@ -120,6 +121,7 @@ add_cmocka_test(test_solver
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
 )
 
 # SearchLib.c includes Python.h -- find Python for include path
@@ -147,6 +149,7 @@ add_cmocka_test(test_searchlib
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
 )
@@ -163,6 +166,7 @@ add_cmocka_test(test_integration
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
 )
 
 # --- Plan 02-01: local_search regression test ---
@@ -182,6 +186,7 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
 )
@@ -197,6 +202,7 @@ add_cmocka_test(test_thread_safety
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
@@ -212,6 +218,7 @@ add_cmocka_test(test_thread_safety
 add_cmocka_test(test_prng
     test_prng.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
 )
 
 # --- Plan 06-01: Arena allocator unit tests ---
@@ -245,6 +252,7 @@ add_cmocka_test(test_variable_ordering
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
@@ -262,6 +270,7 @@ add_cmocka_test(test_csearch_ordering
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
 )
@@ -272,6 +281,7 @@ add_cmocka_test(test_solver_ctx_phases
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
 )
 
 # --- M2: ctg() stage switching ---
@@ -280,6 +290,7 @@ add_cmocka_test(test_stage_switching
     ${CBQS_SRC_DIR}/solver_ctx.c
     ${CBQS_SRC_DIR}/arena.c
     ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
 )
 
 # --- C-level variable vector struct and lifecycle ---

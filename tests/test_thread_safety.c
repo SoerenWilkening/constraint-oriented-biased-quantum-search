@@ -19,6 +19,7 @@
 
 #include "solver_ctx.h"
 #include "Branching.h"
+#include "platform.h"
 
 /* Test that two contexts can be used independently */
 static void test_independent_contexts(void **state) {
@@ -184,7 +185,7 @@ static void test_timeout_triggers_stop(void **state) {
     assert_non_null(ctx);
 
     ctx->timeout_ms = 50;  /* 50ms timeout */
-    clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
+    ctx->start_time_ns = cbqs_monotonic_ns();
 
     /* Wait for timeout */
     struct timespec delay = { .tv_sec = 0, .tv_nsec = 100000000 };  /* 100ms */

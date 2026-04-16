@@ -12,7 +12,6 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
-#include <time.h>
 #include "Branching.h"
 #include "prng.h"
 #include "arena.h"
@@ -43,8 +42,8 @@ struct solver_ctx {
     /** Timeout in milliseconds (0 = no timeout) */
     uint64_t timeout_ms;
 
-    /** Solve start time (for timeout calculation) */
-    struct timespec start_time;
+    /** Solve start time in monotonic nanoseconds (for timeout calculation) */
+    uint64_t start_time_ns;
 
     /** Debug output enabled (checked from CBQS_DEBUG env var at init) */
     int debug_enabled;

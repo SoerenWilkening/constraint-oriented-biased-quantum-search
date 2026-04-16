@@ -3,21 +3,15 @@
  * @brief Solver context lifecycle implementation
  */
 
-/* Feature test macro for GNU/POSIX extensions.
- * Enables clock_gettime, CLOCK_MONOTONIC, and _SC_NPROCESSORS_ONLN.
- * Must be defined before any includes to take effect.
- */
-#define _GNU_SOURCE
-
 #include "solver_ctx.h"
 #undef branching_stats  /* Use explicit field names in this file */
+#include "platform.h"
 #include "prng.h"
 #include "arena.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <unistd.h>  /* for sysconf */
 
 /* ============================================================
  * Internal Helpers
@@ -106,7 +100,7 @@ solver_ctx_t *solver_ctx_create(void) {
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */
-    clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
+    ctx->start_time_ns = cbqs_monotonic_ns();
 
     /* Create arena for hot-path allocations */
     ctx->arena = arena_create(ARENA_DEFAULT_SIZE);
@@ -160,12 +154,10 @@ int solver_ctx_should_stop(solver_ctx_t *ctx) {
 
     /* Check timeout if configured */
     if (ctx->timeout_ms > 0) {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t now_ns = cbqs_monotonic_ns();
 
         /* Calculate elapsed time in milliseconds */
-        uint64_t elapsed_ms = (uint64_t)(now.tv_sec - ctx->start_time.tv_sec) * 1000;
-        elapsed_ms += (uint64_t)(now.tv_nsec - ctx->start_time.tv_nsec) / 1000000;
+        uint64_t elapsed_ms = (now_ns - ctx->start_time_ns) / 1000000ULL;
 
         if (elapsed_ms >= ctx->timeout_ms) {
             /* Set stop flag for subsequent checks */
@@ -469,11 +461,8 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx) {
     }
 
     /* Calculate elapsed time */
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-
-    double elapsed_sec = (double)(now.tv_sec - ctx->start_time.tv_sec);
-    elapsed_sec += (double)(now.tv_nsec - ctx->start_time.tv_nsec) / 1e9;
+    uint64_t now_ns = cbqs_monotonic_ns();
+    double elapsed_sec = (double)(now_ns - ctx->start_time_ns) / 1e9;
 
     /* Output JSON to stderr */
     fprintf(stderr,
@@ -511,9 +500,9 @@ int solver_ctx_get_default_threads(void) {
     }
 
     /* Try to detect CPU count */
-    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    int nprocs = cbqs_num_processors();
     if (nprocs > 0) {
-        return (int)nprocs;
+        return nprocs;
     }
 
     /* Fallback to 4 threads */
