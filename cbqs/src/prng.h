@@ -134,8 +134,9 @@ void prng_jump(prng_state_t *state);
 /**
  * @brief Get non-deterministic seed from system entropy
  *
- * Attempts to read from /dev/urandom first. Falls back to combining
- * clock_gettime() and getpid() if /dev/urandom is unavailable.
+ * Attempts to read from the OS entropy source (/dev/urandom on POSIX,
+ * BCryptGenRandom on Windows). Falls back to combining cbqs_monotonic_ns()
+ * and cbqs_getpid() if the OS source is unavailable.
  *
  * Use this when user doesn't provide a seed and non-deterministic
  * behavior is acceptable/desired.
