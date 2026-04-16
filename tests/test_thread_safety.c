@@ -13,13 +13,33 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <cmocka.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
 
 #include "solver_ctx.h"
 #include "Branching.h"
 #include "platform.h"
+
+#if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+static void test_sleep_ns(long ns) {
+    /* Windows Sleep has 1ms granularity; round up to the nearest millisecond. */
+    DWORD ms = (DWORD)((ns + 999999L) / 1000000L);
+    if (ms == 0) {
+        ms = 1;
+    }
+    Sleep(ms);
+}
+#else
+#  include <time.h>
+static void test_sleep_ns(long ns) {
+    struct timespec ts = { 0, ns };
+    nanosleep(&ts, NULL);
+}
+#endif
 
 /* Test that two contexts can be used independently */
 static void test_independent_contexts(void **state) {
@@ -89,12 +109,12 @@ static void test_concurrent_separate_contexts(void **state) {
     thread_data_t data1 = { .ctx = ctx1, .bias_value = 1.0, .iterations = 1000 };
     thread_data_t data2 = { .ctx = ctx2, .bias_value = 2.0, .iterations = 1000 };
 
-    pthread_t t1, t2;
-    pthread_create(&t1, NULL, worker_thread, &data1);
-    pthread_create(&t2, NULL, worker_thread, &data2);
+    cbqs_thread_t t1, t2;
+    assert_int_equal(cbqs_thread_create(&t1, worker_thread, &data1), 0);
+    assert_int_equal(cbqs_thread_create(&t2, worker_thread, &data2), 0);
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
+    assert_int_equal(cbqs_thread_join(&t1), 0);
+    assert_int_equal(cbqs_thread_join(&t2), 0);
 
     /* Both should complete without issues
      * Final values will be near their respective targets */
@@ -129,8 +149,7 @@ static void *stop_watcher_thread(void *arg) {
         count++;
         /* Small delay to avoid burning CPU but still be responsive */
         if (count % 1000 == 0) {
-            struct timespec ts = { 0, 10000 };  /* 10 microseconds */
-            nanosleep(&ts, NULL);
+            test_sleep_ns(10000);  /* 10 microseconds */
         }
     }
 
@@ -154,20 +173,18 @@ static void test_stop_flag_visibility(void **state) {
     atomic_init(&data.started, 0);
     atomic_init(&data.observed_stop, 0);
 
-    pthread_t watcher;
-    pthread_create(&watcher, NULL, stop_watcher_thread, &data);
+    cbqs_thread_t watcher;
+    assert_int_equal(cbqs_thread_create(&watcher, stop_watcher_thread, &data), 0);
 
     /* Wait for watcher thread to start */
     while (!atomic_load(&data.started)) {
-        struct timespec ts = { 0, 1000 };  /* 1 microsecond */
-        nanosleep(&ts, NULL);
+        test_sleep_ns(1000);  /* 1 microsecond */
     }
 
     /* Now request stop */
     solver_ctx_request_stop(ctx);
 
-    void *result;
-    pthread_join(watcher, &result);
+    assert_int_equal(cbqs_thread_join(&watcher), 0);
 
     /* Verify the watcher thread saw the stop */
     assert_true(atomic_load(&data.observed_stop) == 1);
@@ -188,8 +205,7 @@ static void test_timeout_triggers_stop(void **state) {
     ctx->start_time_ns = cbqs_monotonic_ns();
 
     /* Wait for timeout */
-    struct timespec delay = { .tv_sec = 0, .tv_nsec = 100000000 };  /* 100ms */
-    nanosleep(&delay, NULL);
+    test_sleep_ns(100000000L);  /* 100ms */
 
     /* Should now report stop due to timeout */
     assert_true(solver_ctx_should_stop(ctx) == 1);
