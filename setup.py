@@ -23,7 +23,10 @@ def _read_version():
 # ---------------------------------------------------------------------------
 # Compiler flags
 # ---------------------------------------------------------------------------
-compiler_args = ["-O3", "-flto", "-pthread", "-Wall", "-Wextra"]
+if sys.platform == "win32":
+    compiler_args = ["/O2", "/W3"]
+else:
+    compiler_args = ["-O3", "-flto", "-pthread", "-Wall", "-Wextra"]
 
 # ---------------------------------------------------------------------------
 # Shared C library -- compiled once, linked into each Cython extension
@@ -32,7 +35,7 @@ compiler_args = ["-O3", "-flto", "-pthread", "-Wall", "-Wextra"]
 # every Extension that needed C code, causing each file to be compiled 5x.
 # Using setuptools' `libraries` parameter (build_clib) compiles them once
 # into a static archive (libcbqs_core.a) that each extension links against.
-lib_cbqs_core = ('cbqs_core', {
+lib_cbqs_core_build_info = {
     'sources': [
         'cbqs/src/solver.c',
         'cbqs/src/SearchLib.c',
@@ -51,12 +54,16 @@ lib_cbqs_core = ('cbqs_core', {
         'cbqs/src/arena.c',
         'cbqs/src/variable_vector.c',
         'cbqs/src/ml_features.c',
+        'cbqs/src/platform.c',
     ],
     # SearchLib.c includes <Python.h>, so build_clib needs the Python
     # include directory in addition to the project source directory.
     'include_dirs': ['cbqs/src', sysconfig.get_path('include')],
     'macros': [],
-})
+}
+if sys.platform == "win32":
+    lib_cbqs_core_build_info['libraries'] = ['bcrypt']
+lib_cbqs_core = ('cbqs_core', lib_cbqs_core_build_info)
 
 # ---------------------------------------------------------------------------
 # Extensions
