@@ -8,14 +8,9 @@
  * SplitMix64 seeding from https://prng.di.unimi.it/splitmix64.c
  */
 
-/* Feature test macro for POSIX clock_gettime and CLOCK_MONOTONIC */
-#define _POSIX_C_SOURCE 199309L
-
 #include "prng.h"
 
-#include <fcntl.h>
-#include <unistd.h>
-#include <time.h>
+#include "platform.h"
 
 /* ============================================================
  * Thread-local State
@@ -191,21 +186,15 @@ void prng_jump(prng_state_t *state) {
 uint64_t prng_get_entropy_seed(void) {
     uint64_t seed;
 
-    /* Try /dev/urandom first (most portable across Unix-like systems) */
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd >= 0) {
-        ssize_t r = read(fd, &seed, sizeof(seed));
-        close(fd);
-        if (r == sizeof(seed)) {
-            return seed;
-        }
+    /* Try OS entropy source first (most portable across platforms) */
+    if (cbqs_os_random_bytes(&seed, sizeof(seed)) == 0) {
+        return seed;
     }
 
     /* Fallback to time-based (less random but works everywhere) */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    seed = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-    seed ^= (uint64_t)getpid() << 32;
+    uint64_t ns = cbqs_monotonic_ns();
+    seed = ns;
+    seed ^= (uint64_t)cbqs_getpid() << 32;
 
     return seed;
 }
