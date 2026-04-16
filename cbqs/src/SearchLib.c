@@ -7,7 +7,6 @@
 #undef branching_stats  /* Use explicit phase-specific field names */
 #include "prng.h"
 #include "platform.h"
-#include <pthread.h>
 #include <Python.h>
 
 cbqs_mutex_t update_lock;
@@ -112,6 +111,9 @@ int bfs(
  *         incumbents->initial_samples[]
  */
 int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents) {
+	/* Ensure update_lock is initialised before any workers spawn. */
+	cbqs_call_once(&update_lock_once, update_lock_init);
+
 	size_t m_tot = 0;
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
@@ -122,8 +124,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
  
 	array_t fulfilled_objective_terms = sw_init(mod->obj->num_clauses[0]);
 
-	struct timespec t1, t2;
-    clock_gettime(CLOCK_MONOTONIC, &t1);
+	uint64_t t1_ns = cbqs_monotonic_ns();
 
 	int res;
 
@@ -161,11 +162,11 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 	/* Register this context for signal handler access */
 	g_active_ctx = ctx;
-	signal(SIGINT, handle_signal);
-	signal(SIGTERM, handle_signal);
+	cbqs_install_interrupt_handler(handle_signal);
 
 	while (m_tot < mod->M && total_time < mod->stopping_time) {
 		if (solver_ctx_should_stop(ctx)) {
+			cbqs_install_interrupt_handler(NULL);
 			g_active_ctx = NULL;
 			return 0;
 		}
@@ -181,8 +182,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
                 mod->depth_look_ahead, direction, &fulfilled_objective_terms,
 				&samples
 		);
-        clock_gettime(CLOCK_MONOTONIC, &t2);
-		total_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+        total_time = (cbqs_monotonic_ns() - t1_ns) / 1e9;
         mod->runtime = total_time;
 		rounds++;
 
@@ -209,7 +209,6 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             samples = 0;
             
 			// update global_opt if better solution is found
-			cbqs_call_once(&update_lock_once, update_lock_init);
 			cbqs_mutex_lock(&update_lock);
 			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
 			    copy_state_inplace(mod->global_opt, cur_sol);
@@ -241,6 +240,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	sw_clear(fulfilled_objective_terms);
 
 	/* Clear signal handler context */
+	cbqs_install_interrupt_handler(NULL);
 	g_active_ctx = NULL;
 
 	return feasible;
