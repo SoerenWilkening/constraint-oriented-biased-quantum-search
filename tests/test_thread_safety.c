@@ -33,10 +33,13 @@ static void test_sleep_ns(long ns) {
     }
     Sleep(ms);
 }
-/* POSIX setenv/unsetenv are unavailable under mingw-w64's MSVCRT/UCRT;
- * use the Win32 environment API instead. */
-#  define test_setenv(k, v) SetEnvironmentVariableA((k), (v))
-#  define test_unsetenv(k)  SetEnvironmentVariableA((k), NULL)
+/* POSIX setenv/unsetenv are unavailable under mingw-w64's MSVCRT/UCRT.
+ * Use _putenv_s, which updates the CRT's getenv cache (SetEnvironmentVariableA
+ * only updates the Win32 env block, so getenv() wouldn't see the change under
+ * MSVCRT at runtime). Passing an empty value to _putenv_s removes the var. */
+#  include <stdlib.h>
+#  define test_setenv(k, v) ((void)_putenv_s((k), (v)))
+#  define test_unsetenv(k)  ((void)_putenv_s((k), ""))
 #else
 #  include <time.h>
 static void test_sleep_ns(long ns) {
