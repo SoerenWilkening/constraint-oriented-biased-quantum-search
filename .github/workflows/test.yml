@@ -1,0 +1,201 @@
+name: Tests
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  c-tests:
+    name: C Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Configure
+        run: mkdir build-tests && cd build-tests && cmake ../tests -DWERROR=ON
+
+      - name: Build
+        run: cd build-tests && make -j$(nproc)
+
+      - name: Test
+        run: cd build-tests && ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+
+  c-tests-windows:
+    name: C Tests (Windows MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S tests -B build-tests -DWERROR=ON
+
+      - name: Build
+        run: cmake --build build-tests --config Release -j
+
+      - name: Test
+        working-directory: build-tests
+        run: ctest -C Release -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+
+  c-tests-asan:
+    name: C Tests (AddressSanitizer)
+    runs-on: ubuntu-latest
+    env:
+      # Leak detection now enabled (preprocessing leaks fixed in Phase 5)
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Configure with ASan
+        run: mkdir build-tests-asan && cd build-tests-asan && cmake ../tests -DASAN=ON -DWERROR=ON
+
+      - name: Build
+        run: cd build-tests-asan && make -j$(nproc)
+
+      - name: Test
+        run: cd build-tests-asan && ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+
+  c-tests-valgrind:
+    name: C Tests (Valgrind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential valgrind
+
+      - name: Configure
+        run: mkdir build-tests-valgrind && cd build-tests-valgrind && cmake ../tests -DWERROR=ON
+
+      - name: Build
+        run: cd build-tests-valgrind && make -j$(nproc)
+
+      - name: Test with Valgrind
+        run: |
+          cd build-tests-valgrind
+          # Run critical tests under Valgrind with suppressions
+          for test in test_expression test_state test_constraint test_local_search test_solver; do
+            if [ -f "./$test" ]; then
+              echo "Running Valgrind on $test..."
+              valgrind --leak-check=full \
+                       --error-exitcode=1 \
+                       --errors-for-leak-kinds=definite \
+                       --suppressions=../tests/valgrind-python.supp \
+                       ./$test
+            fi
+          done
+
+  c-tests-tsan:
+    name: C Tests (ThreadSanitizer)
+    runs-on: ubuntu-latest
+    env:
+      TSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake clang
+
+      - name: Configure with ThreadSanitizer
+        run: |
+          mkdir build-tests-tsan && cd build-tests-tsan
+          cmake ../tests \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build
+        run: cd build-tests-tsan && make -j$(nproc)
+
+      - name: Run thread safety tests with TSan
+        run: |
+          cd build-tests-tsan
+          ctest -R test_thread_safety -V --output-on-failure
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: pip install cython numpy setuptools
+
+      - name: Install package
+        run: pip install --no-build-isolation -e .
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-timeout joblib gurobipy
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short --ignore=tests/test_stress.py
+
+      - name: Run stress tests
+        run: pytest tests/test_stress.py -v --timeout=180
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: python-tests  # Run after Python tests pass
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: pip install cython numpy setuptools
+
+      - name: Install package
+        run: pip install --no-build-isolation -e .
+
+      - name: Install benchmark dependencies
+        run: pip install pytest pytest-benchmark joblib
+
+      - name: Run benchmarks
+        run: |
+          pytest benchmarks/ \
+            --benchmark-json=benchmark-results.json \
+            --benchmark-columns=min,max,mean,stddev,rounds \
+            -v
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+
+      - name: Display benchmark summary
+        if: always()
+        run: |
+          echo "=== Benchmark Results Summary ==="
+          python3 -c "
+          import json
+          import sys
+          try:
+              with open('benchmark-results.json') as f:
+                  data = json.load(f)
+              for bench in data.get('benchmarks', []):
+                  name = bench['name']
+                  mean = bench['stats']['mean']
+                  stddev = bench['stats']['stddev']
+                  print(f'{name}: {mean:.4f}s (+/- {stddev:.4f}s)')
+          except FileNotFoundError:
+              print('No benchmark results file found')
+              sys.exit(0)
+          "

@@ -26,7 +26,6 @@ Thumbs.db
 venv/
 .venv-test/
 .claude/
-.github/
 
 # === Test / temporary ===
 .pytest_cache/
