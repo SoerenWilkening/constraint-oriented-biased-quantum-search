@@ -149,6 +149,13 @@ static BOOL WINAPI cbqs_console_ctrl_handler(DWORD ctrl_type) {
 }
 
 int cbqs_install_interrupt_handler(void (*fn)(int)) {
+    if (fn == NULL) {
+        g_cbqs_interrupt_handler = NULL;
+        if (!SetConsoleCtrlHandler(cbqs_console_ctrl_handler, FALSE)) {
+            return -1;
+        }
+        return 0;
+    }
     g_cbqs_interrupt_handler = fn;
     if (!SetConsoleCtrlHandler(cbqs_console_ctrl_handler, TRUE)) {
         return -1;
@@ -330,7 +337,13 @@ int cbqs_os_random_bytes(void *buf, size_t n) {
 
 int cbqs_install_interrupt_handler(void (*fn)(int)) {
     if (fn == NULL) {
-        return -1;
+        if (signal(SIGINT, SIG_DFL) == SIG_ERR) {
+            return -1;
+        }
+        if (signal(SIGTERM, SIG_DFL) == SIG_ERR) {
+            return -1;
+        }
+        return 0;
     }
     if (signal(SIGINT, fn) == SIG_ERR) {
         return -1;
