@@ -36,6 +36,7 @@ stores*.csv
 cbqs/src/test.c
 
 # === External / not part of core package ===
+training/
 random_QOQC
 random_QOQC2
 random_QuarticOQuarticC

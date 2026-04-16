@@ -344,7 +344,87 @@ The existing feature extraction logic is reimplemented in C for performance. The
 
 ---
 
-## 8. Future Considerations
+## 8. C-Level Variable Vectors and Matrix-Variable Operations
+
+### 8.1 Motivation
+
+Modeling quadratic problems via Python-level expression arithmetic is prohibitively slow. For an n=3000 quadratic instance, `sum(c[i][j] * x[i] * x[j] for i,j ...)` creates ~4.5M Python Expression objects and performs O(n⁴) cumulative copying due to `sum()` using `__add__` (which deep-copies the growing accumulator). This makes model construction take minutes for large instances.
+
+The solution is to move variable vectors and matrix-variable operations to C, enabling expressions like `x @ M @ x` and `y @ M @ x` to execute entirely in the C backend with zero intermediate Python objects.
+
+### 8.2 Requirements
+
+#### FR-15: C-Level Variable Vector
+The system SHALL provide a C-level variable vector type (`CVariableVector`) that:
+- Stores variable indices, bounds, and types in a contiguous C struct
+- Is created via `Model.add_variables()` (replacing the current Python dict return)
+- Supports Python `__getitem__` to extract individual `Variable` objects for backward compatibility
+- Supports `len()`, iteration, and membership tests (`i in x`)
+- Is passable to C functions without Python overhead
+
+#### FR-16: Matrix @ Variable Vector Operation
+The system SHALL support `numpy_array @ CVariableVector` via `__matmul__`:
+- **2D array (m×n) @ variables (n)** → lazy `ExpressionVector` (C struct storing matrix pointer + variable indices, no materialized expressions)
+- **1D array (n,) @ variables (n)** → `Expression` directly (linear form, single C loop)
+- The numpy array must be `int64`, C-contiguous. TypeError raised otherwise.
+- The CVariableVector Cython wrapper SHALL hold a Python reference to the numpy array to prevent GC of the underlying buffer.
+
+#### FR-17: Lazy Expression Vector
+The `ExpressionVector` returned by `matrix @ variables` SHALL:
+- Be represented as a lightweight C struct: `{int64_t *matrix, int *var_indices, int m, int n}`
+- NOT materialize intermediate Expression objects
+- Support `variable_vector @ ExpressionVector` → `Expression` (fused quadratic/bilinear reduction in C)
+- Support `__getitem__` to lazily extract a single row as an `Expression` (for debugging/inspection)
+
+#### FR-18: Fused Bilinear Reduction
+`CVariableVector @ ExpressionVector` SHALL produce an `Expression` via a single C function:
+```c
+expression_t *bilinear_reduce(
+    const int *y_indices, int m,
+    const int64_t *matrix, const int *x_indices, int n
+);
+```
+This iterates `for i in 0..m: for j in 0..n: if M[i,j] != 0: emit term [M[i,j], y[i], x[j]]`.
+Result is a valid `expression_t` usable with `set_objective()` and `add_constraint()`.
+
+#### FR-19: Backward Compatibility
+- `Model.add_variables()` SHALL continue to return an object supporting `x[i]` to get individual `Variable` objects
+- Existing code using `x[i] * x[j]` and `sum(...)` patterns SHALL continue to work (but be slower than the matrix path)
+- The new `@` operations and old expression arithmetic SHALL produce identical solver-internal representations
+
+### 8.3 Correctness Notes
+
+- **Diagonal terms**: `x @ M @ x` with `i == j` produces terms `[M[i,i], i, i]`. For binary variables, `x[i]² = x[i]`, so the solver evaluates this correctly. The matrix diagonal acts as a linear contribution — consistent with current behavior.
+- **Buffer lifetime**: The lazy ExpressionVector borrows the numpy buffer pointer. The Cython wrapper must prevent garbage collection by holding a reference.
+- **dtype enforcement**: Matrix must be `int64` (matching `expression_t` coefficient type). Silent mismatches would produce garbage.
+
+### 8.4 Usage Example (Quadratic Constraints)
+
+```python
+# Current (slow) — O(n⁴) Python overhead:
+m.set_objective(sum(int(c1[i][j]) * x[i] * x[j] for i in x for j in x if i >= j), sense=MAXIMIZE)
+
+# New (fast) — O(n²) in C:
+x = m.add_variables(size)  # returns CVariableVector
+m.set_objective(x @ c1_lower @ x, sense=MAXIMIZE)
+m.add_constraint(x @ (2 * c3_lower) @ x <= np.sum(c3_lower))
+```
+
+### 8.5 Update `run_quantum.py` to New Solve API
+
+The `run_quantum.py` script uses the deprecated `solve()` signature with keyword arguments. It must be updated to use `set_param()` + no-argument `solve()`:
+```python
+m.set_param('M', max_m)
+m.set_param('num_workers', 1)
+m.set_param('callback', callback)
+m.set_param('stop_val', -stop_val)
+m.set_param('stopping_time', int(stop_time))
+result = m.solve()
+```
+
+---
+
+## 9. Future Considerations
 
 - **Higher-degree polynomials**: If degree-2 proves insufficient for per-variable outputs, degree-3 can be explored (at the cost of more parameters)
 - **Phase-specific polynomials**: Separate coefficient sets per solver phase (SAT, OPT-SAT, OPT) rather than shared
@@ -353,3 +433,5 @@ The existing feature extraction logic is reimplemented in C for performance. The
 - **Neural network upgrade**: If polynomial capacity is limiting, replace with a small neural network while keeping the ES training framework
 - ~~**Option B (full C pipeline)**~~: **COMPLETED** — fused C pipeline is the default
 - **Instance feature normalization**: If sub-linear functions prove insufficient, consider z-score normalization of instance features against a reference population from training
+- **Sparse matrix support for ExpressionVector**: For very sparse quadratic matrices, a CSR/COO representation could skip zeros more efficiently than the dense scan
+- **Incremental objective evaluation**: With the matrix representation, flipping variable k allows O(n) delta computation via `2 * M[k,:] @ x - M[k,k]` instead of scanning all terms

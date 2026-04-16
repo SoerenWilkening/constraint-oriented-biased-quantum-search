@@ -16,7 +16,7 @@ from .Constants import *
 from .Expression import Variable
 from .Expression cimport Expression
 from .state import state_py
-from .state cimport init_state
+from .state cimport init_state, free_state
 from .Constraint import new_constraint
 from .Constraint cimport add_expression_to_constraints, process_constraints
 from .Expression cimport expression_t, merge_duplicate_variable_terms as c_merge_duplicate_variable_terms
@@ -61,7 +61,7 @@ _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
 	'M':                        {'default': -1,    'coerce': int,          'validate': None,
 	                             'description': 'Maximum number of sampling iterations per worker thread; -1 means auto-calculate as n^2/16. Range: -1 or >= 1. Default: -1. Set before solve.'},
-	'stopping_time':            {'default': 300,   'coerce': int,          'validate': lambda v: v > 0,
+	'stopping_time':            {'default': 300,   'coerce': float,        'validate': lambda v: v > 0,
 	                             'validate_msg': 'stopping_time must be positive',
 	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
 	'stop_val':                 {'default': -1,    'coerce': int,          'validate': None,
@@ -396,14 +396,25 @@ or {self.runtime}s sampling
 	def reset(self):
 		"""Reset solve state so the model can be re-solved.
 
-		Clears the solution, objective value, and improvement flag while
-		keeping variables, constraints, objectives, and parameters intact.
-		Call this between successive solve() calls on the same model.
+		Clears the solution, objective value, improvement flag, and initial
+		state while keeping variables, constraints, objectives, and parameters
+		intact. Call this between successive solve() calls on the same model.
 		"""
 		self.quantum_cycles: int = 0
 		self.final_state: state_py | None = None
 		self.improved: bool = False
 		self.global_opt = None
+		self.initialized = False
+		# Free and reset C-level global_opt and initial_state so the
+		# solver starts fresh (manual_initial will re-initialize them).
+		if self.mod.global_opt is not NULL:
+			free_state(self.mod.global_opt, 1)
+			self.mod.global_opt = NULL
+		if self.mod.initial_state is not NULL:
+			free_state(self.mod.initial_state, 1)
+			self.mod.initial_state = NULL
+		self.mod.runtime = 0.0
+		self.mod.qtg_applications = 0
 
 	def add_variable(self, index: int = 0, name: str = "x", bound: int = 1) -> int | Variable | Expression:
 		"""Add a single decision variable to the model.

@@ -425,13 +425,12 @@ void add_expression_to_constraints(new_constraints_t *con, expression_t *expr) {
 	size_t C = con->num_constraints - 1;
 	size_t clause_offset = first_clause_index(con, C);
 
-	/* Pre-allocate factors/clause_length and variables arrays in one shot
-	 * based on expr->expr_size (upper bound on non-zero clauses). */
+	/* Pre-allocate arrays based on expr_size (upper bound on clauses) */
 	size_t max_clauses = expr->expr_size;
 	size_t required_factors = clause_offset + max_clauses;
 	if (con->allocated_factors < required_factors) {
-		con->factors = realloc(con->factors, required_factors * sizeof(int64_t));
 		con->clause_length = realloc(con->clause_length, required_factors * sizeof(uint32_t));
+		con->factors = realloc(con->factors, required_factors * sizeof(uint64_t));
 		con->allocated_factors = required_factors;
 	}
 	size_t required_variables = (clause_offset + max_clauses) * (CONSTRAINT_VARS_PER_CLAUSE - 1);

@@ -32,6 +32,20 @@ _LEGACY_THETA_SIZE = N_VAR_OUTPUTS * N_VAR_TERMS + N_INST_OUTPUTS * _LEGACY_INST
 DEFAULT_DELTA_PCT = 0.03
 
 
+def default_theta():
+    """Return a theta vector whose predictions match the solver defaults.
+
+    Defaults: bias_delta=0, branching_factor=0, bias_factor=1.
+    All per-variable weights and priorities start at zero.
+    """
+    theta = np.zeros(THETA_SIZE, dtype=np.float64)
+    # W_inst layout: row 0 = bias_delta, row 1 = branching_factor, row 2 = bias_factor
+    # Column 0 of each row is the intercept term.
+    bias_factor_intercept = N_VAR_OUTPUTS * N_VAR_TERMS + 2 * N_INST_TERMS  # 110 + 24 = 134
+    theta[bias_factor_intercept] = 1.0
+    return theta
+
+
 def poly_expand(X, degree=2):
     """Expand features into degree-2 polynomial terms.
 

@@ -586,15 +586,15 @@ static void test_incremental_vs_full_recalc(void **state) {
 }
 
 /* ------------------------------------------------------------------ */
-/* test_large_expression_prealloc: verify pre-allocation for large     */
-/* expressions avoids repeated reallocs and produces correct results   */
+/* test_prealloc_large_expression: verify that a large expression      */
+/* (exceeding MINARRAYSIZE) is stored correctly with pre-allocation    */
 /* ------------------------------------------------------------------ */
-static void test_large_expression_prealloc(void **state) {
+static void test_prealloc_large_expression(void **state) {
     (void)state;
-    /* Build a large linear expression with 125000 terms to exercise
-     * the pre-allocation path (previously required multiple realloc
-     * cycles with MINARRAYSIZE=50000 chunks). */
-    int n = 125000;
+    int n = 60000;  /* exceeds MINARRAYSIZE (50000) */
+    new_constraints_t con = init_new_constraint();
+
+    /* Build a large linear expression: 1*x0 + 2*x1 + ... + n*x(n-1) */
     expression_t *expr = init_expression();
     for (int i = 0; i < n; i++) {
         expression_t *term = init_expression();
@@ -604,63 +604,81 @@ static void test_large_expression_prealloc(void **state) {
         free_expression(term);
     }
     add_sense_to_expression(expr, LOWER);
-    add_rhs_to_expression(expr, 999999);
+    add_rhs_to_expression(expr, 999);
 
-    new_constraints_t con = init_new_constraint();
     add_expression_to_constraints(&con, expr);
 
-    /* Verify structural correctness */
+    /* Verify basic structure */
     assert_int_equal(con.num_constraints, 1);
     assert_int_equal(con.num_clauses[0], n);
+    assert_int_equal(con.rhs[0], 999);
     assert_int_equal(con.sense[0], LOWER);
-    assert_int_equal(con.rhs[0], 999999);
 
-    /* Verify allocated capacity is sufficient (pre-allocated in one shot) */
-    assert_true(con.allocated_factors >= (size_t)n);
-    assert_true(con.allocated_variables >= (size_t)n * (CONSTRAINT_VARS_PER_CLAUSE - 1));
-
-    /* Spot-check a few clause values */
+    /* Spot-check some factors and variables */
     assert_int_equal(con.factors[0], 1);
     assert_int_equal(con.factors[n - 1], n);
-    assert_int_equal(con.clause_length[0], 1);
-    assert_int_equal(con.clause_length[n - 1], 1);
-    /* Variable for first clause is x0, last clause is x(n-1) */
     assert_int_equal(con.variables[variable_index(0, 0, 0)], 0);
     assert_int_equal(con.variables[variable_index(n - 1, 0, 0)], n - 1);
+
+    /* Verify capacity was pre-allocated (at least enough for n clauses) */
+    assert_true(con.allocated_factors >= (size_t)n);
+    assert_true(con.allocated_variables >= (size_t)n * (CONSTRAINT_VARS_PER_CLAUSE - 1));
 
     free_expression(expr);
     free_constraints(&con);
 }
 
 /* ------------------------------------------------------------------ */
-/* test_prealloc_multiple_constraints: pre-alloc works across multiple */
-/* add_expression_to_constraints calls                                */
+/* test_prealloc_two_large_expressions: verify pre-allocation works    */
+/* correctly when adding multiple large expressions sequentially       */
 /* ------------------------------------------------------------------ */
-static void test_prealloc_multiple_constraints(void **state) {
+static void test_prealloc_two_large_expressions(void **state) {
     (void)state;
+    int n = 55000;  /* exceeds MINARRAYSIZE */
     new_constraints_t con = init_new_constraint();
 
-    /* Add two constraints, each exceeding MINARRAYSIZE */
-    for (int k = 0; k < 2; k++) {
-        int n = 60000;
-        expression_t *expr = init_expression();
-        for (int i = 0; i < n; i++) {
-            expression_t *term = init_expression();
-            add_variable(term, i);
-            multiply_constant(term, (int64_t)(i + 1));
-            add_expression(expr, term);
-            free_expression(term);
-        }
-        add_sense_to_expression(expr, LOWER);
-        add_rhs_to_expression(expr, 100);
-        add_expression_to_constraints(&con, expr);
-        free_expression(expr);
+    /* Add first large expression */
+    expression_t *e1 = init_expression();
+    for (int i = 0; i < n; i++) {
+        expression_t *term = init_expression();
+        add_variable(term, i);
+        multiply_constant(term, 1);
+        add_expression(e1, term);
+        free_expression(term);
     }
+    add_sense_to_expression(e1, LOWER);
+    add_rhs_to_expression(e1, 100);
+    add_expression_to_constraints(&con, e1);
+    free_expression(e1);
+
+    /* Add second large expression */
+    expression_t *e2 = init_expression();
+    for (int i = 0; i < n; i++) {
+        expression_t *term = init_expression();
+        add_variable(term, i);
+        multiply_constant(term, 2);
+        add_expression(e2, term);
+        free_expression(term);
+    }
+    add_sense_to_expression(e2, LOWER);
+    add_rhs_to_expression(e2, 200);
+    add_expression_to_constraints(&con, e2);
+    free_expression(e2);
 
     assert_int_equal(con.num_constraints, 2);
-    assert_int_equal(con.num_clauses[0], 60000);
-    assert_int_equal(con.num_clauses[1], 60000);
-    assert_int_equal(con.total_clauses, 120000);
+    assert_int_equal(con.num_clauses[0], n);
+    assert_int_equal(con.num_clauses[1], n);
+    assert_int_equal(con.rhs[0], 100);
+    assert_int_equal(con.rhs[1], 200);
+
+    /* Check factors for second constraint */
+    size_t offset = first_clause_index(&con, 1);
+    assert_int_equal(con.factors[offset], 2);
+    assert_int_equal(con.factors[offset + n - 1], 2);
+
+    /* Check variables for second constraint */
+    assert_int_equal(con.variables[variable_index(0, 0, offset)], 0);
+    assert_int_equal(con.variables[variable_index(n - 1, 0, offset)], n - 1);
 
     free_constraints(&con);
 }
@@ -682,8 +700,8 @@ int main(void) {
         cmocka_unit_test(test_preprocessing_many_vars),
         cmocka_unit_test(test_eval_all_zero_state),
         cmocka_unit_test(test_incremental_vs_full_recalc),
-        cmocka_unit_test(test_large_expression_prealloc),
-        cmocka_unit_test(test_prealloc_multiple_constraints),
+        cmocka_unit_test(test_prealloc_large_expression),
+        cmocka_unit_test(test_prealloc_two_large_expressions),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

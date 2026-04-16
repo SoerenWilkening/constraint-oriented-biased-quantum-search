@@ -13,7 +13,7 @@ cdef extern from "src/model.h":
 		size_t M;
 		int break_item;
 		int n;
-		int stopping_time;
+		double stopping_time;
 		int stop_val;
 		int depth_look_ahead;
 		int num_workers;
