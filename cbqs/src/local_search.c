@@ -33,7 +33,9 @@
  */
 
 /* MEM-02: Reference the mutex defined in SearchLib.c for global_opt protection */
-extern pthread_mutex_t update_lock;
+extern cbqs_mutex_t update_lock;
+extern cbqs_once_t update_lock_once;
+extern void update_lock_init(void);
 
 /**
  * Arena-based array_t initialization.
@@ -327,6 +329,9 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
                         int stopping_criterion, int *neighbourhood_counter,
                         int64_t *remainings_in, array_t *ful_con_in) {
 
+	/* Ensure the shared update_lock mutex is initialised before first use */
+	cbqs_call_once(&update_lock_once, update_lock_init);
+
 	uint32_t C = con->num_constraints;
 
 	state_t *cur_best = copy_state(new_sol);
@@ -347,7 +352,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 
 	/* Dynamically allocate thread data arrays */
 	local_search_data_t *data = malloc(num_threads * sizeof(local_search_data_t));
-	pthread_t *threads = malloc(num_threads * sizeof(pthread_t));
+	cbqs_thread_t *threads = malloc(num_threads * sizeof(cbqs_thread_t));
 	int stop_at_first = 0;
 	for (int i = 0; i < num_threads; ++i) {
 		data[i].con = con;
@@ -399,11 +404,11 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	}
 	// Create all threads first - data must remain valid while threads run
 	for (int i = 0; i < num_threads; ++i) {
-		pthread_create(&threads[i], NULL, explore_neighbourhood, (void *) &data[i]);
+		cbqs_thread_create(&threads[i], explore_neighbourhood, (void *) &data[i]);
 	}
 	int accepted_index = -1;
 	for (int i = 0; i < num_threads; ++i) {
-		pthread_join(threads[i], NULL);
+		cbqs_thread_join(&threads[i]);
 
 		// NOW safe to cleanup - thread has completed
 		free(data[i].remainings);
@@ -416,9 +421,9 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		int acc_tab = 0;
 		if (data[i].cur_best != NULL) {
 			/* MEM-02: Protect global_opt writes with trylock (non-blocking) */
-			if (pthread_mutex_trylock(&update_lock) == 0) {
+			if (cbqs_mutex_trylock(&update_lock) == 0) {
 				acc = accept_move(cur_best, data[i].cur_best, global_opt);
-				pthread_mutex_unlock(&update_lock);
+				cbqs_mutex_unlock(&update_lock);
 			} else {
 				acc = 0;
 				/* Lock contended -- merge thread-local cur_best without touching global_opt */
@@ -450,9 +455,9 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 
 	/* MEM-02: Protect global_opt writes with trylock (non-blocking) */
 	int accepted;
-	if (pthread_mutex_trylock(&update_lock) == 0) {
+	if (cbqs_mutex_trylock(&update_lock) == 0) {
 		accepted = accept_move(new_sol, cur_best, global_opt);
-		pthread_mutex_unlock(&update_lock);
+		cbqs_mutex_unlock(&update_lock);
 	} else {
 		/* Lock contended -- skip global_opt update, only update local state */
 		accepted = 0;
@@ -526,8 +531,7 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
  */
 int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) {
 
-	struct timespec t1, t2;
-	clock_gettime(CLOCK_MONOTONIC, &t1);
+	uint64_t start_ns = cbqs_monotonic_ns();
 
 	int n = cur_sol->vector.bits;
 	uint32_t C = mod->con->num_constraints;
@@ -574,8 +578,8 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		                                      &worse_acceptance_counter, mod->max_worse_acceptances,
                                               mod->stopping_condition, &neighbourhood_counter,
                                               remainings, &ful_con);
-		clock_gettime(CLOCK_MONOTONIC, &t2);
-		double time = (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) / 1e9;
+		uint64_t end_ns = cbqs_monotonic_ns();
+		double time = (double)(end_ns - start_ns) / 1e9;
         mod->runtime = time;
 		if (callback) callback();
 		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
@@ -772,8 +776,7 @@ int quantum_local_search(new_constraints_t *obj,
 		size_t index_of_best = 0;
 
 		size_t num_states = 0;
-		struct timespec t1, t2;
-		clock_gettime(CLOCK_MONOTONIC, &t1);
+		uint64_t qls_start_ns = cbqs_monotonic_ns();
 		state_t *qlsqs = quantum_local_search_states(obj, con, moves, num_moves, start, &tabu_list, &num_states,
 		                                             NULL);
 
@@ -830,7 +833,9 @@ int quantum_local_search(new_constraints_t *obj,
 			global_opt = copy_state(cur_sol);
 			if (callback) callback();
 		}
-		clock_gettime(CLOCK_MONOTONIC, &t2);
+		uint64_t qls_end_ns = cbqs_monotonic_ns();
+		double qls_elapsed_sec = (double)(qls_end_ns - qls_start_ns) / 1e9;
+		(void)qls_elapsed_sec;
 
 		if (start != NULL) {
 			// if start did not provide a better solution, still accept it as worse solution

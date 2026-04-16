@@ -2,7 +2,6 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <cmocka.h>
-#include <pthread.h>
 
 #include "local_search.h"
 #include "model.h"
@@ -12,9 +11,14 @@
 #include "definitions.h"
 #include "solver_ctx.h"
 #include "arena.h"
+#include "platform.h"
 
 /* Provide the update_lock symbol required by local_search.c (defined in SearchLib.c) */
-pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
+cbqs_mutex_t update_lock;
+cbqs_once_t update_lock_once = CBQS_ONCE_INIT;
+void update_lock_init(void) {
+    cbqs_mutex_init(&update_lock);
+}
 
 /*
  * Regression test for use-after-free bug in accept_best_routine (02-01).

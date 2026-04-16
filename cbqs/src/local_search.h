@@ -5,13 +5,11 @@
 #ifndef IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H
 #define IMPROVED_QUANTUM_SEARCH_LOCAL_SEARCH_H
 
-#include <time.h>
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include <pthread.h>
-#include <unistd.h>
+#include "platform.h"
 #include "intarray.h"
 #include "definitions.h"
 #include "Branching.h"

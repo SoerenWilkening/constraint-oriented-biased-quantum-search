@@ -6,10 +6,15 @@
 #include "solver_ctx.h"
 #undef branching_stats  /* Use explicit phase-specific field names */
 #include "prng.h"
+#include "platform.h"
 #include <pthread.h>
 #include <Python.h>
 
-pthread_mutex_t update_lock = PTHREAD_MUTEX_INITIALIZER;
+cbqs_mutex_t update_lock;
+cbqs_once_t update_lock_once = CBQS_ONCE_INIT;
+void update_lock_init(void) {
+    cbqs_mutex_init(&update_lock);
+}
 
 incumbents_t *init_incumbents(int n, state_t *initial){
     incumbents_t *init = malloc(sizeof(incumbents_t));
@@ -204,13 +209,14 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             samples = 0;
             
 			// update global_opt if better solution is found
-			pthread_mutex_lock(&update_lock);
+			cbqs_call_once(&update_lock_once, update_lock_init);
+			cbqs_mutex_lock(&update_lock);
 			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
 			    copy_state_inplace(mod->global_opt, cur_sol);
 
 				if (callback && mod->global_opt->feasible) callback();
 			}
-			pthread_mutex_unlock(&update_lock);
+			cbqs_mutex_unlock(&update_lock);
 			rounds = 0;
 
 			m_tot = 0;
