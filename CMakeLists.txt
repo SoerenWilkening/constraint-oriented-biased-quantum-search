@@ -36,13 +36,20 @@ add_executable(constraint-oriented-biased-quantum-search
         cbqs/src/dyn_expr.h
         cbqs/src/prng.c
         cbqs/src/prng.h
+        cbqs/src/platform.c
+        cbqs/src/platform.h
 )
 
 target_include_directories(constraint-oriented-biased-quantum-search PRIVATE ${Python3_INCLUDE_DIRS})
-target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE ${Python3_LIBRARIES} m)
-target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
-    -Wall -Wextra -Wpedantic -Wvla
-)
+target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE ${Python3_LIBRARIES})
+if(NOT WIN32)
+    target_link_libraries(constraint-oriented-biased-quantum-search PRIVATE m)
+endif()
+if(NOT MSVC)
+    target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
+        -Wall -Wextra -Wpedantic -Wvla
+    )
+endif()
 
 
 if(APPLE)
