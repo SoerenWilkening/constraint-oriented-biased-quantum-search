@@ -33,7 +33,10 @@ function(add_cmocka_test NAME)
         "${CBQS_SRC_DIR}"
         "${cmocka_SOURCE_DIR}/include"
     )
-    target_link_libraries(${NAME} PRIVATE cmocka-static pthread m)
+    target_link_libraries(${NAME} PRIVATE cmocka-static)
+    if(NOT WIN32)
+        target_link_libraries(${NAME} PRIVATE pthread m)
+    endif()
 
     if(ASAN)
         target_compile_options(${NAME} PRIVATE -fsanitize=address -fno-omit-frame-pointer)
