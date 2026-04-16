@@ -33,12 +33,18 @@ static void test_sleep_ns(long ns) {
     }
     Sleep(ms);
 }
+/* POSIX setenv/unsetenv are unavailable under mingw-w64's MSVCRT/UCRT;
+ * use the Win32 environment API instead. */
+#  define test_setenv(k, v) SetEnvironmentVariableA((k), (v))
+#  define test_unsetenv(k)  SetEnvironmentVariableA((k), NULL)
 #else
 #  include <time.h>
 static void test_sleep_ns(long ns) {
     struct timespec ts = { 0, ns };
     nanosleep(&ts, NULL);
 }
+#  define test_setenv(k, v) setenv((k), (v), 1)
+#  define test_unsetenv(k)  unsetenv((k))
 #endif
 
 /* Test that two contexts can be used independently */
@@ -218,7 +224,7 @@ static void test_debug_output(void **state) {
     (void)state;
 
     /* Set CBQS_DEBUG to enable debug */
-    setenv("CBQS_DEBUG", "1", 1);
+    test_setenv("CBQS_DEBUG", "1");
 
     solver_ctx_t *ctx = solver_ctx_create();
     assert_non_null(ctx);
@@ -237,7 +243,7 @@ static void test_debug_output(void **state) {
     solver_ctx_free(ctx);
 
     /* Clean up env */
-    unsetenv("CBQS_DEBUG");
+    test_unsetenv("CBQS_DEBUG");
 }
 
 int main(void) {
