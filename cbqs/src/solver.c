@@ -35,7 +35,7 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
                     }
                 }
                 if ((negative == POSITIVE && is_closed) || negative == NEGATIVE)
-                    total += labs(con->factors[clause_index]) * assigned;
+                    total += llabs(con->factors[clause_index]) * assigned;
             }
         }
         ret_total[cnstr] = total;
@@ -511,7 +511,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// only sum up violations
 			if (con->sense[cnstr] == EQUAL) {
 			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? labs(potentials[cnstr]) : 0;
+			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
 			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);
@@ -882,7 +882,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
 			// only sum up violations
 			if (con->sense[cnstr] == EQUAL) {
 			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? labs(potentials[cnstr]) : 0;
+			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
 			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
 		}
 		int feasible = (total_violation == 0);

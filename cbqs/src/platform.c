@@ -17,6 +17,11 @@
   #ifndef _POSIX_C_SOURCE
     #define _POSIX_C_SOURCE 200809L
   #endif
+#else
+  /* rand_s() requires _CRT_RAND_S before <stdlib.h> on Windows/MinGW. */
+  #ifndef _CRT_RAND_S
+    #define _CRT_RAND_S
+  #endif
 #endif
 
 #include "platform.h"
@@ -239,6 +244,15 @@ int cbqs_mutex_trylock(cbqs_mutex_t *mutex) {
     return TryEnterCriticalSection(&mutex->cs) ? 0 : 1;
 }
 
+/* The Win32 InitOnceExecuteOnce API passes state as PVOID, so we must
+ * round-trip a function pointer through void*. ISO C forbids that, hence
+ * the pedantic-suppression scope around these two helpers (MinGW/GCC).
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+
 static BOOL CALLBACK cbqs_init_once_trampoline(
     PINIT_ONCE once,
     PVOID param,
@@ -259,6 +273,10 @@ void cbqs_call_once(cbqs_once_t *once, void (*fn)(void)) {
     }
     InitOnceExecuteOnce(once, cbqs_init_once_trampoline, (PVOID)fn, NULL);
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
 
 #else /* POSIX */
 

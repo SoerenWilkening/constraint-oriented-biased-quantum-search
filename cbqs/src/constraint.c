@@ -776,18 +776,18 @@ int adjusted_constraint_violation(
 		    		}
 		    		if (negative == POSITIVE) {
 		    			if (assigned == 1 && sw_tstbit(*ful, clause_index) == 0) {
-		    				total += labs(con->factors[clause_index]);
+		    				total += llabs(con->factors[clause_index]);
 		    			}
 		    			if (assigned == 0 && sw_tstbit(*ful, clause_index) == 1) {
-		    				total -= labs(con->factors[clause_index]);
+		    				total -= llabs(con->factors[clause_index]);
 		    			}
 		    		}
 		    		if (negative == NEGATIVE) {
 		    			if ((1 - assigned) == 1 && sw_tstbit(*ful, clause_index) == 0) {
-		    				total += labs(con->factors[clause_index]);
+		    				total += llabs(con->factors[clause_index]);
 		    			}
 		    			if ((1 - assigned) == 0 && sw_tstbit(*ful, clause_index) == 1) {
-		    				total -= labs(con->factors[clause_index]);
+		    				total -= llabs(con->factors[clause_index]);
 		    			}
 		    		}
 		    	}
