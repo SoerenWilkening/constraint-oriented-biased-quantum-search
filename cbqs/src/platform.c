@@ -17,6 +17,11 @@
   #ifndef _POSIX_C_SOURCE
     #define _POSIX_C_SOURCE 200809L
   #endif
+  /* On macOS, defining _POSIX_C_SOURCE alone hides BSD extensions such as
+     _SC_NPROCESSORS_ONLN; re-enable them via _DARWIN_C_SOURCE. */
+  #if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+    #define _DARWIN_C_SOURCE
+  #endif
 #else
   /* rand_s() requires _CRT_RAND_S before <stdlib.h> on Windows/MinGW. */
   #ifndef _CRT_RAND_S

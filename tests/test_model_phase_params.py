@@ -14,7 +14,7 @@ from copy import copy
 from cbqs.Model import Model, _PARAM_DEFS, _KNOWN_PARAMS
 from cbqs.Constants import MAXIMIZE
 from cbqs.result import OptimizeResult
-from cbqs.ml.phase_params import PHASES, PHASE_PARAM_SUFFIXES, DEFAULTS
+from cbqs.phase_params import PHASES, PHASE_PARAM_SUFFIXES, DEFAULTS
 
 
 def _make_small_model():

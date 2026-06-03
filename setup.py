@@ -53,7 +53,6 @@ lib_cbqs_core_build_info = {
         'cbqs/src/prng.c',
         'cbqs/src/arena.c',
         'cbqs/src/variable_vector.c',
-        'cbqs/src/ml_features.c',
         'cbqs/src/platform.c',
     ],
     # SearchLib.c includes <Python.h>, so build_clib needs the Python
@@ -132,7 +131,6 @@ setup(
     extras_require={
         "test": ["pytest>=7.0"],
         "dev": ["pytest>=7.0", "Cython>=3.0"],
-        "ml": ["scikit-learn>=1.2"],
     },
     libraries=[lib_cbqs_core],
     ext_modules=cythonize(extensions, language_level=3),

@@ -85,41 +85,6 @@ cdef extern from "src/SearchLib.h":
 	double CSearch_sat_monte_carlo_sampler(solver_ctx_t *ctx, state_t *cur_sol, new_constraints_t *con, double error, int initial_samples) nogil
 
 
-# ML feature extraction
-cdef extern from "src/ml_features.h":
-	ctypedef struct variable_meta_t:
-		double lb
-		double ub
-		int is_integer
-
-	ctypedef struct features_result_t:
-		double *var_features
-		double *inst_features
-
-	void extract_features(
-		const new_constraints_t *obj,
-		const new_constraints_t *con,
-		const variable_meta_t *vars,
-		int n_vars,
-		double *out_var,
-		double *out_inst
-	)
-
-	void predict_params(
-		const new_constraints_t *obj,
-		const new_constraints_t *con,
-		const variable_meta_t *vars,
-		int n_vars,
-		const double *W_var,
-		const double *W_inst,
-		double delta_pct,
-		double *out_weights,
-		int *out_priorities,
-		double *out_bias,
-		double *out_bf,
-		double *out_bif
-	)
-
 cdef extern from "src/local_search.h":
 	int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t callback) nogil
 

@@ -29,7 +29,7 @@ from .state_sampler import approximate_state
 from .SearchLib cimport initial_state_preparation
 from .state cimport print_state
 from .state cimport sw_tstbit
-from .ml.phase_params import (
+from .phase_params import (
 	make_phase_param_defs, PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS,
 	PHASES as _PHASES, PHASE_PARAM_SUFFIXES as _PHASE_SUFFIXES,
 )

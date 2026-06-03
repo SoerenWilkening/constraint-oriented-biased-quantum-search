@@ -1,10 +1,10 @@
-"""Tests for cbqs.ml.phase_params — phase-specific parameter resolution."""
+"""Tests for cbqs.phase_params — phase-specific parameter resolution."""
 import pytest
 import json
 import tempfile
 import os
 
-from cbqs.ml.phase_params import (
+from cbqs.phase_params import (
     PHASES,
     PHASE_PARAM_SUFFIXES,
     PhaseParamResolver,
