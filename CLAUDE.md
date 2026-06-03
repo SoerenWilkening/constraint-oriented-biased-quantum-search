@@ -2,9 +2,9 @@
 
 ## Required Reading
 
-Before starting any task, scan the following document:
+Before starting any task, scan the following documents:
 
-- **PRD.md** — Product Requirements Document
+- **NORTHSTAR.md** — Northstar design document (the product/requirements reference; replaces the former PRD.md)
 - **AGENTS.md** — Agent configuration and task tracking
 
 ## Tools
