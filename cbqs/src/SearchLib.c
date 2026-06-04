@@ -44,7 +44,11 @@ void print_incumbents(incumbents_t *incumbents){
 }
 
 void free_incumbents(incumbents_t *incumbents){
-    free_state(incumbents->states, incumbents->num_states);
+    /* Free ALL allocated slots: init_large_state/increse_large_state sw_init() every
+       slot's vector+branch, and slots are reused in place (copy_state_inplace). num_states
+       tracks recorded incumbents (stays 0 if none were recorded), so freeing num_states
+       leaks the entire pre-allocated pool -- bd 8an.1.13 */
+    free_state(incumbents->states, incumbents->allocated);
     free(incumbents->search_stage);
     free(incumbents->initial_samples);
     free(incumbents);
