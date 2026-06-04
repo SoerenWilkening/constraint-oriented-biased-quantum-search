@@ -188,6 +188,7 @@ static void test_merge_mixed(void **state) {
 		}
 	}
 	assert_int_equal(var_count, 2);
+	assert_int_equal(const_count, 1);
 	assert_int_equal(coeff_x0, 8);
 	assert_int_equal(coeff_x1, 2);
 	assert_int_equal(coeff_const, 7);

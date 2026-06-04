@@ -45,13 +45,21 @@ function(add_cmocka_test NAME)
         target_link_options(${NAME} PRIVATE -fsanitize=address)
     endif()
 
-    # Strict warning flags for C23-forward compatibility
-    target_compile_options(${NAME} PRIVATE
-        -Wall -Wextra -Wpedantic -Wvla
-        -Wno-unused-parameter  # CMocka test helpers have unused params
-    )
-    if(WERROR)
-        target_compile_options(${NAME} PRIVATE -Werror)
+    # Strict warning flags for C23-forward compatibility (GCC/Clang vs MSVC).
+    # The -W* flags are GCC/Clang-only; passing them to cl.exe yields fatal
+    # D8021 "invalid numeric argument '/Wextra'" (bd 8an.1.10).
+    if(NOT MSVC)
+        target_compile_options(${NAME} PRIVATE
+            -Wall -Wextra -Wpedantic -Wvla
+            -Wno-unused-parameter  # CMocka test helpers have unused params
+        )
+        if(WERROR)
+            target_compile_options(${NAME} PRIVATE -Werror)
+        endif()
+    else()
+        target_compile_options(${NAME} PRIVATE /W3)
+        # /WX (warnings-as-errors) deferred: MSVC surfaces C4267 size_t->int
+        # warnings (incl. from cmocka) that need triage first (bd 8an.1.10).
     endif()
 
     add_test(NAME ${NAME} COMMAND ${NAME})

@@ -44,7 +44,11 @@ void print_incumbents(incumbents_t *incumbents){
 }
 
 void free_incumbents(incumbents_t *incumbents){
-    free_state(incumbents->states, incumbents->num_states);
+    /* Free ALL allocated slots: init_large_state/increse_large_state sw_init() every
+       slot's vector+branch, and slots are reused in place (copy_state_inplace). num_states
+       tracks recorded incumbents (stays 0 if none were recorded), so freeing num_states
+       leaks the entire pre-allocated pool -- bd 8an.1.13 */
+    free_state(incumbents->states, incumbents->allocated);
     free(incumbents->search_stage);
     free(incumbents->initial_samples);
     free(incumbents);
@@ -59,33 +63,6 @@ static void handle_signal(int signum) {
     if (g_active_ctx != NULL) {
         solver_ctx_request_stop(g_active_ctx);
     }
-}
-
-int bfs(
-		state_t *cur_sol,
-		new_constraints_t *con,
-		new_constraints_t *obj,
-		int M,
-		size_t *qtg_applications,
-		int depth_look_ahead,
-		solver_t solver,
-		int64_t stop_val,
-		callback_t callback) {
-	state_t *new_sol = copy_state(cur_sol);
-	int64_t initial_value = cur_sol->tot_profit;
-	size_t C = con->num_constraints;
-
-	int count[2] = {0, 0};
-	int64_t *potentials = malloc(C * sizeof(int64_t));
-	if (potentials == NULL) {
-		free_state(new_sol, 0);
-		return 0;  /* allocation failure */
-	}
-	memcpy(potentials, con->rhs, C * sizeof(int64_t));
-
-	free(potentials);
-	free_state(new_sol, 0);
-	return cur_sol->tot_profit != initial_value;
 }
 
 
