@@ -7,7 +7,10 @@
 #undef branching_stats  /* Use explicit phase-specific field names */
 #include "prng.h"
 #include "platform.h"
-#include <Python.h>
+/* Intentionally NOT <Python.h>: this file uses no Python C-API symbol
+ * (callback_t is a plain void(*)(void) from definitions.h). Including it made
+ * MSVC's pyconfig.h auto-link pragma demand pythonXY.lib, breaking the C-test
+ * link with LNK1104 (bd 8an.1.10). Do not re-add it. */
 
 cbqs_mutex_t update_lock;
 cbqs_once_t update_lock_once = CBQS_ONCE_INIT;
