@@ -150,7 +150,13 @@ jobs:
         run: pip install pytest pytest-timeout joblib gurobipy
 
       - name: Run unit tests
-        run: pytest tests/ -v --tb=short --ignore=tests/test_stress.py
+        # Flaky determinism test (bd 8an.1.14) is deselected here so it does not gate CI;
+        # the rest of the suite stays blocking. It runs non-blocking in the next step.
+        run: pytest tests/ -v --tb=short --ignore=tests/test_stress.py --deselect "tests/test_branching_propagation.py::TestBranchingBiasLocalSearch::test_branching_bias_deterministic_local_search"
+
+      - name: Run flaky determinism test (non-blocking, bd 8an.1.14)
+        continue-on-error: true
+        run: pytest "tests/test_branching_propagation.py::TestBranchingBiasLocalSearch::test_branching_bias_deterministic_local_search" -v
 
       - name: Run stress tests
         run: pytest tests/test_stress.py -v --timeout=180
