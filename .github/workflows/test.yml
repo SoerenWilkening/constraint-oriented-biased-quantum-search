@@ -30,10 +30,8 @@ jobs:
   c-tests-windows:
     name: C Tests (Windows MSVC)
     runs-on: windows-latest
-    # Deferred (bd 8an.1.10): MSVC build needs C11 atomics enabled (/experimental:c11atomics)
-    # and the min() macro clash in state.h fixed. Non-blocking until then — the job still runs
-    # and reports, but does not gate the workflow.
-    continue-on-error: true
+    # bd 8an.1.10: now gating. C11 atomics enabled via /experimental:c11atomics and
+    # the min() macro clash resolved by renaming the helper to imin().
     steps:
       - uses: actions/checkout@v4
 
@@ -150,13 +148,9 @@ jobs:
         run: pip install pytest pytest-timeout joblib gurobipy
 
       - name: Run unit tests
-        # Flaky determinism test (bd 8an.1.14) is deselected here so it does not gate CI;
-        # the rest of the suite stays blocking. It runs non-blocking in the next step.
-        run: pytest tests/ -v --tb=short --ignore=tests/test_stress.py --deselect "tests/test_branching_propagation.py::TestBranchingBiasLocalSearch::test_branching_bias_deterministic_local_search"
-
-      - name: Run flaky determinism test (non-blocking, bd 8an.1.14)
-        continue-on-error: true
-        run: pytest "tests/test_branching_propagation.py::TestBranchingBiasLocalSearch::test_branching_bias_deterministic_local_search" -v
+        # The local_search determinism test (bd 8an.1.14) is now deterministic
+        # (single-thread + natural convergence) and gates normally again.
+        run: pytest tests/ -v --tb=short --ignore=tests/test_stress.py
 
       - name: Run stress tests
         run: pytest tests/test_stress.py -v --timeout=180
