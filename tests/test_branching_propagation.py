@@ -116,29 +116,52 @@ class TestBranchingBiasLocalSearch:
         assert result.objective >= 0
 
     def test_branching_bias_deterministic_local_search(self):
-        """Same seed + same branching_bias -> consistent objective (local search).
+        """Same seed + same branching_bias -> IDENTICAL objective (local search).
 
-        Note: local_search with a time bound (stopping_time) is inherently
-        timing-dependent -- the number of iterations varies with system load.
-        We compare objectives only (not solutions) since multiple optimal
-        solutions with equal objective may be found depending on iteration count.
-        History tracking is disabled to avoid a known callback race condition.
+        A single-worker, fixed-seed local_search is deterministic, but only once
+        the two non-determinism sources it has are removed (bd 8an.1.14):
+
+        1. Wall-clock termination. ``stopping_time`` cuts the search off after a
+           fixed number of seconds, so the iteration count -- and therefore the
+           objective -- varies with system load. We instead let the search run to
+           its own deterministic termination (``max_worse_acceptances`` non-improving
+           iterations) by setting ``stopping_time`` far above the convergence time
+           (~0.03s for n=20). The bound is the algorithm's, not the wall clock's.
+        2. Multi-thread early-stop race. With ``stopping_condition == STOPATFIRST``,
+           explore_neighbourhood() threads share a stop flag and *which* thread trips
+           it first is timing-dependent, so the accepted move differs run-to-run even
+           at convergence. Pinning ``num_threads = 1`` makes the neighborhood scan a
+           single deterministic pass. (Multi-thread local_search remains
+           non-deterministic by design -- tracked separately for M0.)
+
+        With both removed the run is bit-for-bit reproducible, so we keep the STRICT
+        equality assertion -- and per the §8 determinism baseline we check the
+        identical objective AND the identical solution array, not just the objective.
+        History tracking is off to avoid a known callback race on the history buffer.
         """
         objectives = []
-        for _ in range(3):
+        solutions = []
+        for _ in range(5):  # locally verified deterministic over 20+ repeats (bd 8an.1.14)
             m = _make_knapsack_model(20)
             m.seed = 42
+            m.num_threads = 1  # deterministic single-pass neighborhood scan
             m.set_param("branching_bias", 10.0)
-            m.set_param("stopping_time", 2)
+            m.set_param("stopping_time", 1e6)  # >> convergence time: not wall-clock-bounded
             m.set_param("track_history", False)
             result = m.local_search()
             objectives.append(result.objective)
+            solutions.append(tuple(int(x) for x in result.solution))
             del m
 
-        # All runs should find an equally good or identical objective
-        assert objectives[0] == objectives[1] == objectives[2], (
-            f"Determinism: same seed+bias should give consistent objective "
+        # Deterministic operation -> every run must give the identical objective ...
+        assert len(set(objectives)) == 1, (
+            f"Determinism: same seed+bias must give an identical objective "
             f"across runs: {objectives}"
+        )
+        # ... and the identical solution array (§8 determinism baseline).
+        assert len(set(solutions)) == 1, (
+            f"Determinism: same seed+bias must give an identical solution array "
+            f"across runs; got {len(set(solutions))} distinct solutions"
         )
 
 
