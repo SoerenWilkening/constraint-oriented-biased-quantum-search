@@ -78,8 +78,9 @@ static void handle_signal(int signum) {
  *         mod->ignore_constraint_search, mod->con->sense[],
  *         cur_sol->vector.bits, cur_sol->tot_profit, cur_sol->feasible
  *
- * Writes: mod->qtg_applications (unprotected -- single-thread per ctx),
- *         mod->runtime (unprotected),
+ * Writes: ctx->oracle_count (per-worker, never reset -- the faithful oracle
+ *             metric; replaces the racy shared mod->qtg_applications),
+ *         mod->runtime (unprotected -- telemetry only; no longer gates),
  *         mod->global_opt->tot_profit (mutex-protected via update_lock),
  *         mod->global_opt->vector (mutex-protected via update_lock),
  *         mod->global_opt->feasible (mutex-protected via update_lock),
@@ -94,7 +95,11 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	/* Ensure update_lock is initialised before any workers spawn. */
 	cbqs_call_once(&update_lock_once, update_lock_init);
 
-	size_t m_tot = 0;
+	/* Never-reset cumulative oracle accumulator for THIS ctg call. Replaces the
+	 * old m_tot, which reset to 0 on every improvement and so could only bound
+	 * work *between* improvements -- it could never cap cumulative oracles
+	 * (NORTHSTAR §11). The loop now terminates on total_oracles >= mod->M. */
+	size_t total_oracles = 0;
 	int n = cur_sol->vector.bits;
 	int rounds = 0;
 	double c = 6. / 5;
@@ -144,7 +149,13 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	g_active_ctx = ctx;
 	cbqs_install_interrupt_handler(handle_signal);
 
-	while (m_tot < mod->M && total_time < mod->stopping_time) {
+	/* Gate purely on the never-reset oracle budget; the wall-clock stop
+	 * (total_time < mod->stopping_time) is deliberately removed (NORTHSTAR §11)
+	 * so termination is in oracle units, not seconds. mod->M carries T(n).
+	 * The `mod->M > 0` guard keeps a non-positive budget a no-op (matching the
+	 * old `m_tot < mod->M` behavior): without it, (size_t)(-1) == SIZE_MAX would
+	 * make a raw-API caller that left mod->M == -1 loop near-unboundedly. */
+	while (mod->M > 0 && total_oracles < (size_t) mod->M) {
 		if (solver_ctx_should_stop(ctx)) {
 			cbqs_install_interrupt_handler(NULL);
 			g_active_ctx = NULL;
@@ -155,8 +166,11 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 		int j;
 		if (stage == 2) j = 1; // when improving constraint tightness, use only small constant number of grover iterations
 		else j = prng_next_int(m + 1);
-		m_tot += 2 * j + 1;
-        mod->qtg_applications += 2 * j + 1;
+		/* Charge 2j+1 oracles. total_oracles gates termination (never resets);
+		 * ctx->oracle_count is the per-worker, race-free metric that replaces
+		 * the racy shared mod->qtg_applications (CLAUDE.md §1.2). */
+		total_oracles += 2 * j + 1;
+		ctx->oracle_count += 2 * j + 1;
 		res = search_function(
 				ctx, cur_sol, j, mod->con, mod->obj,
                 mod->depth_look_ahead, direction, &fulfilled_objective_terms,
@@ -196,9 +210,10 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 				if (callback && mod->global_opt->feasible) callback();
 			}
 			cbqs_mutex_unlock(&update_lock);
+			/* Restart the Grover schedule on improvement (rounds -> 0). NOTE:
+			 * total_oracles is intentionally NOT reset here -- that reset is the
+			 * exact bug (old m_tot) that let cumulative oracles exceed mod->M. */
 			rounds = 0;
-
-			m_tot = 0;
 			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || (feasible && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1))) {
 				break;
 			}

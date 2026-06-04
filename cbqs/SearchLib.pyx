@@ -408,7 +408,10 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		except AttributeError:
 			pass  # Model doesn't have _seed_used attribute (old code path)
 
-		return cur_sol, mod.mod[0].qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms
+		# Index 1 is this worker's own cumulative oracle count (race-free,
+		# never-reset); read here while ctx is still alive (the finally below
+		# frees it). Replaces the racy shared mod.qtg_applications.
+		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms
 	finally:
 		# Clean up per-thread state
 		if track_history:

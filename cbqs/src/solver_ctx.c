@@ -98,6 +98,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->num_threads = 0;
     ctx->num_threads_used = 0;
     ctx->worker_id = 0;
+    ctx->oracle_count = 0;
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */

@@ -16,6 +16,7 @@ cdef extern from "src/solver_ctx.h":
 		int num_threads  # Thread count (0 = auto-detect)
 		int num_threads_used  # Actual thread count used after init
 		int worker_id  # 0-based portfolio worker index (decorrelates PRNG stream)
+		size_t oracle_count  # never-reset per-worker cumulative oracle charge (faithful metric)
 	ctypedef solver_ctx solver_ctx_t
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)

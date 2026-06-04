@@ -65,6 +65,12 @@ struct solver_ctx {
      *  worker_id == 0 reproduces the legacy single-stream behavior. */
     int worker_id;
 
+    /** Per-worker cumulative oracle charge (Σ 2j+1 over ctg rounds).
+     *  NEVER reset for the lifetime of the worker's context — this is the
+     *  faithful, race-free quantum-cost metric that replaces the racy shared
+     *  mod->qtg_applications (NORTHSTAR §11, CLAUDE.md §1.2). */
+    size_t oracle_count;
+
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
 

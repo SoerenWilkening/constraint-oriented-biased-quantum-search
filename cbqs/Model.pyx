@@ -60,7 +60,7 @@ def _coerce_bool(value):
 _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
 	'M':                        {'default': -1,    'coerce': int,          'validate': None,
-	                             'description': 'Maximum number of sampling iterations per worker thread; -1 means auto-calculate as n^2/16. Range: -1 or >= 1. Default: -1. Set before solve.'},
+	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/4)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
 	'stopping_time':            {'default': 300,   'coerce': float,        'validate': lambda v: v > 0,
 	                             'validate_msg': 'stopping_time must be positive',
 	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
@@ -763,7 +763,11 @@ or {self.runtime}s sampling
 			if stop_val != -1: warn("Defined stop_val will be ignored when solving SAT")
 
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
-		if M == -1: M = self.n ** 2 // 16
+		# Default per-worker oracle budget T(n) = (n/4)^2 + 1200 (NORTHSTAR §3/§11).
+		# mod->M is now a *cumulative* oracle cap enforced by the never-reset
+		# total_oracles accumulator in ctg (the wall-clock stop is disabled there),
+		# so the run terminates at ~T(n) oracles regardless of improvement frequency.
+		if M == -1: M = int((self.n / 4.0) ** 2 + 1200)
 
 		not_stop = [1]
 
@@ -783,7 +787,13 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
+		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
+		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
+		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
+		# Write it once here, single-threaded, into the (now unwritten-by-ctg)
+		# qtg_applications slot so the result/property read a race-free value.
+		self.mod.qtg_applications = max((r[1] for r in res), default=0)
 		self.final_state = self.global_opt
 
 		# Merge histories from all workers, sorted by elapsed_seconds
@@ -1046,12 +1056,17 @@ or {self.runtime}s sampling
 
 	@property
 	def oracle_calls(self):
-		"""Number of Grover (QTG) oracle applications used in the last solve.
+		"""Per-worker oracle budget spent in the last solve (best-of-portfolio).
+
+		Each portfolio worker accumulates its own race-free oracle count and is
+		capped at T(n); the reported figure is the max over workers (~T(n)), per
+		the NORTHSTAR §6/§11 portfolio-cost convention. Replaces the former racy
+		shared counter.
 
 		Returns
 		-------
 		int
-			Cumulative oracle call count.
+			Per-worker cumulative oracle call count (best-of-portfolio).
 		"""
 		return self.mod[0].qtg_applications
 

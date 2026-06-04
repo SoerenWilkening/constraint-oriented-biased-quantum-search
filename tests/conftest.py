@@ -10,6 +10,35 @@ Prerequisites:
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _cap_default_oracle_budget(request):
+    """Keep the suite fast under the bd 8an.1.4 (M0d) oracle-budget change.
+
+    solve()'s default ``M`` is now the full per-worker oracle budget
+    ``T(n) = (n/4)**2 + 1200`` and the wall-clock stop is disabled, so a default
+    solve runs >=1206 oracles regardless of ``stopping_time`` (correct in
+    production, but ~15x slower across the suite). Cap the *default* ``M`` so
+    default-budget solves stay fast in tests.
+
+    Tests that must exercise the real ``T(n)`` budget opt in with
+    ``set_param('M', -1)``: an explicit ``-1`` overrides this capped default and
+    re-triggers the ``T(n)`` formula in ``solve()``. Tests that set ``M`` to any
+    other value are unaffected. ``test_set_param`` asserts the documented default
+    (``-1``), so it is exempted from the cap.
+    """
+    import sys
+    if request.module.__name__ == "test_set_param":
+        yield
+        return
+    param_defs = sys.modules["cbqs.Model"]._PARAM_DEFS
+    original = param_defs["M"]["default"]
+    param_defs["M"]["default"] = 200
+    try:
+        yield
+    finally:
+        param_defs["M"]["default"] = original
+
+
 @pytest.fixture
 def simple_model():
     """Create a fresh Model instance for tests that need one."""

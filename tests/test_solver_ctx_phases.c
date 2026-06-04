@@ -183,9 +183,11 @@ static void test_init_prng_decorrelates_by_worker_id(void **unused) {
     const uint64_t SEED = 0x5EEDULL;   /* non-zero: used verbatim, no entropy */
     enum { NV = 6 };
 
-    /* Default worker_id is 0, and the setter stores what it is given. */
+    /* Default worker_id is 0, and the setter stores what it is given.
+     * oracle_count (M0d) starts at 0 -- it is the never-reset oracle metric. */
     solver_ctx_t *probe = solver_ctx_create();
     assert_int_equal(probe->worker_id, 0);
+    assert_int_equal((int) probe->oracle_count, 0);
     solver_ctx_set_worker_id(probe, 3);
     assert_int_equal(probe->worker_id, 3);
     solver_ctx_set_worker_id(NULL, 7);   /* NULL-safe, no crash */
