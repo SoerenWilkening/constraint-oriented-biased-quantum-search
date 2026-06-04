@@ -25,7 +25,9 @@ Thumbs.db
 # === Project-specific ===
 venv/
 .venv-test/
-.claude/
+# Ignore local .claude state (settings.local.json, etc.) but track shared workflows
+.claude/*
+!.claude/workflows/
 
 # === Test / temporary ===
 .pytest_cache/
