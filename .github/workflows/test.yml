@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: ['*']
+    branches: ['**']  # '*' does not match branch names containing '/', so feat/* never ran CI
   pull_request:
     branches: [main]
 
@@ -170,7 +170,7 @@ jobs:
         run: pip install --no-build-isolation -e .
 
       - name: Install benchmark dependencies
-        run: pip install pytest pytest-benchmark joblib
+        run: pip install pytest pytest-benchmark joblib gurobipy  # gurobipy: transitive import via cbqs.Model->StateGenerator (bd 8an.1.11)
 
       - name: Run benchmarks
         run: |
