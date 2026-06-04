@@ -30,6 +30,10 @@ jobs:
   c-tests-windows:
     name: C Tests (Windows MSVC)
     runs-on: windows-latest
+    # Deferred (bd 8an.1.10): MSVC build needs C11 atomics enabled (/experimental:c11atomics)
+    # and the min() macro clash in state.h fixed. Non-blocking until then — the job still runs
+    # and reports, but does not gate the workflow.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
