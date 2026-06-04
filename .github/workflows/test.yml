@@ -23,7 +23,9 @@ jobs:
         run: cd build-tests && make -j$(nproc)
 
       - name: Test
-        run: cd build-tests && ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+        # All 21 cbqs C targets (was a 10-target subset). Explicit list, not a bare `ctest`,
+        # because tests/CMakeLists sets UNIT_TESTING ON which also registers cmocka's own suite (bd 8an.1.8)
+        run: cd build-tests && ctest -R "test_(intarray|expression|merge_duplicate_terms|state|constraint|model|branching|solver|searchlib|integration|local_search|thread_safety|prng|arena|dyn_expr|variable|csearch_ordering|stage_switching|reduce_ops)" --output-on-failure
 
   c-tests-windows:
     name: C Tests (Windows MSVC)
@@ -39,7 +41,8 @@ jobs:
 
       - name: Test
         working-directory: build-tests
-        run: ctest -C Release -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+        # All 21 cbqs C targets; explicit list excludes cmocka's bundled UNIT_TESTING suite (bd 8an.1.8)
+        run: ctest -C Release -R "test_(intarray|expression|merge_duplicate_terms|state|constraint|model|branching|solver|searchlib|integration|local_search|thread_safety|prng|arena|dyn_expr|variable|csearch_ordering|stage_switching|reduce_ops)" --output-on-failure
 
   c-tests-asan:
     name: C Tests (AddressSanitizer)
@@ -60,7 +63,9 @@ jobs:
         run: cd build-tests-asan && make -j$(nproc)
 
       - name: Test
-        run: cd build-tests-asan && ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)" --output-on-failure
+        # All 21 cbqs C targets under ASan; may surface latent leaks in previously-unchecked
+        # modules (arena, dyn_expr, variable_vector) — that is the point (bd 8an.1.8)
+        run: cd build-tests-asan && ctest -R "test_(intarray|expression|merge_duplicate_terms|state|constraint|model|branching|solver|searchlib|integration|local_search|thread_safety|prng|arena|dyn_expr|variable|csearch_ordering|stage_switching|reduce_ops)" --output-on-failure
 
   c-tests-valgrind:
     name: C Tests (Valgrind)
