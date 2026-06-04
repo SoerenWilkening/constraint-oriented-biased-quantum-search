@@ -61,33 +61,6 @@ static void handle_signal(int signum) {
     }
 }
 
-int bfs(
-		state_t *cur_sol,
-		new_constraints_t *con,
-		new_constraints_t *obj,
-		int M,
-		size_t *qtg_applications,
-		int depth_look_ahead,
-		solver_t solver,
-		int64_t stop_val,
-		callback_t callback) {
-	state_t *new_sol = copy_state(cur_sol);
-	int64_t initial_value = cur_sol->tot_profit;
-	size_t C = con->num_constraints;
-
-	int count[2] = {0, 0};
-	int64_t *potentials = malloc(C * sizeof(int64_t));
-	if (potentials == NULL) {
-		free_state(new_sol, 0);
-		return 0;  /* allocation failure */
-	}
-	memcpy(potentials, con->rhs, C * sizeof(int64_t));
-
-	free(potentials);
-	free_state(new_sol, 0);
-	return cur_sol->tot_profit != initial_value;
-}
-
 
 /*
  * ctg(ctx, mod, cur_sol, callback, incumbents)

@@ -31,6 +31,4 @@ void free_incumbents(incumbents_t *incumbents);
 
 int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, incumbents_t *incumbents);
 
-int bfs(   state_t *cur_sol, new_constraints_t *con, new_constraints_t *obj, int M, size_t *qtg_applications,
-                int depth_look_ahead, solver_t solver,  int64_t stop_val, callback_t callback);
 #endif
