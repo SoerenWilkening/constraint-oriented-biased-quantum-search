@@ -567,7 +567,6 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 
 	int break_condition = 1;
 	int worse_acceptance_counter = 0;
-	int counter = 0;
 	while (break_condition) {
 		/* Check solver context stop flag */
 		if (ctx != NULL && solver_ctx_should_stop(ctx)) break;
@@ -588,8 +587,6 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
 		memset(ful_con.part, 0, ful_con.n * sizeof(part_length_t));
 		prepare_constraints(mod->con, cur_sol, &ful_con);
-
-		counter++;
 	}
 
 	accept_move(cur_sol, mod->global_opt, mod->global_opt);
