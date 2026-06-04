@@ -796,12 +796,32 @@ or {self.runtime}s sampling
 		self.mod.qtg_applications = max((r[1] for r in res), default=0)
 		self.final_state = self.global_opt
 
-		# Merge histories from all workers, sorted by elapsed_seconds
+		# Per-worker FINAL incumbents (value, feasible) -- r[5] -- for §8.3
+		# median-of-P / best-of-P outcome-diversity gate (NORTHSTAR §8.3, M0e).
+		final_incumbents = [r[5] for r in res]
+
+		# Best-of-portfolio improvement curve vs ORACLE budget (NORTHSTAR §11/§1.3 M0e):
+		# concatenate the per-worker (value, oracle) streams, sort by oracle, and keep
+		# the running-best value. Each worker's stream is already monotone (the callback
+		# logs the global_opt-gated value, which only improves); it is the cross-worker
+		# reordering by per-worker oracle count that requires the running-best. For
+		# MAXIMIZE this is the running-MAX; MINIMIZE/SATISFY keep the running-min in
+		# their improving direction (global_opt->tot_profit only ever decreases).
 		if track_history:
-			merged_history = []
+			merged = []
 			for r in res:
-				merged_history.extend(r[6])
-			merged_history.sort(key=lambda entry: entry[1])
+				merged.extend(r[6])
+			merged.sort(key=lambda entry: entry[1])  # by oracle stamp
+			if self.mod[0].solver == SATISFY or self.sense != MAXIMIZE:
+				is_better = lambda new, best: new < best
+			else:
+				is_better = lambda new, best: new > best
+			merged_history = []
+			best_val = None
+			for value, oracle in merged:
+				if best_val is None or is_better(value, best_val):
+					best_val = value
+					merged_history.append((value, oracle))
 		else:
 			merged_history = []
 
@@ -845,6 +865,7 @@ or {self.runtime}s sampling
 			violations=violations,
 			num_threads=num_workers,
 			seed=self._seed_used if self._seed_used is not None else 0,
+			final_incumbents=final_incumbents,
 		)
 
 		return result

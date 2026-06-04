@@ -61,18 +61,19 @@ class TestConcurrentSolveIndependence:
         for result in results:
             assert isinstance(result, OptimizeResult)
             assert isinstance(result.history, list)
-            # Validate structure of any history entries
+            # Validate structure of any history entries (M0e: (value, oracle:int))
             for entry in result.history:
                 assert len(entry) == 2, f"History entry should be 2-tuple, got {len(entry)}"
-                value, elapsed = entry
+                value, oracle = entry
                 assert isinstance(value, (int, float)), f"Value should be numeric, got {type(value)}"
-                assert isinstance(elapsed, float), f"Elapsed should be float, got {type(elapsed)}"
-            # Verify elapsed times are non-decreasing within each history
+                assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                    f"Oracle stamp should be int, got {type(oracle)}"
+            # Verify oracle stamps are non-decreasing within each history
             if len(result.history) > 1:
-                times = [entry[1] for entry in result.history]
-                for i in range(1, len(times)):
-                    assert times[i] >= times[i - 1], \
-                        f"Elapsed times should be non-decreasing: {times}"
+                oracles = [entry[1] for entry in result.history]
+                for i in range(1, len(oracles)):
+                    assert oracles[i] >= oracles[i - 1], \
+                        f"Oracle stamps should be non-decreasing: {oracles}"
 
     def test_concurrent_solve_no_cross_contamination(self):
         """Four concurrent solves produce independently valid results (CB-02)."""
@@ -95,13 +96,13 @@ class TestConcurrentSolveIndependence:
             assert isinstance(result.history, list), f"Result {i} history should be list"
             assert result.solution is not None, f"Result {i} should have solution"
             assert result.feasible is not None, f"Result {i} should have feasible flag"
-            # Each history is valid independently
+            # Each history is valid independently (M0e: (value, oracle:int))
             for entry in result.history:
                 assert len(entry) == 2
-                value, elapsed = entry
+                value, oracle = entry
                 assert isinstance(value, (int, float))
-                assert isinstance(elapsed, float)
-                assert elapsed >= 0, f"Elapsed time should be non-negative, got {elapsed}"
+                assert isinstance(oracle, int) and not isinstance(oracle, bool)
+                assert oracle >= 0, f"Oracle stamp should be non-negative, got {oracle}"
 
 
 class TestSatisfyModeHistory:
@@ -116,15 +117,15 @@ class TestSatisfyModeHistory:
         result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert isinstance(result.history, list)
-        # Each entry should have (satisfaction_count, elapsed_seconds)
+        # Each entry should have (satisfaction_value, oracle:int) (M0e)
         for entry in result.history:
             assert len(entry) == 2
-            value, elapsed = entry
+            value, oracle = entry
             assert isinstance(value, (int, float)), \
-                f"Expected numeric satisfaction count, got {type(value)}"
-            assert value >= 0, f"Satisfaction count should be >= 0, got {value}"
-            assert isinstance(elapsed, float), \
-                f"Elapsed should be float, got {type(elapsed)}"
+                f"Expected numeric satisfaction value, got {type(value)}"
+            assert value >= 0, f"Satisfaction value should be >= 0, got {value}"
+            assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                f"Oracle stamp should be int, got {type(oracle)}"
 
 
 class TestTrackHistoryFalse:

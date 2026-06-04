@@ -124,10 +124,16 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 
 # define callback functionality ===============================
 
-# Python-compatible C wrapper
-cdef void my_callback_c() with gil:
+# Python-compatible C wrapper. Matches the M0e callback_t ABI void(void* ctx):
+# `ctx_ptr` is a solver_ctx_t* (or NULL from quantum_local_search). We read the
+# per-worker, never-reset ctx->oracle_count (M0d) and hand it to the Python
+# callback so history is oracle-indexed, not wall-clock-indexed (NORTHSTAR §11).
+cdef void my_callback_c(void* ctx_ptr) with gil:
+	cdef unsigned long long oracle = 0
+	if ctx_ptr is not NULL:
+		oracle = <unsigned long long> (<solver_ctx_t*> ctx_ptr).oracle_count
 	if python_callback is not None:
-		python_callback()
+		python_callback(oracle)
 
 # python function to store the callback
 cdef object python_callback = None
@@ -152,8 +158,13 @@ class _SolveState:
 _solve_states = {}  # dict[int, _SolveState] keyed by threading.get_ident()
 
 
-def _history_callback_fn():
-	"""Thread-safe callback that accumulates improvement history.
+def _history_callback_fn(oracle):
+	"""Thread-safe callback that accumulates oracle-indexed improvement history.
+
+	`oracle` is this worker's cumulative oracle count (ctx->oracle_count) at the
+	moment of a global_opt improvement, supplied by my_callback_c. History entries
+	are (value, oracle:int) (NORTHSTAR §11 M0e) -- the running global-best value
+	stamped with the per-worker oracle count, replacing the old wall-clock stamp.
 
 	Looks up per-thread state via threading.get_ident() to support
 	concurrent solve() calls without cross-contamination.
@@ -165,9 +176,8 @@ def _history_callback_fn():
 	try:
 		mod = state.mod
 		value = mod._callback_value()
-		elapsed = time_mod.monotonic() - state.start_time
 		if state.prev_best is None or value != state.prev_best:
-			state.history.append((value, elapsed))
+			state.history.append((value, int(oracle)))
 			state.prev_best = value
 	except Exception:
 		logging.warning("History callback: error computing entry, skipping", exc_info=True)
@@ -177,6 +187,17 @@ def _history_callback_fn():
 			state.original_callback()
 		except Exception:
 			logging.warning("History callback: error in user callback", exc_info=True)
+
+
+def _drop_oracle_arg(cb):
+	"""Adapt a user zero-arg callback to the M0e (oracle:int)->None callback ABI.
+
+	my_callback_c now calls python_callback(oracle); user callbacks remain
+	zero-arg, so the direct-assignment paths wrap them to drop the oracle stamp.
+	"""
+	def _wrapped(oracle):
+		cb()
+	return _wrapped
 
 cdef _set_phase_bias(solver_ctx_t *ctx, str phase, double bias):
 	"""Set bias for a specific phase on the solver context."""
@@ -349,8 +370,8 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
 		python_callback = _history_callback_fn
 	elif callback is not None:
-		# Direct user callback without history wrapping
-		python_callback = callback
+		# Direct user callback without history wrapping; wrap to drop the M0e oracle arg.
+		python_callback = _drop_oracle_arg(callback)
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -396,7 +417,16 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		for i in range(cur_sol.state[0].vector.bits):
 			arr.append(sw_tstbit(cur_sol.state[0].vector, i))
 
-		incumb = []
+		# Per-worker FINAL incumbent (value, feasible) for §8.3 median-of-P (M0e).
+		# CSearch_opt accepts only strictly-improving moves (solver.c:396), so the
+		# final cur_sol is this worker's best -> max over workers == global_opt,
+		# keeping best-of-P consistent with median-of-P. Value uses the same
+		# sign/sat convention as Model._callback_value.
+		if mod.mod[0].solver == SATISFY:
+			final_value = mod.mod[0].con[0].num_constraints + cur_sol.state[0].tot_profit
+		else:
+			final_value = cur_sol.state[0].tot_profit * mod.sense
+		incumb = (final_value, bool(cur_sol.state[0].feasible))
 
 		del inc
 
@@ -492,8 +522,8 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
 		python_callback = _history_callback_fn
 	elif callback is not None:
-		# Direct user callback without history wrapping
-		python_callback = callback
+		# Direct user callback without history wrapping; wrap to drop the M0e oracle arg.
+		python_callback = _drop_oracle_arg(callback)
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -533,7 +563,8 @@ cpdef run_quantum_local_search(initial: state_py,
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
 	global python_callback
-	python_callback = callback
+	# Wrap the zero-arg user callback to the M0e (oracle:int)->None ABI (ctx is NULL here).
+	python_callback = _drop_oracle_arg(callback) if callback is not None else None
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 
 	with nogil:

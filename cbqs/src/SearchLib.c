@@ -207,7 +207,9 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
 			    copy_state_inplace(mod->global_opt, cur_sol);
 
-				if (callback && mod->global_opt->feasible) callback();
+				/* Pass ctx so the Cython wrapper can oracle-stamp this incumbent
+				 * with ctx->oracle_count (per-worker, never-reset; M0e). */
+				if (callback && mod->global_opt->feasible) callback(ctx);
 			}
 			cbqs_mutex_unlock(&update_lock);
 			/* Restart the Grover schedule on improvement (rounds -> 0). NOTE:

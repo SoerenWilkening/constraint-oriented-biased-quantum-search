@@ -173,6 +173,23 @@ class TestLocalSearchDiagnostics:
         assert len(result.solution) == 5
         assert isinstance(result.objective, (int, float))
 
+    def test_local_search_history_oracle_stamp_is_zero(self):
+        """The classical k-flip local_search() path issues no oracle queries, so its
+        oracle-indexed history entries are stamped oracle == 0 (M0e). Pins the
+        deliberate intent so the local_search history meaning cannot silently drift
+        (ctx->oracle_count is incremented only on the quantum solve()/ctg path)."""
+        m = _build_knapsack_model(n_vars=8, capacity=6)
+        m.manual_initial(0, [0] * 8)  # start away from optimum so the search improves
+        m.set_param("stopping_time", 3)
+        m.set_param("track_history", True)
+        m.set_param("distance", 2)
+        result = m.local_search()
+        for value, oracle in result.history:
+            assert isinstance(value, (int, float))
+            assert isinstance(oracle, int) and not isinstance(oracle, bool)
+            assert oracle == 0, \
+                f"local_search makes no oracle queries; stamp must be 0, got {oracle}"
+
 
 class TestVerifyIntegration:
     """Tests for verify parameter integration with OptimizeResult."""
@@ -216,7 +233,7 @@ class TestHistoryAccumulation:
     """Tests for improvement history in OptimizeResult."""
 
     def test_history_entries_are_tuples(self):
-        """Each entry in result.history has 2 elements (value, elapsed_seconds)."""
+        """Each entry in result.history has 2 elements (value, oracle:int) (M0e)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
@@ -235,27 +252,63 @@ class TestHistoryAccumulation:
                     f"History should be non-decreasing for MAXIMIZE: {objectives}"
 
     def test_history_entries_have_correct_types(self):
-        """History entries contain (value, elapsed_seconds)."""
+        """History entries contain (value, oracle:int) -- oracle-indexed, not seconds (M0e)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
         for entry in result.history:
-            value, elapsed_seconds = entry
+            value, oracle = entry
             assert isinstance(value, (int, float))
-            assert isinstance(elapsed_seconds, float)
+            # Oracle stamp is an integer oracle count (NORTHSTAR §11), not a float time.
+            assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                f"Oracle stamp should be int, got {type(oracle)}"
+            assert oracle >= 0
 
-    def test_multi_worker_history_merged(self):
-        """History from multiple workers is merged into single list."""
+    def test_multi_worker_history_merged_running_max(self):
+        """Multi-worker history is a flat best-of-portfolio curve: sorted by oracle,
+        running-max value (NORTHSTAR §11/§1.3 M0e)."""
         m = _build_knapsack_model()
         _configure_solve(m, num_workers=2)
         result = m.solve()
-        # History should be a flat list (not nested), sorted by elapsed_seconds
         assert isinstance(result.history, list)
+        # The history axis IS the §1.2 per-worker oracle metric (ctx->oracle_count):
+        # every stamp is a non-bool int in [0, result.oracle_calls] (the per-worker
+        # T(n) budget == max-over-workers oracle_count). A wall-clock float, or a
+        # stamp exceeding the budget, would fail here.
+        for value, oracle in result.history:
+            assert isinstance(oracle, int) and not isinstance(oracle, bool)
+            assert 0 <= oracle <= result.oracle_calls, \
+                f"oracle stamp {oracle} outside [0, oracle_calls={result.oracle_calls}]"
         if len(result.history) > 1:
-            times = [entry[1] for entry in result.history]
-            for i in range(1, len(times)):
-                assert times[i] >= times[i - 1], \
-                    f"Merged history should be sorted by elapsed_seconds: {times}"
+            oracles = [entry[1] for entry in result.history]
+            values = [entry[0] for entry in result.history]
+            for i in range(1, len(oracles)):
+                assert oracles[i] >= oracles[i - 1], \
+                    f"Merged history should be sorted by oracle: {oracles}"
+                # Running-max best-of-portfolio: value strictly improves at each kept point.
+                assert values[i] > values[i - 1], \
+                    f"Best-of-portfolio value should be monotone-increasing: {values}"
+
+    def test_final_incumbents_best_of_portfolio(self):
+        """result.final_incumbents holds one (value, feasible) per worker, and the best
+        feasible per-worker value equals the reported best-of-portfolio objective (M0e §8.3).
+
+        Pins the faithfulness identity max-over-workers == global_opt (the worker's final
+        cur_sol is its best because CSearch_opt only accepts strictly-improving moves)."""
+        m = _build_knapsack_model(sense=MAXIMIZE)
+        _configure_solve(m, num_workers=3)
+        result = m.solve()
+        assert isinstance(result.final_incumbents, list)
+        assert len(result.final_incumbents) == 3
+        for entry in result.final_incumbents:
+            assert len(entry) == 2
+            value, feasible = entry
+            assert isinstance(value, (int, float))
+            assert isinstance(feasible, bool)
+        feas_vals = [v for (v, f) in result.final_incumbents if f]
+        if result.feasible and feas_vals:
+            assert max(feas_vals) == result.objective, \
+                f"best-of-P {max(feas_vals)} must equal global_opt objective {result.objective}"
 
     def test_track_history_false_returns_empty(self):
         """track_history=False produces empty history."""

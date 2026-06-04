@@ -32,9 +32,19 @@ class OptimizeResult:
     oracle_calls : int
         Number of oracle (QTG) calls.
     history : list of tuple
-        Improvement history. Each entry is ``(value, elapsed_seconds)``
-        where value is the objective for OPTIMIZE mode or the constraint
-        satisfaction count for SATISFY mode.
+        Best-of-portfolio improvement history. Each entry is
+        ``(value, oracle)`` where ``oracle`` is the cumulative per-worker
+        oracle count (``ctx->oracle_count``) at which the running
+        best-of-portfolio ``value`` was achieved (NORTHSTAR §11 M0e; was
+        ``elapsed_seconds`` pre-M0e). ``value`` is the objective for OPTIMIZE
+        mode or the constraint satisfaction measure for SATISFY mode.
+        The oracle counter is incremented only on the quantum ``solve()``/``ctg``
+        path; the classical ``local_search()`` solver issues no oracle queries,
+        so its history entries are stamped ``oracle == 0``.
+    final_incumbents : list of tuple or None
+        Per-worker final incumbents, one ``(value, feasible)`` per portfolio
+        worker, used for the §8.3 median-of-P / best-of-P outcome-diversity
+        gate. ``None`` (stored as ``[]``) when not produced (e.g. local_search).
     verified : bool or None
         Post-solve verification result. ``None`` if verification was not run.
     violations : list of str or None
@@ -55,6 +65,7 @@ class OptimizeResult:
         "iterations",
         "oracle_calls",
         "history",
+        "final_incumbents",
         "verified",
         "violations",
         "num_threads",
@@ -76,6 +87,7 @@ class OptimizeResult:
         violations,
         num_threads,
         seed,
+        final_incumbents=None,
     ):
         self.solution = solution
         self.objective = objective
@@ -85,6 +97,7 @@ class OptimizeResult:
         self.iterations = int(iterations)
         self.oracle_calls = int(oracle_calls)
         self.history = history
+        self.final_incumbents = final_incumbents if final_incumbents is not None else []
         self.verified = verified
         self.violations = violations
         self.num_threads = int(num_threads)
@@ -160,12 +173,26 @@ class OptimizeResult:
         if self.history:
             lines.append(f"  improvements: {len(self.history)}")
             first = self.history[0]
-            lines.append(f"  first: value={first[0]}, t={first[1]:.3f}s")
+            lines.append(f"  first: value={first[0]}, oracle={first[1]}")
             if len(self.history) > 1:
                 last = self.history[-1]
-                lines.append(f"  last:  value={last[0]}, t={last[1]:.3f}s")
+                lines.append(f"  last:  value={last[0]}, oracle={last[1]}")
         else:
             lines.append("  improvements: 0 (no improvement history)")
+
+        # -- Portfolio section --
+        if self.final_incumbents:
+            lines.append("")
+            lines.append("Portfolio (per-worker final incumbents)")
+            lines.append("-" * 50)
+            feas_vals = [v for (v, f) in self.final_incumbents if f]
+            lines.append(f"  workers: {len(self.final_incumbents)}")
+            if feas_vals:
+                ordered = sorted(feas_vals)
+                med = ordered[len(ordered) // 2]
+                lines.append(f"  feasible: {len(feas_vals)}  best={max(feas_vals)}  median={med}")
+            else:
+                lines.append("  feasible: 0")
 
         # -- Verification section --
         lines.append("")
@@ -229,6 +256,7 @@ class OptimizeResult:
             "iterations": self.iterations,
             "oracle_calls": self.oracle_calls,
             "history": [list(entry) for entry in self.history] if self.history else [],
+            "final_incumbents": [list(entry) for entry in self.final_incumbents] if self.final_incumbents else [],
             "verified": self.verified,
             "violations": self.violations,
             "num_threads": self.num_threads,

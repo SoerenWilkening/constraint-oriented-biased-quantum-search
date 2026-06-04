@@ -589,7 +589,8 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
 		uint64_t end_ns = cbqs_monotonic_ns();
 		double time = (double)(end_ns - start_ns) / 1e9;
         mod->runtime = time;
-		if (callback) callback();
+		/* ctx carries the per-worker oracle counter for history stamping (M0e). */
+		if (callback) callback(ctx);
 		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
 
 		/* Refresh remainings[] and ful_con for the (possibly changed) cur_sol */
@@ -837,7 +838,9 @@ int quantum_local_search(new_constraints_t *obj,
 		if (accept_global) {
 			free_state(global_opt, 1);
 			global_opt = copy_state(cur_sol);
-			if (callback) callback();
+			/* quantum_local_search has no solver_ctx_t*; pass NULL (the Cython
+			 * wrapper falls back to oracle=0, and this path doesn't track history). */
+			if (callback) callback(NULL);
 		}
 		uint64_t qls_end_ns = cbqs_monotonic_ns();
 		double qls_elapsed_sec = (double)(qls_end_ns - qls_start_ns) / 1e9;

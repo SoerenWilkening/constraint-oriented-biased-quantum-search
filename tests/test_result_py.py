@@ -26,7 +26,7 @@ def _make_result(**overrides):
         preprocessing_time=50.0,
         iterations=5000,
         oracle_calls=250,
-        history=[(38.0, 0.005), (42.0, 0.020)],
+        history=[(38.0, 5), (42.0, 20)],  # M0e: (value, oracle:int)
         verified=True,
         violations=None,
         num_threads=4,
@@ -109,6 +109,20 @@ class TestOptimizeResultConstruction:
         assert isinstance(r.preprocessing_time, float)
         assert isinstance(r.iterations, int)
 
+    def test_final_incumbents_defaults_empty(self):
+        """final_incumbents defaults to [] when not provided (M0e; e.g. local_search)."""
+        r = _make_result()
+        assert r.final_incumbents == []
+
+    def test_final_incumbents_stored(self):
+        """final_incumbents stores the per-worker (value, feasible) list (M0e §8.3)."""
+        incs = [(42.0, True), (40.0, True), (0.0, False)]
+        r = _make_result(final_incumbents=incs)
+        assert r.final_incumbents == incs
+        d = r.to_dict()
+        assert d["final_incumbents"] == [[42.0, True], [40.0, True], [0.0, False]]
+        json.dumps(d)  # must remain JSON-serializable
+
 
 # ===================================================================
 # TestOptimizeResultRepr
@@ -177,7 +191,7 @@ class TestOptimizeResultSummary:
         assert "oracle_calls" in s.lower() or "oracle calls" in s.lower()
 
     def test_nonempty_history_shows_count(self):
-        r = _make_result(history=[(10.0, 0.001), (20.0, 0.003)])
+        r = _make_result(history=[(10.0, 1), (20.0, 3)])
         s = r.summary()
         assert "improvements: 2" in s
 
@@ -255,6 +269,7 @@ class TestOptimizeResultToDict:
             "iterations",
             "oracle_calls",
             "history",
+            "final_incumbents",
             "verified",
             "violations",
             "num_threads",
@@ -271,7 +286,7 @@ class TestOptimizeResultToDict:
             preprocessing_time=2.0,
             iterations=100,
             oracle_calls=50,
-            history=[(5.0, 0.5)],
+            history=[(5.0, 5)],
             verified=False,
             violations=["v1"],
             num_threads=2,
@@ -286,7 +301,7 @@ class TestOptimizeResultToDict:
         assert d["time"] == 7.0
         assert d["iterations"] == 100
         assert d["oracle_calls"] == 50
-        assert d["history"] == [[5.0, 0.5]]
+        assert d["history"] == [[5.0, 5]]
         assert d["verified"] is False
         assert d["violations"] == ["v1"]
         assert d["num_threads"] == 2
@@ -313,7 +328,7 @@ class TestOptimizeResultToDict:
         json.dumps(d)
 
     def test_history_tuples_converted_to_lists(self):
-        r = _make_result(history=[(2.0, 0.003), (5.0, 0.006)])
+        r = _make_result(history=[(2.0, 3), (5.0, 6)])
         d = r.to_dict()
         for entry in d["history"]:
             assert isinstance(entry, list)
@@ -367,7 +382,7 @@ class TestOptimizeResultNoneObjective:
         """summary() works with None objective."""
         result = _make_result(
             objective=None,
-            history=[(0, 0.050)],
+            history=[(0, 50)],
         )
         s = result.summary()
         assert "None" in s

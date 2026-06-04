@@ -324,11 +324,13 @@ class TestSatisfyMode:
         m.set_param('stopping_time', 10)
         m.set_param('num_workers', 1)
         result = m.solve()
-        # SATISFY history entries are (satisfaction_count, elapsed_seconds)
+        # SATISFY history entries are (satisfaction_value, oracle:int) (M0e)
         for entry in result.history:
-            value, elapsed = entry
-            assert isinstance(value, (int, float)), f"Expected numeric satisfaction count, got {value}"
-            assert value >= 0, f"Satisfaction count should be >= 0, got {value}"
+            value, oracle = entry
+            assert isinstance(value, (int, float)), f"Expected numeric satisfaction value, got {value}"
+            assert value >= 0, f"Satisfaction value should be >= 0, got {value}"
+            assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                f"Oracle stamp should be int, got {type(oracle)}"
 
     def test_satisfy_verify_does_not_crash(self):
         """verify=True on a SATISFY solve does not raise TypeError (CRASH-04)."""

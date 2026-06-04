@@ -63,7 +63,7 @@ cdef extern from "src/Branching.h":
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
-	ctypedef void (*callback_t)()
+	ctypedef void (*callback_t)(void *)  # M0e: opaque ctx (solver_ctx_t* or NULL) for oracle-stamping
 
 	ctypedef struct incumbents_t:
 		state_t *states;
