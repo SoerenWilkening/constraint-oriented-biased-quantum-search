@@ -194,9 +194,20 @@ void *explore_neighbourhood(void *args) {
 
 	state_t *new_sol = copy_state(dat->sol);
 
+	/* Per-thread STOPATFIRST flag (bd 8an.1.15): each thread owns its own stop
+	 * flag, so one thread tripping it no longer truncates the others' scans by
+	 * timing -- the accepted move becomes deterministic at a fixed thread count. */
+	int stop = 0;
+
+	/* Per-thread arena (bd 8an.1.15): allocate scratch from a thread-owned arena
+	 * rather than the shared ctx->arena, whose lockless bump allocator races when
+	 * multiple explore threads call arena_alloc() concurrently. Falls back to the
+	 * malloc path (use_arena==0) if creation fails. */
+	arena_t *thread_arena = arena_create(ARENA_DEFAULT_SIZE);
+
 	for (int mov = dat->start_move; mov < dat->end_move; ++mov) {
 		// stop, if first better solution was found
-		if (*dat->stopping_criterion) break;
+		if (stop) break;
 
 		/* Periodic stop check (every 256 moves) using solver context */
 		if ((mov & 255) == 0 && dat->ctx != NULL && solver_ctx_should_stop(dat->ctx)) break;
@@ -219,12 +230,12 @@ void *explore_neighbourhood(void *args) {
 		/* Incremental constraint evaluation using adjusted_constraint_violation()
 		 * instead of full constraint_violation() loop (INCR-02).
 		 * Pattern mirrors quantum_local_search_states(). */
-		int use_arena = (dat->ctx != NULL && dat->ctx->arena != NULL);
+		int use_arena = (thread_arena != NULL);
 		array_t inv;
 		int *changed_con;
 		if (use_arena) {
-			inv = sw_init_arena(dat->con->total_clauses, dat->ctx->arena);
-			changed_con = (int*)arena_alloc(dat->ctx->arena, MINSIZE * sizeof(int), 4);
+			inv = sw_init_arena(dat->con->total_clauses, thread_arena);
+			changed_con = (int*)arena_alloc(thread_arena, MINSIZE * sizeof(int), 4);
 			if (changed_con) memset(changed_con, 0, MINSIZE * sizeof(int));
 		} else {
 			inv = sw_init(dat->con->total_clauses);
@@ -275,7 +286,7 @@ void *explore_neighbourhood(void *args) {
 			/* Arena-based allocation for changes array */
 			int *changes;
 			if (use_arena) {
-				changes = (int*)arena_alloc(dat->ctx->arena, MINSIZE * sizeof(int), 4);
+				changes = (int*)arena_alloc(thread_arena, MINSIZE * sizeof(int), 4);
 				if (changes) memset(changes, 0, MINSIZE * sizeof(int));
 			} else {
 				changes = calloc(MINSIZE, sizeof(int));
@@ -293,8 +304,9 @@ void *explore_neighbourhood(void *args) {
 			}
 		}
 
-		// if cur_best is better than sol: stop all threads
-		if (cur_best->tot_profit < dat->sol->tot_profit) *dat->stopping_criterion = dat->stopping_condition;
+		// if cur_best improves on sol, stop THIS thread's scan (STOPATFIRST);
+		// per-thread flag, so other threads are unaffected (bd 8an.1.15)
+		if (cur_best->tot_profit < dat->sol->tot_profit) stop = dat->stopping_condition;
 
 		// unflip bits
 		for (int i = 0; i < k; ++i) {
@@ -303,6 +315,7 @@ void *explore_neighbourhood(void *args) {
 		}
 	}
 	free_state(new_sol, 1);
+	if (thread_arena) arena_free(thread_arena);  /* per-thread arena (bd 8an.1.15) */
 	dat->cur_best = cur_best;
 	dat->cur_best_tabu = cur_best_tabu;
 	return NULL;
@@ -353,7 +366,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 	/* Dynamically allocate thread data arrays */
 	local_search_data_t *data = malloc(num_threads * sizeof(local_search_data_t));
 	cbqs_thread_t *threads = malloc(num_threads * sizeof(cbqs_thread_t));
-	int stop_at_first = 0;
 	for (int i = 0; i < num_threads; ++i) {
 		data[i].con = con;
 		data[i].obj = obj;
@@ -373,7 +385,6 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		data[i].end_move = (i + 1) * num_moves / num_threads;
 		data[i].progress = progress_arr;
 		data[i].id = i;
-		data[i].stopping_criterion = &stop_at_first;
 		data[i].stopping_condition = stopping_criterion;
 		data[i].count_states = 0;
 		data[i].ctx = ctx;  /* Pass solver context to thread worker */
@@ -443,10 +454,8 @@ int accept_best_routine(solver_ctx_t *ctx, state_t *new_sol, state_t *global_opt
 		if (acc || acc_tab) accepted_index = acc * data[i].move_index + acc_tab * data[i].tabu_move_index;
 		*neighbourhood_counter += data[i].count_states;
 	}
-	/* Reset arena for next iteration - reclaims all arena allocations */
-	if (ctx != NULL) {
-		solver_ctx_arena_reset(ctx);
-	}
+	/* No shared-arena reset needed: each explore thread owns and frees its own
+	 * arena now (bd 8an.1.15), so ctx->arena is untouched by this path. */
 
 	/* Free dynamic allocations */
 	free(data);

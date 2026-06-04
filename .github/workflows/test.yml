@@ -125,7 +125,9 @@ jobs:
       - name: Run thread safety tests with TSan
         run: |
           cd build-tests-tsan
-          ctest -R test_thread_safety -V --output-on-failure
+          # test_local_search drives the multi-threaded explore_neighbourhood path,
+          # whose per-thread stop flag + per-thread arena must be race-free (bd 8an.1.15).
+          ctest -R "test_(thread_safety|local_search)" -V --output-on-failure
 
   python-tests:
     name: Python Tests

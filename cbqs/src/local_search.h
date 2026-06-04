@@ -45,7 +45,6 @@ typedef struct {
 	int tabu_move_index;
 	double *progress;
 	int id;
-	int *stopping_criterion;
 	int stopping_condition;
 	int count_states;
 	solver_ctx_t *ctx;  /* Solver context for stop flag checking */

@@ -164,6 +164,43 @@ class TestBranchingBiasLocalSearch:
             f"across runs; got {len(set(solutions))} distinct solutions"
         )
 
+    def test_branching_bias_deterministic_local_search_multithread(self):
+        """Same seed + same bias -> identical result with a FIXED thread count >1.
+
+        Parallelism is an implementation detail: a fixed-seed local_search at a
+        fixed num_threads must be reproducible run-to-run. It was not (bd 8an.1.15):
+        the explore threads shared one stop flag (stop_at_first) and the one
+        ctx->arena, so the accepted move depended on thread timing -- objectives
+        wandered (e.g. {67,69,70}) even at convergence. After per-thread stop flag
+        + per-thread arena, a fixed thread count is deterministic.
+
+        We do NOT assert equality with the single-thread result (slice boundaries
+        change which per-thread first-improving move wins); only run-to-run
+        reproducibility at a fixed count, which is what determinism requires.
+        """
+        objectives = []
+        solutions = []
+        for _ in range(5):
+            m = _make_knapsack_model(20)
+            m.seed = 42
+            m.num_threads = 4  # fixed >1 thread count
+            m.set_param("branching_bias", 10.0)
+            m.set_param("stopping_time", 1e6)  # not wall-clock-bounded
+            m.set_param("track_history", False)
+            result = m.local_search()
+            objectives.append(result.objective)
+            solutions.append(tuple(int(x) for x in result.solution))
+            del m
+
+        assert len(set(objectives)) == 1, (
+            f"Determinism (4 threads): same seed+bias must give an identical "
+            f"objective across runs: {objectives}"
+        )
+        assert len(set(solutions)) == 1, (
+            f"Determinism (4 threads): same seed+bias must give an identical "
+            f"solution array across runs; got {len(set(solutions))} distinct"
+        )
+
 
 # =============================================================================
 # 3. Individual branching factor propagation
