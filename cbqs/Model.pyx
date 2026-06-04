@@ -778,8 +778,8 @@ or {self.runtime}s sampling
 
 		solve_start_time = time_mod.monotonic()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time)
-			for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time, worker_id)
+			for worker_id in range(num_workers)
 		)
 
 		reset_c_flags()

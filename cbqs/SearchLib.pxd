@@ -15,6 +15,7 @@ cdef extern from "src/solver_ctx.h":
 		unsigned long long seed_used  # uint64_t - Actual seed used after init
 		int num_threads  # Thread count (0 = auto-detect)
 		int num_threads_used  # Actual thread count used after init
+		int worker_id  # 0-based portfolio worker index (decorrelates PRNG stream)
 	ctypedef solver_ctx solver_ctx_t
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
@@ -25,6 +26,7 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_bias_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_look_ahead_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
+	void solver_ctx_set_worker_id(solver_ctx_t* ctx, int worker_id)
 
 	# Phase-specific setters (M1)
 	void solver_ctx_set_sat_bias(solver_ctx_t* ctx, double bias)

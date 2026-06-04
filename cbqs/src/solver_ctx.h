@@ -60,6 +60,11 @@ struct solver_ctx {
     /** Actual thread count used (stored after resolution) */
     int num_threads_used;
 
+    /** Portfolio worker index (0-based). Decorrelates this worker's PRNG
+     *  stream from the shared master via prng_seed_thread(master, worker_id).
+     *  worker_id == 0 reproduces the legacy single-stream behavior. */
+    int worker_id;
+
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
 
@@ -289,6 +294,20 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx);
  * @param ctx Solver context
  */
 void solver_ctx_init_prng(solver_ctx_t *ctx);
+
+/**
+ * @brief Set the portfolio worker index for this context
+ *
+ * Stored on the context and consumed by solver_ctx_init_prng(), which jumps
+ * the master PRNG stream worker_id times so each portfolio worker draws an
+ * independent (non-overlapping) sequence. Must be called BEFORE
+ * solver_ctx_init_prng(). worker_id == 0 reproduces the legacy stream, so
+ * single-worker runs stay bit-for-bit deterministic.
+ *
+ * @param ctx Solver context (NULL-safe)
+ * @param worker_id 0-based worker index
+ */
+void solver_ctx_set_worker_id(solver_ctx_t *ctx, int worker_id);
 
 /**
  * @brief Get default thread count from env or CPU detection

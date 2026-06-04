@@ -211,6 +211,59 @@ static void test_prng_jump_produces_distinct_streams(void **state) {
     assert_true(has_difference);
 }
 
+/**
+ * Verify the portfolio-worker decorrelation contract that solver_ctx_init_prng
+ * relies on (bd 8an.1.3): from one master state, prng_seed_thread(master, k)
+ * for k = 0..3 must produce (a) pairwise-distinct streams, (b) reproducible
+ * streams (re-seeding the same k repeats it), and (c) k == 0 must reproduce the
+ * plain master stream exactly, so single-worker runs stay bit-for-bit
+ * deterministic (CLAUDE.md §8).
+ */
+static void test_prng_worker_streams_distinct_and_reproducible(void **state) {
+    (void)state;
+
+    enum { NW = 4, NV = 6 };   /* NW worker ids 0..3; NV values sampled per worker */
+    uint64_t first[NW][NV];
+
+    prng_state_t master;
+    prng_seed_from_state(&master, 0xC0FFEEULL);
+
+    for (int w = 0; w < NW; w++) {
+        prng_seed_thread(&master, w);
+        for (int i = 0; i < NV; i++) {
+            first[w][i] = prng_next();
+        }
+    }
+
+    /* (a) distinct: every pair of workers differs in at least one value */
+    for (int a = 0; a < NW; a++) {
+        for (int b = a + 1; b < NW; b++) {
+            int differs = 0;
+            for (int i = 0; i < NV; i++) {
+                if (first[a][i] != first[b][i]) { differs = 1; break; }
+            }
+            assert_true(differs);
+        }
+    }
+
+    /* (b) reproducible: re-seeding the same worker repeats its stream exactly */
+    for (int w = 0; w < NW; w++) {
+        prng_seed_thread(&master, w);
+        for (int i = 0; i < NV; i++) {
+            assert_true(prng_next() == first[w][i]);
+        }
+    }
+
+    /* (c) worker 0 == plain master stream (legacy single-stream behavior) */
+    prng_state_t legacy;
+    prng_seed_from_state(&legacy, 0xC0FFEEULL);
+    g_prng_state = legacy;       /* no jump: this is what worker 0 must match */
+    g_prng_initialized = 1;
+    for (int i = 0; i < NV; i++) {
+        assert_true(prng_next() == first[0][i]);
+    }
+}
+
 /* ============================================================
  * Test: prng_get_entropy_seed_nonzero
  * ============================================================ */
@@ -310,6 +363,9 @@ int main(void) {
             prng_setup, prng_teardown),
         cmocka_unit_test_setup_teardown(
             test_prng_jump_produces_distinct_streams,
+            prng_setup, prng_teardown),
+        cmocka_unit_test_setup_teardown(
+            test_prng_worker_streams_distinct_and_reproducible,
             prng_setup, prng_teardown),
         cmocka_unit_test_setup_teardown(
             test_prng_get_entropy_seed_nonzero,

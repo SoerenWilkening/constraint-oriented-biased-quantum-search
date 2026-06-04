@@ -97,6 +97,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->seed_used = 0;
     ctx->num_threads = 0;
     ctx->num_threads_used = 0;
+    ctx->worker_id = 0;
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */
@@ -531,8 +532,17 @@ void solver_ctx_init_prng(solver_ctx_t *ctx) {
         ctx->num_threads_used = ctx->num_threads;
     }
 
-    /* Initialize thread-local PRNG for main thread (thread 0) */
-    prng_seed_thread(&ctx->master_prng, 0);
+    /* Initialize thread-local PRNG for this portfolio worker. Jumping the
+     * master stream worker_id times gives each worker a non-overlapping
+     * sequence; worker_id == 0 reproduces the legacy single-stream behavior. */
+    prng_seed_thread(&ctx->master_prng, ctx->worker_id);
+}
+
+void solver_ctx_set_worker_id(solver_ctx_t *ctx, int worker_id) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->worker_id = worker_id;
 }
 
 /* ============================================================

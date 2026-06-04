@@ -308,5 +308,74 @@ class TestBranchingWeightsDeterminism:
         )
 
 
+class TestPerWorkerPRNGDecorrelation:
+    """M0c (bd 8an.1.3): per-worker PRNG stream decorrelation.
+
+    Before the fix, every worker seeded prng_seed_thread(master, 0), so under a
+    fixed seed all workers ran the identical trajectory -- portfolio collapse
+    (CLAUDE.md §5). Each worker now jumps the xoshiro stream by its worker_id,
+    so distinct workers diverge while worker_id=0 reproduces the legacy stream
+    (single-worker determinism, §8, is preserved).
+
+    These tests drive run_sampling directly with explicit worker_id values. The
+    incumbent-history callback only fires when a worker improves the *shared*
+    model global_opt (SearchLib.c:193-197), so each trajectory is measured after
+    reset() + manual_initial(), which rebuilds global_opt at the worst value
+    while keeping the C-level budget (mod.M, set by the prior solve()) intact.
+    Thus the only thing that varies between measurements is worker_id.
+    """
+
+    def _prepared_model(self, n=50, seed=12345, M=200, stopping_time=5):
+        m = _make_knapsack_model(n)
+        m.seed = seed
+        m.set_param("M", M)
+        m.set_param("stopping_time", stopping_time)
+        m.set_param("num_workers", 1)
+        # solve() once to populate the C model_t budget/phase fields
+        # (mod.M, max_delta, stopping_time, ...) that run_sampling reads.
+        m.solve()
+        return m
+
+    def _trajectory(self, m, worker_id):
+        from cbqs.SearchLib import run_sampling
+        # Fresh, un-shadowed global_opt for this measurement; mod.M is preserved.
+        m.reset()
+        m.manual_initial(0, [0] * m.n)
+        r = run_sampling(m, None, [1], True, 0.0, worker_id)
+        # r = (cur_sol, qtg, feasible, arr, t_total, incumb, history, prep)
+        history = r[6]
+        return tuple(value for (value, _elapsed) in history)
+
+    def test_worker0_trajectory_is_reproducible(self):
+        """worker_id=0 reproduces an identical trajectory (legacy stream stable)."""
+        m = self._prepared_model()
+        h0a = self._trajectory(m, 0)
+        h0b = self._trajectory(m, 0)
+        assert len(h0a) > 1, "expected a non-trivial multi-step trajectory to compare"
+        assert h0a == h0b, (
+            "worker_id=0 must reproduce the same trajectory across runs "
+            "(single-worker determinism preserved)"
+        )
+
+    def test_two_workers_have_distinct_trajectories(self):
+        """Fixed seed, workers 0 and 1 explore divergent trajectories."""
+        m = self._prepared_model()
+        h0 = self._trajectory(m, 0)
+        h1 = self._trajectory(m, 1)
+        assert len(h0) > 1, "expected a non-trivial trajectory"
+        assert h0 != h1, (
+            "worker_id=0 and worker_id=1 must diverge under a fixed seed "
+            "(was: every worker seeded prng_seed_thread(master, 0))"
+        )
+
+    def test_fixed_seed_workers_not_collapsed(self):
+        """A fixed-seed portfolio must not collapse onto one trajectory."""
+        m = self._prepared_model()
+        trajectories = {self._trajectory(m, w) for w in range(4)}
+        assert len(trajectories) > 1, (
+            "fixed-seed workers all share one trajectory -- portfolio collapse"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

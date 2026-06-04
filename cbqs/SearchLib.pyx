@@ -289,7 +289,7 @@ cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 
 
 cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_history=True,
-                   double solve_start_time=0.0):
+                   double solve_start_time=0.0, int worker_id=0):
 	preprocess_start = time_mod.monotonic()
 	t_start: float = time.time()
 	t_total: float = 0
@@ -327,7 +327,13 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 	if hasattr(mod, '_num_threads') and mod._num_threads is not None:
 		ctx.num_threads = mod._num_threads
 
-	# Initialize PRNG with configured seed/threads
+	# Decorrelate this portfolio worker's PRNG stream. Each worker jumps the
+	# shared master stream worker_id times so fixed-seed workers explore
+	# independently instead of collapsing onto one trajectory; worker_id == 0
+	# reproduces the legacy stream, preserving single-worker determinism.
+	solver_ctx_set_worker_id(ctx, worker_id)
+
+	# Initialize PRNG with configured seed/threads/worker_id
 	solver_ctx_init_prng(ctx)
 
 	# Propagate phase-specific branching parameters to solver context
