@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 project(constraint-oriented-biased-quantum-search C)
 
 set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)  # enforce /std:c17 on MSVC (needed by /experimental:c11atomics, bd 8an.1.10)
 
 find_package(Python3 REQUIRED COMPONENTS Development)
 
@@ -49,6 +50,11 @@ if(NOT MSVC)
     target_compile_options(constraint-oriented-biased-quantum-search PRIVATE
         -Wall -Wextra -Wpedantic -Wvla
     )
+else()
+    # solver_ctx.c uses C11 <stdatomic.h>; MSVC needs /experimental:c11atomics
+    # (paired with the /std:c17 implied by CMAKE_C_STANDARD=17) or it fails with
+    # C1189 "C atomic support is not enabled" (bd 8an.1.10).
+    target_compile_options(constraint-oriented-biased-quantum-search PRIVATE /experimental:c11atomics)
 endif()
 
 

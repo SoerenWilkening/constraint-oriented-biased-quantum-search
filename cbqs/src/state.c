@@ -2,7 +2,7 @@
 #include <math.h>
 #include <inttypes.h>
 
-int min(int a, int b){
+int imin(int a, int b){
     return (a < b) ? a : b;
 }
 

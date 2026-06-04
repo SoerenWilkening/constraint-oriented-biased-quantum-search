@@ -223,9 +223,9 @@ int initial_state_preparation(model_t *mod) {
 		// if depth look ahead is 0, it will check only the next assignment
 		int count[2] = {0, 0};
 		// look ahead to the left side
-		look_ahead_correct(i, 1, min(i + mod->depth_look_ahead, n - 1), &count[1], mod->con, potentials, mod->initial_state, ret_total2);
+		look_ahead_correct(i, 1, imin(i + mod->depth_look_ahead, n - 1), &count[1], mod->con, potentials, mod->initial_state, ret_total2);
 		// look ahead to the right side
-        look_ahead_correct(i, 0, min(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1);
+        look_ahead_correct(i, 0, imin(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1);
 
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
@@ -344,9 +344,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+			look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
 			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+			look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -472,9 +472,9 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			int count[2] = {0, 0};
 
             // look ahead to the left side
-            look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -619,9 +619,9 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+			look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
 			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+			look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -733,9 +733,9 @@ double CSearch_opt_monte_carlo_sampler(
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
             // look ahead to the left side
-            look_ahead_correct(i, 0, min(i + 0, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            look_ahead_correct(i, 0, imin(i + 0, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i + 0, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(i, 1, imin(i + 0, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
@@ -845,9 +845,9 @@ double CSearch_opt_sat_monte_carlo_sampler(
 			int count[2] = {0, 0};
 
             // look ahead to the left side
-            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            look_ahead_correct(i, 0, imin(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(i, 1, imin(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -962,9 +962,9 @@ double CSearch_sat_monte_carlo_sampler(
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
             // look ahead to the left side
-            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            look_ahead_correct(i, 0, imin(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(i, 1, imin(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"

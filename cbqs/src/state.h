@@ -11,7 +11,10 @@ typedef struct {
 	int feasible;
 } state_t;
 
-int min(int a, int b);
+/* Named imin (not min) to avoid clashing with the MSVC min() macro from
+ * <windows.h>/<stdlib.h>, which expands at every call site to a fatal C2059
+ * (bd 8an.1.10). Do not rename back to min(). */
+int imin(int a, int b);
 
 void free_state(state_t *state, size_t numStates);
 state_t *init_state(int64_t ObjVal, const int *array, int n);

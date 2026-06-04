@@ -58,6 +58,11 @@ function(add_cmocka_test NAME)
         endif()
     else()
         target_compile_options(${NAME} PRIVATE /W3)
+        # solver_ctx.c uses C11 <stdatomic.h> (atomic_bool stop flag). MSVC only
+        # enables it under /experimental:c11atomics, which in turn requires a C11/C17
+        # mode (supplied here via CMAKE_C_STANDARD=17 -> /std:c17). Without this the
+        # build dies with C1189 "C atomic support is not enabled" (bd 8an.1.10).
+        target_compile_options(${NAME} PRIVATE /experimental:c11atomics)
         # /WX (warnings-as-errors) deferred: MSVC surfaces C4267 size_t->int
         # warnings (incl. from cmocka) that need triage first (bd 8an.1.10).
     endif()
