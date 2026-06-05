@@ -449,7 +449,19 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		# Index 1 is this worker's own cumulative oracle count (race-free,
 		# never-reset); read here while ctx is still alive (the finally below
 		# frees it). Replaces the racy shared mod.qtg_applications.
-		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms
+		#
+		# Index 8 is this worker's opt-phase branching diagnostics (M0g / bd
+		# 8an.1.7): raw per-worker counters over every candidate CSearch_opt
+		# generated. Pooled across workers in Model.solve() into the realized
+		# Hamming-radius mean+var and free-decision fraction f(n) that the §9
+		# scale-invariance test checks. Read here while ctx is still alive.
+		branch_diag = {
+			"opt_candidates": <unsigned long long> ctx.opt_candidates,
+			"opt_flip_sum":   <unsigned long long> ctx.opt_flip_sum,
+			"opt_flip_sumsq": <unsigned long long> ctx.opt_flip_sumsq,
+			"opt_free_sum":   <unsigned long long> ctx.opt_free_sum,
+		}
+		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag
 	finally:
 		# Clean up per-thread state
 		if track_history:

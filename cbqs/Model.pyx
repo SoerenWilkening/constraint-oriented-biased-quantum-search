@@ -805,7 +805,7 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag)
 		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
 		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
 		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
@@ -869,6 +869,38 @@ or {self.runtime}s sampling
 		else:
 			is_feasible = bool(self.mod[0].global_opt[0].feasible)
 
+		# Opt-phase branching diagnostics, pooled across the decorrelated workers
+		# (M0g / bd 8an.1.7, NORTHSTAR §9). Each worker's ctx counted, over every
+		# candidate CSearch_opt generated, the realized Hamming radius (NumChanges)
+		# and the # of both-feasible "free" decisions. Pooling the raw sums across
+		# workers (they are i.i.d. samples of the same instance under decorrelated
+		# seeds) gives the realized-radius mean+variance and the free-decision
+		# fraction f(n) the scale-invariance test compares across n. The raw pooled
+		# sums are kept so callers can re-pool across seeds/instances.
+		_bd_cand = sum(r[8]["opt_candidates"] for r in res)
+		_bd_flip = sum(r[8]["opt_flip_sum"]   for r in res)
+		_bd_fsq  = sum(r[8]["opt_flip_sumsq"] for r in res)
+		_bd_free = sum(r[8]["opt_free_sum"]   for r in res)
+		if _bd_cand > 0:
+			_r_mean = _bd_flip / _bd_cand
+			_r_var = max(0.0, _bd_fsq / _bd_cand - _r_mean * _r_mean)
+			_f_n = _bd_free / (_bd_cand * n_bits) if n_bits > 0 else None
+		else:
+			_r_mean = None
+			_r_var = None
+			_f_n = None
+		branch_diagnostics = {
+			"n": int(n_bits),
+			"opt_candidates": int(_bd_cand),
+			"radius_mean": _r_mean,
+			"radius_var": _r_var,
+			"free_fraction": _f_n,
+			"opt_flip_sum": int(_bd_flip),
+			"opt_flip_sumsq": int(_bd_fsq),
+			"opt_free_sum": int(_bd_free),
+			"per_worker": [dict(r[8]) for r in res],
+		}
+
 		# Build OptimizeResult
 		result = OptimizeResult(
 			solution=solution,
@@ -884,6 +916,7 @@ or {self.runtime}s sampling
 			num_threads=num_workers,
 			seed=self._seed_used if self._seed_used is not None else 0,
 			final_incumbents=final_incumbents,
+			branch_diagnostics=branch_diagnostics,
 		)
 
 		return result

@@ -17,6 +17,11 @@ cdef extern from "src/solver_ctx.h":
 		int num_threads_used  # Actual thread count used after init
 		int worker_id  # 0-based portfolio worker index (decorrelates PRNG stream)
 		size_t oracle_count  # never-reset per-worker cumulative oracle charge (faithful metric)
+		# M0g (bd 8an.1.7, NORTHSTAR §9): per-worker opt-phase branching diagnostics
+		unsigned long long opt_candidates  # uint64_t - # candidates CSearch_opt generated
+		unsigned long long opt_flip_sum     # uint64_t - Σ realized Hamming radius
+		unsigned long long opt_flip_sumsq   # uint64_t - Σ (realized radius)²
+		unsigned long long opt_free_sum     # uint64_t - Σ both-feasible free decisions
 	ctypedef solver_ctx solver_ctx_t
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)

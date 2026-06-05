@@ -319,6 +319,8 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
 		// Store which bit from the previous solution is flipped
 		int NumChanges = 0;
+		// M0g (bd 8an.1.7): count both-feasible "free" decisions for f(n).
+		int NumFree = 0;
 
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, C * sizeof(int64_t));
@@ -352,6 +354,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
+				NumFree++;  // M0g (bd 8an.1.7): bias-decided "free" variable for f(n)
 				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
@@ -383,6 +386,14 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			int vi = var_order ? var_order[mn] : mn;
 			if (sw_tstbit(cur_sol->vector, vi)) ChangedBits[NumChanges++] = vi;
 		}
+		// M0g (bd 8an.1.7, NORTHSTAR §9): record this candidate's realized
+		// Hamming radius (NumChanges) and free-decision count (NumFree) into the
+		// per-worker, race-free diagnostics. Runs for EVERY candidate (before the
+		// accept/return below) so the distribution is unbiased by acceptance.
+		ctx->opt_candidates += 1;
+		ctx->opt_flip_sum   += (uint64_t) NumChanges;
+		ctx->opt_flip_sumsq += (uint64_t) NumChanges * (uint64_t) NumChanges;
+		ctx->opt_free_sum   += (uint64_t) NumFree;
 		int as1 = (k == n);
 		if (as1) for (uint32_t ci = 0; ci < con->num_constraints; ++ci) {
 		    if (con->sense[ci] == EQUAL) as1 &= potentials[ci] == 0;

@@ -94,6 +94,12 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->num_threads_used = 0;
     ctx->worker_id = 0;
     ctx->oracle_count = 0;
+    /* Opt-phase branching diagnostics (M0g / bd 8an.1.7) — pure per-worker
+     * observation counters, accumulated over the solve (see solver_ctx.h). */
+    ctx->opt_candidates = 0;
+    ctx->opt_flip_sum = 0;
+    ctx->opt_flip_sumsq = 0;
+    ctx->opt_free_sum = 0;
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */

@@ -54,6 +54,17 @@ class OptimizeResult:
         Number of threads used during the solve.
     seed : int
         Random seed used for reproducibility.
+    branch_diagnostics : dict or None
+        Opt-phase branching diagnostics pooled across the decorrelated workers
+        (M0g / bd 8an.1.7, NORTHSTAR §9). Keys: ``n`` (number of variables),
+        ``opt_candidates`` (total candidates ``CSearch_opt`` generated),
+        ``radius_mean`` / ``radius_var`` (realized Hamming-radius distribution),
+        ``free_fraction`` (``f(n)`` = both-feasible "free" decisions per variable
+        per candidate), the raw pooled sums ``opt_flip_sum`` / ``opt_flip_sumsq``
+        / ``opt_free_sum`` (so callers can re-pool across seeds/instances), and
+        ``per_worker`` (the raw per-worker counter dicts). ``None`` when not
+        produced (e.g. the classical ``local_search`` path, which never enters
+        the quantum ``opt`` phase).
     """
 
     __slots__ = (
@@ -70,6 +81,7 @@ class OptimizeResult:
         "violations",
         "num_threads",
         "seed",
+        "branch_diagnostics",
     )
 
     def __init__(
@@ -88,6 +100,7 @@ class OptimizeResult:
         num_threads,
         seed,
         final_incumbents=None,
+        branch_diagnostics=None,
     ):
         self.solution = solution
         self.objective = objective
@@ -102,6 +115,7 @@ class OptimizeResult:
         self.violations = violations
         self.num_threads = int(num_threads)
         self.seed = int(seed)
+        self.branch_diagnostics = branch_diagnostics
 
     # ------------------------------------------------------------------
     # Properties

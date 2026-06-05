@@ -10,6 +10,10 @@ dist/
 *.egg-info/
 *.whl
 
+# Generated characterization reports (regenerable; numbers are run-dependent).
+# The generator scripts ARE tracked; the artifacts they emit are not.
+benchmarks/artifacts/
+
 # Cython-generated C files (from .pyx compilation)
 cbqs/*.c
 cbqs/generators/*.c
