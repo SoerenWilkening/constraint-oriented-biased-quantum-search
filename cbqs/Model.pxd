@@ -11,6 +11,7 @@ cdef extern from "src/model.h":
 		state_t *initial_state;
 		state_t *global_opt;
 		size_t M;
+		size_t opt_switch_oracles;
 		int break_item;
 		int n;
 		double stopping_time;

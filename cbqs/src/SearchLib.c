@@ -7,6 +7,8 @@
 #undef branching_stats  /* Use explicit phase-specific field names */
 #include "prng.h"
 #include "platform.h"
+#include <stdio.h>   /* fprintf */
+#include <stdlib.h>  /* abort */
 /* Intentionally NOT <Python.h>: this file uses no Python C-API symbol
  * (callback_t is a plain void(*)(void) from definitions.h). Including it made
  * MSVC's pyconfig.h auto-link pragma demand pythonXY.lib, breaking the C-test
@@ -138,7 +140,6 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
 	int direction = 1;
-	int counter = -1;
 	int updated = feasible;
 
 	// Start sampling after initial_state_preparation
@@ -220,8 +221,27 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 				break;
 			}
 		}
-        // improve violations before optimizing
-        if (mod->solver == OPTIMIZE && counter > 10 && !updated) {
+        // improve violations before optimizing, then switch exploit->explore.
+        // M0f: the switch fires once this worker has spent opt_switch_oracles
+        // cumulative oracles (ctx->oracle_count, per-worker & race-free from
+        // M0d), replacing the hardcoded counter>10. The explicit `feasible &&`
+        // is LOAD-BEARING: the old counter only incremented while feasible
+        // (so counter>10 implied feasibility), but ctx->oracle_count counts
+        // from run start regardless of feasibility -- without this guard the
+        // switch could run CSearch_opt on an infeasible point (NORTHSTAR §5
+        // phase-machine coupling). opt_switch_oracles==SIZE_MAX => disabled.
+        if (mod->solver == OPTIMIZE && feasible && !updated
+                && (size_t) ctx->oracle_count >= mod->opt_switch_oracles) {
+            /* §2.1 FAIL LOUD (survives -DNDEBUG, unlike assert): never enter
+             * CSearch_opt before a feasible point exists. The `feasible &&`
+             * guard above makes this unreachable in correct operation; if it
+             * ever trips, the phase machine is corrupt -- crash, don't optimize
+             * an infeasible state. */
+            if (!cur_sol->feasible) {
+                fprintf(stderr, "ctg: opt-switch reached with infeasible "
+                                "cur_sol (NORTHSTAR §5 phase-machine coupling)\n");
+                abort();
+            }
             stage = 3;
             search_function = CSearch_opt;
             cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
@@ -229,7 +249,6 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             updated = 1;
             ctx->active_stats = &ctx->branching_stats_opt;
         }
-        if (mod->solver == OPTIMIZE && feasible && !updated) counter++;
 	}
 	incumbents->search_stage[incumbents->head] = -1; // last step, no better incumbents found
 	incumbents->initial_samples[incumbents->head] = 0; // last step, no better incumbents found

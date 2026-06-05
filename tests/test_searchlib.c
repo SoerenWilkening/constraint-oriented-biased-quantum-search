@@ -130,11 +130,102 @@ static void test_ctg_oracle_budget(void **state) {
     assert_true(c_big > c1);                     /* cumulative cap scales with T */
 }
 
+/* ---------- M0f (bd 8an.1.6): opt_switch_oracles feasibility gate ---------- */
+
+/* Covering instance whose all-zeros start is INFEASIBLE: sum x >= 2 encoded as
+ * the negated-LOWER form (factors -1, rhs n-2). eval_constraint computes
+ * total = sum(1 - x_i) = n - sum x and rejects total > rhs, i.e. sum x < 2.
+ * Objective maximizes sum x (minimize -sum x). This is the only C path that can
+ * reach the opt_sat->opt switch from an infeasible start, so it exercises the
+ * §5 feasibility gate (the switch must NOT fire CSearch_opt while infeasible). */
+static model_t *build_covering_5var(void) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(con_expr, i); }
+    multiply_constant(con_expr, -1);            /* factors -1 */
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, 3);         /* n - 2 = 3  =>  requires sum x >= 2 */
+    add_expression_to_constraints(mod->con, con_expr);
+
+    expression_t *obj_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(obj_expr, i); }
+    multiply_constant(obj_expr, -1);            /* minimize -sum x = maximize sum x */
+    add_sense_to_expression(obj_expr, LOWER);
+    add_rhs_to_expression(obj_expr, 0);
+    add_expression_to_constraints(mod->obj, obj_expr);
+
+    preprocessing(5, mod->con);
+    preprocessing(5, mod->obj);
+
+    int arr[5] = {0, 0, 0, 0, 0};
+    mod->initial_state = init_state(0, arr, 5);
+    mod->initial_state->tot_profit = INT64_MAX;
+    mod->global_opt = init_state(0, arr, 5);
+    mod->global_opt->tot_profit = INT64_MAX;
+
+    mod->n = 5;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = 1e6;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_expr);
+    free_expression(obj_expr);
+    return mod;
+}
+
+/* With an infeasible all-zeros start and opt_switch_oracles set BELOW the cost
+ * of reaching feasibility, the switch must not run CSearch_opt on an infeasible
+ * point: ctg must reach feasibility in opt_sat first, then switch. The
+ * unconditional fail-loud guard in ctg would abort() if the switch ever fired
+ * infeasible (so this test, which completes normally, exercises that guard in
+ * the asserts-live CI build). Assert the returned solution is genuinely
+ * feasible and improves on the all-zeros start. */
+static void test_opt_switch_feasibility_gate(void **state) {
+    (void)state;
+    model_t *mod = build_covering_5var();
+    mod->M = 2000;
+    mod->opt_switch_oracles = 1;   /* threshold met on round 1, BEFORE feasibility */
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *probe = init_state(0, zeros, 5);
+    /* Precondition: the covering encoding really makes all-zeros infeasible and
+     * a sum>=2 point feasible -- otherwise the test would not exercise the gate. */
+    assert_int_equal(eval_constraints(mod->con, probe, 5), 0);
+    int two[5] = {1, 1, 0, 0, 0};
+    state_t *feas = init_state(0, two, 5);
+    assert_int_equal(eval_constraints(mod->con, feas, 5), 1);
+    free_state(probe, 1);
+    free_state(feas, 1);
+
+    state_t *cur_sol = init_state(0, zeros, 5);
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0x5151ULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    int feasible = ctg(ctx, mod, cur_sol, NULL, inc);
+
+    /* ctg completed (no abort): the switch never fired infeasible. The final
+     * solution is genuinely feasible (sum x >= 2). */
+    assert_true(feasible);
+    assert_int_equal(eval_constraints(mod->con, cur_sol, 5), 1);
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_init_incumbents),
         cmocka_unit_test(test_incumbents_initial_state),
         cmocka_unit_test(test_ctg_oracle_budget),
+        cmocka_unit_test(test_opt_switch_feasibility_gate),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

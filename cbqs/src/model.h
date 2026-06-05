@@ -14,6 +14,10 @@ typedef struct {
 	state_t *initial_state;
 	state_t *global_opt;
 	size_t M;
+    size_t opt_switch_oracles;  /* M0f: cumulative-oracle threshold (per worker) for the
+                                 * opt_sat->opt exploit->explore switch in ctg, replacing the
+                                 * hardcoded counter>10. SIZE_MAX disables the auto-switch.
+                                 * NORTHSTAR §4: learned, in oracle units, bounded [0, alpha*T(n)]. */
     int break_item;
 	int n;
 	double stopping_time;

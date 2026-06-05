@@ -20,6 +20,7 @@ PHASE_PARAM_SUFFIXES = (
     'branching_factor',
     'bias_factor',
     'branching_bias',
+    'branching_radius',
     'variable_priorities',
 )
 
@@ -29,8 +30,34 @@ DEFAULTS = {
     'branching_factor': 1.0,
     'bias_factor': 1.0,
     'branching_bias': 5.0,
+    'branching_radius': None,
     'variable_priorities': None,
 }
+
+
+def radius_to_bias(n, r):
+    """Convert a target neighborhood radius ``r`` to a scalar ``bias`` (M0f).
+
+    The expected number of flips from the incumbent is ``n / (bias + 2)``, so
+    setting ``bias = n/r - 2`` makes the realized Hamming radius exactly ``r`` at
+    *every* ``n`` -- the scale-invariant lever of NORTHSTAR §4/§1.5 (``bias = n/d``
+    alone is only ~``d`` flips for ``n >> d`` and is compressed at small ``n``).
+
+    Args:
+        n: number of variables (> 0).
+        r: target radius (> 0; should be < n so the resulting bias stays > -1).
+
+    Returns:
+        float bias = n/r - 2.
+
+    Raises:
+        ValueError: if ``r <= 0`` or ``n <= 0``.
+    """
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}")
+    if r <= 0:
+        raise ValueError(f"branching_radius must be > 0, got {r}")
+    return n / float(r) - 2.0
 
 # Validation rules per suffix.
 # Each entry is (validator_fn, error_message).
@@ -40,6 +67,10 @@ _VALIDATORS = {
     'branching_bias': (
         lambda v: v > -1,
         'branching_bias must be > -1',
+    ),
+    'branching_radius': (
+        lambda v: v > 0,
+        'branching_radius must be > 0',
     ),
     'branching_factor': (
         lambda v: v >= 0,
@@ -71,8 +102,10 @@ def validate_weights(value, n_vars):
         raise ValueError(
             f"branching_weights must have length {n_vars}, got {len(arr)}"
         )
-    if np.any(arr < 0):
-        raise ValueError("branching_weights must be non-negative")
+    # M0f: weights are SIGNED per-variable logit offsets (theta_i) -- no
+    # non-negativity (the L1 normalization that motivated it was dropped too).
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("branching_weights must not contain NaN or Inf")
 
 
 def validate_priorities(value, n_vars):
@@ -95,7 +128,7 @@ def validate_priorities(value, n_vars):
 
 
 def make_phase_param_defs():
-    """Generate parameter definition entries for all 15 phase-specific params.
+    """Generate parameter definition entries for all 18 phase-specific params.
 
     Returns:
         dict: mapping 'phase_suffix' -> {'default': ..., 'coerce': ..., 'validate': ...}
@@ -203,7 +236,7 @@ class PhaseParamResolver:
 
         Returns:
             dict: {'sat_branching_bias': 5.0, 'opt_branching_factor': 1.0, ...}
-                with exactly 15 keys (3 phases x 5 suffixes).
+                with exactly 18 keys (3 phases x 6 suffixes).
         """
         resolved = self.resolve_all()
         flat = {}

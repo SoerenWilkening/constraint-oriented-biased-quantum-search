@@ -14,16 +14,18 @@
  * Branching probability computation for quantum-inspired search.
  *
  * This module computes per-variable branching probabilities that guide the
- * quantum-inspired sampling algorithm. Each variable's probability of being
- * assigned 0 or 1 is determined by a weighted combination of three terms:
+ * quantum-inspired sampling algorithm. The scalar `bias` channel sets a base
+ * probability `assignment_bias = (bias+1)/(bias+2)` (optionally blended with a
+ * feasibility look-ahead term); the per-variable `branching_weights[i]` then
+ * apply a SIGNED additive offset in logit space through a sigmoid:
  *
- *   1. branching_weights[i] -- learned or prior per-variable importance
- *   2. assignment_bias      -- (bias + 1) / (bias + 2), favoring likely-good assignments
- *   3. look_ahead           -- feasibility look-ahead result (1.0 if feasible, 0.0 otherwise)
+ *   value = sigma( logit(base) + branching_factor * branching_weights[i] )
  *
- * The final probability is normalized by the sum of active factor weights,
- * then conditioned on the current bit (bit_S) and threshold bit (bit_T)
- * to determine the branching direction.
+ * This decouples the per-variable channel from the scalar bias so enabling
+ * weights cannot silently rescale the neighborhood radius (the pre-M0f convex
+ * blend shared one denominator and did). With no/zero weights `value == base`
+ * exactly. The result is conditioned on the current bit (bit_S) and threshold
+ * bit (bit_T) to determine the branching direction. See BranchingFunction.
  *
  * StateProbability() combines per-bit probabilities into an overall state
  * probability by multiplying across all branched variables.
@@ -48,30 +50,55 @@ typedef struct {
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */
 
+/* Clamp bound for the bounded-decisions invariant (NORTHSTAR §1.7/§8.2):
+ * every returned probability stays in (BRANCH_EPS, 1 - BRANCH_EPS) by
+ * construction, so the exploratory stage can never silently force an
+ * assignment (value pinned to exactly 0 or 1). */
+#define BRANCH_EPS 1e-9
+
+static inline double branch_clamp(double v){
+    if (v < BRANCH_EPS)       return BRANCH_EPS;
+    if (v > 1.0 - BRANCH_EPS) return 1.0 - BRANCH_EPS;
+    return v;
+}
+
 /*
  * BranchingFunction -- Compute the branching probability for variable `index`.
  *
- * Formula (3-term weighted average, normalized):
+ * M0f reparameterization (NORTHSTAR §4): the per-variable channel is an
+ * ADDITIVE LOGIT OFFSET through a sigmoid, decoupled from the scalar bias --
+ * it is no longer a term in a shared-denominator convex blend (which let
+ * enabling `branching_weights` silently rescale the radius via factor_sum).
  *
- *   value = (branching_factor * w[index]
- *          + bias_factor * assignment_bias
- *          + look_ahead_factor * lookahead_0_probability) / factor_sum
+ *   base   = convex blend of the NON-per-variable channels only:
+ *            (bias_factor * assignment_bias + look_ahead_factor * lookahead_0)
+ *            / (bias_factor + look_ahead_factor)      [0.5 if that sum <= 0]
+ *   value  = sigma( logit(base) + branching_factor * theta_i )   if theta != 0
+ *          = base                                                 if theta == 0
  *
  * where:
- *   w[index]             = per-variable weight from branching_weights (0 if no weights)
- *   assignment_bias      = (bias + 1) / (bias + 2), a sigmoid-like term in (0.5, 1)
- *   lookahead_0_prob     = 1.0 if diffcount >= 0 (feasible), 0.0 otherwise
- *   factor_sum           = sum of active factor weights (those with non-NULL data)
+ *   assignment_bias  = (bias + 1) / (bias + 2), a sigmoid-like term in (0,1)
+ *   lookahead_0_prob = 1.0 if diffcount >= 0 (feasible), 0.0 otherwise
+ *                      (diffcount == 0 disables look_ahead; all production call
+ *                      sites pass diffcount == 0, so base == assignment_bias)
+ *   theta_i          = branching_weights[index] -- a SIGNED per-variable offset
+ *                      (no L1 normalization, no non-negativity); 0 if no weights
+ *   branching_factor = gain on the per-variable channel (default 1.0 recovers
+ *                      the NORTHSTAR §4 form; 0.0 disables the channel)
  *
- * If branching_weights is NULL, the formula reduces to a 2-term average of
- * assignment_bias and look_ahead. If diffcount == 0, look_ahead is disabled.
+ * Bit-for-bit baseline recovery: when the effective offset
+ * `branching_factor * theta_i` is exactly 0 (no weights, all-zero weights, or
+ * branching_factor == 0) the result is `base` with NO sigmoid round-trip, so
+ * the golden BranchingFunction(i,0,0,0) == 6/7 at bias=5 is preserved exactly.
+ * Both `base` (pre-logit) and `value` (post-sigmoid) are clamped to
+ * (eps, 1-eps) so logit() stays finite and §1.7 holds by construction.
  *
  * The bit_S / bit_T logic flips the probability based on whether the current
  * candidate bit matches or opposes the threshold (best-known) bit:
  *   - bit_T == 0: P(0) = value, P(1) = 1 - value
  *   - bit_T == 1: P(0) = 1 - value, P(1) = value
  *
- * Returns: probability in [0, 1], used by StateProbability().
+ * Returns: probability in (0, 1), used by StateProbability().
  */
 static inline double BranchingFunction(int index, int bit_S, int bit_T, int diffcount, const BranchingStats_t *stats){
     double total_bias;
@@ -84,29 +111,33 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
     double lookahead_0_probability = (diffcount < 0) ? 0.0 : 1.0;
     double assignment_bias = (stats->bias + 1.0) / (stats->bias + 2.0);
 
-    /* Compute factor sum for normalization */
+    /* Convex blend of the NON-per-variable channels (bias + look-ahead). The
+     * per-variable weight term is NO LONGER part of this sum -- it enters
+     * additively in logit space below, so enabling weights cannot rescale the
+     * neighborhood radius (NORTHSTAR §1.5, §4). */
     double factor_sum = bias_factor + look_ahead_factor;
-    double w = 0.0;
-
-    if (stats->branching_weights != NULL && index < stats->num_weights) {
-        w = stats->branching_weights[index];
-        factor_sum += branching_factor;
-    }
-
-    /* Guard against division by zero */
+    double base;
     if (factor_sum <= 0.0) {
-        return 0.5;
+        base = 0.5;
+    } else {
+        base = (bias_factor * assignment_bias
+                + look_ahead_factor * lookahead_0_probability) / factor_sum;
     }
+    base = branch_clamp(base);  /* keep logit() finite + bounded by construction */
 
-    double normalizer = 1.0 / factor_sum;
-
-    /* 3-term (or 2-term) formula */
-    double value = 0.0;
-    if (stats->branching_weights != NULL && index < stats->num_weights) {
-        value += normalizer * branching_factor * w;
+    /* Per-variable signed logit offset. When the effective offset is exactly
+     * zero we return `base` directly (no sigmoid round-trip), recovering the
+     * baseline bit-for-bit. */
+    double theta = (stats->branching_weights != NULL && index < stats->num_weights)
+                   ? stats->branching_weights[index] : 0.0;
+    double offset = branching_factor * theta;
+    double value;
+    if (offset == 0.0) {
+        value = base;
+    } else {
+        double z = log(base / (1.0 - base)) + offset;
+        value = branch_clamp(1.0 / (1.0 + exp(-z)));
     }
-    value += normalizer * bias_factor * assignment_bias;
-    value += normalizer * look_ahead_factor * lookahead_0_probability;
 
     /* Apply bit_S / bit_T branching logic */
     if (bit_T == 0) {

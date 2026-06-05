@@ -11,6 +11,7 @@ from cbqs.phase_params import (
     make_phase_param_defs,
     validate_weights,
     validate_priorities,
+    radius_to_bias,
     DEFAULTS,
 )
 
@@ -21,9 +22,9 @@ from cbqs.phase_params import (
 
 class TestParameterDefinitions:
     def test_all_phase_params_defined(self):
-        """15 phase-specific params exist (3 phases x 5 suffixes)."""
+        """18 phase-specific params exist (3 phases x 6 suffixes)."""
         defs = make_phase_param_defs()
-        assert len(defs) == 15
+        assert len(defs) == 18
 
     def test_phase_param_names_follow_convention(self):
         """All keys follow sat_*, opt_sat_*, opt_* naming."""
@@ -38,16 +39,16 @@ class TestParameterDefinitions:
                         prefix_found = True
             assert prefix_found, f"Key {key} does not follow convention"
 
-    def test_each_phase_has_5_params(self):
-        """Each phase has exactly 5 parameter entries."""
+    def test_each_phase_has_6_params(self):
+        """Each phase has exactly 6 parameter entries."""
         defs = make_phase_param_defs()
         for phase in PHASES:
             phase_keys = [
                 k for k in defs
                 if any(k == f"{phase}_{s}" for s in PHASE_PARAM_SUFFIXES)
             ]
-            assert len(phase_keys) == 5, (
-                f"Phase {phase} has {len(phase_keys)} params, expected 5"
+            assert len(phase_keys) == 6, (
+                f"Phase {phase} has {len(phase_keys)} params, expected 6"
             )
 
 
@@ -141,17 +142,20 @@ class TestValidation:
             resolver3.resolve('sat', 'branching_bias')
 
     def test_phase_weights_validates_array(self):
-        """branching_weights must be a list/array of non-negative numbers."""
+        """branching_weights are SIGNED finite arrays of length n (M0f)."""
         # Valid
         validate_weights([0.1, 0.2, 0.3], n_vars=3)
 
-        # Wrong length
+        # Negative values are now ALLOWED (signed logit offsets, M0f)
+        validate_weights([0.1, -0.2, 0.3], n_vars=3)
+
+        # Wrong length still rejected
         with pytest.raises(ValueError, match="length"):
             validate_weights([0.1, 0.2], n_vars=3)
 
-        # Negative value
-        with pytest.raises(ValueError, match="non-negative"):
-            validate_weights([0.1, -0.2, 0.3], n_vars=3)
+        # NaN/Inf still rejected
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            validate_weights([0.1, float("nan"), 0.3], n_vars=3)
 
         # None is valid (means unset)
         validate_weights(None, n_vars=3)
@@ -232,9 +236,27 @@ class TestSerialization:
         finally:
             os.unlink(tmp_path)
 
-    def test_to_ctx_kwargs_all_15_keys(self):
-        """to_ctx_kwargs produces exactly 15 keys."""
+    def test_to_ctx_kwargs_all_18_keys(self):
+        """to_ctx_kwargs produces exactly 18 keys (3 phases x 6 suffixes)."""
         store = {}
         resolver = PhaseParamResolver(store, DEFAULTS)
         ctx = resolver.to_ctx_kwargs()
-        assert len(ctx) == 15
+        assert len(ctx) == 18
+
+
+class TestRadiusToBias:
+    def test_radius_to_bias_scale_stability(self):
+        """bias = n/r - 2 yields realized radius r at every n (NORTHSTAR §1.5)."""
+        for r in (2.0, 5.0, 8.0):
+            for n in (10, 100, 1000, 3000):
+                bias = radius_to_bias(n, r)
+                # expected flips from incumbent = n / (bias + 2) == r exactly
+                assert abs(n / (bias + 2.0) - r) < 1e-9, (n, r, bias)
+
+    def test_radius_to_bias_rejects_nonpositive(self):
+        with pytest.raises(ValueError, match="branching_radius must be > 0"):
+            radius_to_bias(100, 0.0)
+        with pytest.raises(ValueError, match="branching_radius must be > 0"):
+            radius_to_bias(100, -3.0)
+        with pytest.raises(ValueError, match="n must be positive"):
+            radius_to_bias(0, 5.0)

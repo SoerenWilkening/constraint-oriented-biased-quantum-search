@@ -61,6 +61,8 @@ _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
 	'M':                        {'default': -1,    'coerce': int,          'validate': None,
 	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/4)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
+	'opt_switch_oracles':       {'default': -1,    'coerce': int,          'validate': None,
+	                             'description': 'Cumulative per-worker oracle count at which the optimize phase switches from constraint-tightening (opt_sat) to objective maximization (opt), replacing the legacy counter>10 heuristic (NORTHSTAR §4). The switch only fires once a feasible point exists. -1 auto-calculates int(0.1*M); the effective value is clamped to [0, int(0.25*M)] (alpha<=0.25). Set before solve.'},
 	'stopping_time':            {'default': 300,   'coerce': float,        'validate': lambda v: v > 0,
 	                             'validate_msg': 'stopping_time must be positive',
 	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
@@ -104,8 +106,11 @@ _PARAM_DEFS = {
 	'branching_bias':           {'default': None,  'coerce': float,        'validate': lambda v: v > -1,
 	                             'validate_msg': 'branching_bias must be greater than -1',
 	                             'description': 'Assignment bias value for the branching formula; controls preference toward 0 or 1 assignments. None means auto-set to n/4 at close(). Range: > -1 or None. Default: None (auto). Set before solve.'},
+	'branching_radius':         {'default': None,  'coerce': float,        'validate': lambda v: v > 0,
+	                             'validate_msg': 'branching_radius must be > 0',
+	                             'description': 'Target neighborhood radius r; the harness sets bias = n/r - 2 so the realized Hamming radius is r at every n (scale-invariant, NORTHSTAR §4/§1.5). Takes precedence over branching_bias when set. Per-phase variants (sat_/opt_sat_/opt_) supported. Range: > 0 (use r < n) or None. Default: None. Set before solve.'},
 	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special',
-	                             'description': 'Per-variable weight array for the branching formula; encodes learned or prior knowledge about variable importance. Must be a 1D non-negative numpy array of length n. None disables per-variable weighting. Default: None. Set before solve.'},
+	                             'description': 'Per-variable SIGNED logit offsets (theta_i) for the branching formula: value = sigma(logit(base) + branching_factor*theta_i). Must be a 1D finite numpy array of length n (no normalization, no non-negativity; M0f). None disables per-variable weighting. Default: None. Set before solve.'},
 	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
 	                             'validate_msg': 'branching_factor must be non-negative',
 	                             'description': 'Weight of the branching_weights term in the 3-term branching formula. None uses the solver default. Range: >= 0 or None. Default: None. Set before solve.'},
@@ -120,11 +125,12 @@ _PARAM_DEFS = {
 	                             'description': 'Hard timeout in seconds; overrides stopping_time if set. None means use stopping_time instead. Range: > 0 or None. Default: None. Set before solve.'},
 }
 
-# Merge phase-specific parameter definitions (15 params: 3 phases x 5 suffixes)
+# Merge phase-specific parameter definitions (18 params: 3 phases x 6 suffixes)
 _phase_defs = make_phase_param_defs()
 # Add validation rules to scalar phase params
 _PHASE_VALIDATORS = {
 	'branching_bias': (lambda v: v > -1, 'branching_bias must be greater than -1'),
+	'branching_radius': (lambda v: v > 0, 'branching_radius must be > 0'),
 	'branching_factor': (lambda v: v >= 0, 'branching_factor must be non-negative'),
 	'bias_factor': (lambda v: v >= 0, 'bias_factor must be non-negative'),
 }
@@ -275,8 +281,9 @@ cdef class Model:
 				raise ValueError(
 					f"Expected array of length {self.n}, got {len(arr)}"
 				)
-			if np.any(arr < 0):
-				raise ValueError("branching_weights must be non-negative")
+			# M0f: branching_weights are SIGNED per-variable logit offsets
+			# (theta_i) -- no non-negativity check (the L1 normalization that
+			# motivated it was dropped too). NaN/Inf are still rejected.
 			if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
 				raise ValueError(
 					"branching_weights must not contain NaN or Inf"
@@ -350,8 +357,8 @@ cdef class Model:
 	def _resolve_phase_params(self):
 		"""Resolve phase-specific parameters with fallback to unprefixed defaults.
 
-		Uses PhaseParamResolver to resolve all 15 phase-specific parameters
-		(3 phases x 5 suffixes) with the resolution order:
+		Uses PhaseParamResolver to resolve all 18 phase-specific parameters
+		(3 phases x 6 suffixes) with the resolution order:
 		    phase-specific > unprefixed > built-in default
 
 		Returns
@@ -744,6 +751,7 @@ or {self.runtime}s sampling
 
 		# Read all params from _params (with defaults from _PARAM_DEFS)
 		M = self._get_effective('M')
+		opt_switch_oracles = self._get_effective('opt_switch_oracles')
 		stopping_time = self._get_effective('stopping_time')
 		stop_val = self._get_effective('stop_val')
 		callback = self._get_effective('callback')
@@ -769,9 +777,19 @@ or {self.runtime}s sampling
 		# so the run terminates at ~T(n) oracles regardless of improvement frequency.
 		if M == -1: M = int((self.n / 4.0) ** 2 + 1200)
 
+		# M0f: opt_sat->opt exploit->explore switch point, in cumulative oracle
+		# units (NORTHSTAR §4), replacing the legacy counter>10. -1 auto-defaults
+		# to 10% of the budget; the effective value is clamped to [0, 0.25*M]
+		# (alpha<=0.25). The switch is additionally gated on feasibility in ctg,
+		# so it can never run CSearch_opt before a feasible point exists.
+		if opt_switch_oracles == -1:
+			opt_switch_oracles = int(0.1 * M)
+		opt_switch_oracles = max(0, min(opt_switch_oracles, int(0.25 * M)))
+
 		not_stop = [1]
 
 		self.mod.M = M
+		self.mod.opt_switch_oracles = opt_switch_oracles
 		self.mod.depth_look_ahead = depth_look_ahead
 		self.mod.stop_val = stop_val
 		self.mod.stopping_time = stopping_time

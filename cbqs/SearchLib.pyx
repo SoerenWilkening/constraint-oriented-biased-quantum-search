@@ -14,7 +14,7 @@ from libc.stdlib cimport srand, calloc, free
 from .Constants import *
 from .Constraint cimport new_constraint
 from .Model import Model
-from .phase_params import PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS
+from .phase_params import PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS, radius_to_bias
 
 # Class containing all the states information and acts as wrapper for C functionality
 
@@ -244,9 +244,11 @@ cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
 cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	"""Resolve and propagate phase-specific parameters to the solver context.
 
-	Uses PhaseParamResolver to resolve all 15 phase-specific parameters
+	Uses PhaseParamResolver to resolve all 18 phase-specific parameters
 	with fallback: phase-specific > unprefixed > built-in default.
 	Sets per-phase bias, weights, and factors via phase-specific C setters.
+	A per-phase branching_radius (if set) takes precedence over branching_bias
+	via bias = n/r - 2 (scale-invariant radius, NORTHSTAR §4/§1.5).
 	Variable ordering is set once for all phases via solver_ctx_set_variable_order.
 	"""
 	cdef double *prio_ptr = NULL
@@ -263,8 +265,14 @@ cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	for phase in ('sat', 'opt_sat', 'opt'):
 		p = resolved[phase]
 
-		# Bias
-		bias = p['branching_bias']
+		# Bias: a target radius (branching_radius) takes precedence over
+		# branching_bias -- bias = n/r - 2 makes the realized Hamming radius r
+		# at every n (scale-invariant lever, NORTHSTAR §4/§1.5).
+		radius = p['branching_radius']
+		if radius is not None:
+			bias = radius_to_bias(n, radius)
+		else:
+			bias = p['branching_bias']
 		if bias is not None:
 			_set_phase_bias(ctx, phase, bias)
 

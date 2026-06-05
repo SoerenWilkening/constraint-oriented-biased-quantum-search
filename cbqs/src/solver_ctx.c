@@ -55,16 +55,11 @@ static void branching_stats_set_weights(BranchingStats_t *stats, const double *w
     memcpy(stats->branching_weights, weights, (size_t)n * sizeof(double));
     stats->num_weights = n;
 
-    /* L1 normalize */
-    double sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        sum += fabs(stats->branching_weights[i]);
-    }
-    if (sum > 0.0) {
-        for (int i = 0; i < n; i++) {
-            stats->branching_weights[i] /= sum;
-        }
-    }
+    /* Stored AS-IS: branching_weights are SIGNED per-variable logit offsets
+     * (theta_i) consumed additively by BranchingFunction (M0f, NORTHSTAR §4).
+     * The old L1 normalization was removed -- normalizing would couple the
+     * per-variable channel back to a shared denominator and rescale the radius
+     * (NORTHSTAR §1.5); the sign and magnitude are now both meaningful. */
 }
 
 /* ============================================================

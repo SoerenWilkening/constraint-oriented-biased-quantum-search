@@ -362,11 +362,12 @@ class TestBranchingWeightsCoverage:
         assert result2.solution is not None
 
     def test_all_zero_weights(self):
-        """All-zero branching_weights triggers division-by-zero guard.
+        """All-zero branching_weights recover the baseline.
 
-        At the C level, all-zero weights L1-normalize to all-zero (sum=0),
-        so the branching term contributes 0. The solver must complete
-        without crashing and return a valid result.
+        M0f: weights are signed additive logit offsets, so all-zero weights give
+        offset == 0 and value == base (the no-weights baseline) bit-for-bit -- no
+        normalization is involved. The solver must complete without crashing and
+        return a valid result.
         """
         n = 20
         m = _make_knapsack_model(n)

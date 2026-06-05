@@ -147,11 +147,13 @@ class TestBranchingWeightsValidation:
         with pytest.raises(ValueError, match="Expected array of length 5, got 2"):
             m.set_param("branching_weights", [1.0, 2.0])
 
-    def test_branching_weights_negative(self):
-        """Negative weight raises ValueError."""
+    def test_branching_weights_negative_allowed(self):
+        """Negative weights are allowed (M0f: signed per-variable logit offsets)."""
+        import numpy as np
         m = Model()
-        with pytest.raises(ValueError, match="non-negative"):
-            m.set_param("branching_weights", [1.0, -1.0])
+        m.add_variables(2)
+        m.set_param("branching_weights", [1.0, -1.0])
+        np.testing.assert_array_equal(m.get_param("branching_weights"), [1.0, -1.0])
 
     def test_branching_weights_nan(self):
         """NaN weight raises ValueError."""

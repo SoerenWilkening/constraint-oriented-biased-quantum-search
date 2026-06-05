@@ -153,10 +153,12 @@ int solver_ctx_should_stop(solver_ctx_t *ctx);
 void solver_ctx_set_bias(solver_ctx_t *ctx, double bias);
 
 /**
- * @brief Set per-variable branching weights
+ * @brief Set per-variable branching weights (signed logit offsets theta_i)
  *
- * Copies the provided array into the context, L1-normalizes it, and stores it.
- * Frees any existing weights array first. Pass NULL/0 to clear weights.
+ * Copies the provided array into the context AS-IS and stores it (no L1
+ * normalization, no non-negativity -- the values are signed additive offsets
+ * consumed by BranchingFunction; M0f, NORTHSTAR §4). Frees any existing weights
+ * array first. Pass NULL/0 to clear weights.
  *
  * @param ctx Solver context
  * @param weights Weight values to copy (NULL to clear)
