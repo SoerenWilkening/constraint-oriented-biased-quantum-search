@@ -76,6 +76,20 @@ LARGEST_N = 3000
 #: so "|δ| <= m → tie" (NORTHSTAR §6 item 6) is honored exactly. Negligible vs real Eq.29 deltas.
 REL_TOL = 1e-9
 
+#: §8 item 3 end-to-end floor (bd 8an.2.1): per stratum, the FRACTION of instances whose
+#: median-over-seed best-of-P − median-of-P lift must clear the floor for the stratum to pass.
+#: NORTHSTAR leaves it unpinned (calibrated in M1, like EXPLORE_FLOOR_FRACTION / NOISE_MARGIN_K).
+#: Default 1.0 = the conservative anti-greedy reading (every scored instance must show diversity);
+#: surfaced as a ``score_verdict`` kwarg so the M1 sweep can relax it once the spread is characterized.
+FLOOR_INSTANCE_FRACTION = 1.0
+
+#: Relative tolerance for the ``score_verdict`` cross-check of the supplied default run-set's
+#: re-scored PI against the FROZEN ``default_PI`` column (bd 8an.2.1, Q2). Looser than REL_TOL:
+#: cross-machine FP and a different worker count move PI more than a subtraction residual, but a
+#: stale freeze or an outright-wrong default run-set drifts further than this. Recorded by default;
+#: ``strict_xcheck=True`` turns a breach into a raise.
+XCHECK_REL_TOL = 1e-3
+
 
 # --------------------------------------------------------------------------- #
 # Primitives
@@ -494,6 +508,32 @@ def aggregate_stratified(candidate_PI, default_PI, spreads_PI, *,
 # Batch driver — the None-skip vs. raise boundary
 # --------------------------------------------------------------------------- #
 
+def _classify_anchor(key, baselines):
+    """Resolve one instance's frozen anchors into a scoring decision (shared by the batch scorers).
+
+    Returns ``(kind, B_I, L_I, reason)``:
+      - ``("score", B_I, L_I, None)``  — both anchors present and discriminating (L_I < B_I).
+      - ``("skip",  None, None, reason)`` — anchor unavailable (recorded skip, NEVER scored 0; §2.1):
+            key not in baselines / B_I is None / L_I is None (seed-bank not frozen — bd 8an.1.16).
+      - ``("drop",  B_I, L_I, reason)`` — L_I >= B_I: default meets/beats the frontier → DROP (§6 item 1).
+
+    Single source of truth for the §6 anchor gate, so ``score_run_set`` and the ``score_verdict``
+    banked scorer cannot drift apart (CLAUDE.md §2.5/§2.7).
+    """
+    entry = baselines.get(key)
+    if entry is None:
+        return ("skip", None, None, "key not in baselines")
+    B_I = entry.get("B_I")
+    L_I = entry.get("L_I")
+    if B_I is None:
+        return ("skip", None, None, "B_I is None")
+    if L_I is None:
+        return ("skip", None, None, "L_I is None (seed-bank not frozen — bd 8an.1.16)")
+    if L_I >= B_I:
+        return ("drop", B_I, L_I, "L_I >= B_I (non-discriminating)")
+    return ("score", B_I, L_I, None)
+
+
 def score_run_set(results_by_instance, baselines):
     """Score a full Eq.29 run-set against the frozen baseline table.
 
@@ -516,20 +556,12 @@ def score_run_set(results_by_instance, baselines):
     feas_count = {}  # size -> [n_feasible, n_total]
     for key, result in results_by_instance.items():
         size, _index = key
-        entry = baselines.get(key)
-        if entry is None:
-            skipped_no_anchor.append((key, "key not in baselines"))
+        kind, B_I, L_I, reason = _classify_anchor(key, baselines)
+        if kind == "skip":
+            skipped_no_anchor.append((key, reason))
             continue
-        B_I = entry.get("B_I")
-        L_I = entry.get("L_I")
-        if B_I is None:
-            skipped_no_anchor.append((key, "B_I is None"))
-            continue
-        if L_I is None:
-            skipped_no_anchor.append((key, "L_I is None (seed-bank not frozen — bd 8an.1.16)"))
-            continue
-        if L_I >= B_I:
-            dropped.append((key, "L_I >= B_I (non-discriminating)"))
+        if kind == "drop":
+            dropped.append((key, reason))
             continue
         s = score_instance(result, size, B_I, L_I)
         scored[key] = s["PI"]
@@ -548,4 +580,401 @@ def score_run_set(results_by_instance, baselines):
         "dropped": dropped,
         "skipped_no_anchor": skipped_no_anchor,
         "feasibility_fraction_by_size": feasibility_fraction_by_size,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# §8 item 3 — objective-space default spread (the floor's normalizer)
+# --------------------------------------------------------------------------- #
+
+def default_objective_spreads(default_results, *, stat=SPREAD_STAT):
+    """Per-n OBJECTIVE-space spread of the DEFAULT schedule's outcomes — the §8.3 floor base.
+
+    Sibling of :func:`default_pi_spreads` but in OBJECTIVE units (the floor compares a candidate's
+    ``best_of_P − median_of_P`` lift, which is objective-valued, to ``fraction · spread``). Built
+    from the per-worker FEASIBLE final-incumbent objectives (``result.final_incumbents``), which are
+    NOT in the frozen table — so the §8.3 floor needs the live default run-set even though §6.6 reads
+    the frozen ``default_PI``.
+
+    Granularity (bd 8an.2.1, Q1/Q6 + the panel's risk #4): a PER-INSTANCE IQR, then the MEDIAN across
+    instances of that size — NOT a raw pool of objectives across instances. Eq.29 objectives are
+    instance-specific (different ``c1``, ~5e6, differing tens-of-% across indices), so pooling raw
+    objectives across instances would let inter-instance LEVEL differences dominate the IQR and
+    contaminate a within-portfolio diversity threshold. The per-instance IQR isolates within-instance
+    (worker+seed) dispersion; the median over instances is the stable per-``n`` scale §8.3 asks for
+    ("the default schedule's measured spread at the same n"). For a single instance the two are
+    identical, so this only diverges — correctly — once a size has ≥2 instances.
+
+    Never-feasible workers (``feasible == False``) and never-feasible seeds (empty ``final_incumbents``)
+    contribute NO point — they have no feasible objective, and a ``+∞`` never-feasible run must never
+    enter a spread population (CLAUDE.md §2.1; mirrors :func:`default_pi_spreads`'s +∞ exclusion).
+    An instance contributes a per-instance IQR ONLY when it is measurable AND positive: < 2 feasible
+    objectives (no dispersion) OR a degenerate IQR of exactly 0 (≥ 2 *identical* feasible incumbents — a
+    converged/greedy default portfolio) are both treated as "no measurable diversity" and contribute
+    nothing. A size where NO instance has a positive IQR is ABSENT from the returned dict (NOT 0.0) — a
+    deliberate departure from :func:`spread`'s own ``<2 → 0.0`` so the floor's None-guard fires
+    (fail-loud) instead of a 0.0 threshold silently neutralizing the §8.3 anti-greedy gate (an IQR-0
+    default would otherwise make ``_exceeds(lift, 0)`` admit any near-greedy candidate lift > 0).
+
+    default_results : {(size,index): OptimizeResult-like | list[OptimizeResult-like]} ;
+    stat : "IQR" | "std"  ->  {size: float}.
+    """
+    norm = _normalize_run_set(default_results, side="default")
+    per_size_iqrs = {}
+    for (size, _index), seed_results in norm.items():
+        feas = [float(v)
+                for r in seed_results
+                for (v, ok) in (getattr(r, "final_incumbents", None) or [])
+                if ok]
+        if len(feas) >= 2:
+            # spread() raises on a non-finite objective (a corrupt finite-looking incumbent fails loud).
+            iqr = spread(feas, stat=stat)
+            if iqr > 0:  # a 0 IQR (converged default portfolio) is not measurable diversity → drop it
+                per_size_iqrs.setdefault(size, []).append(iqr)
+    return {size: float(statistics.median(iqrs)) for size, iqrs in per_size_iqrs.items()}
+
+
+# --------------------------------------------------------------------------- #
+# bd 8an.2.1 — end-to-end run-set verdict driver (NORTHSTAR §6/§8/§13)
+# --------------------------------------------------------------------------- #
+
+def _normalize_run_set(run_set, *, side):
+    """Coerce ``{key: OptimizeResult}`` or ``{key: [OptimizeResult, ...]}`` into ``{key: list}``.
+
+    A bare result is 1-element-wrapped (a 1-seed smoke run scores correctly; the seed-bank size is
+    surfaced so a 1-seed comparison is visible, not silent). RAISES on an empty run-set or an empty
+    seed bank for a key (nothing to score — fail loud, §2.1).
+    """
+    if not run_set:
+        raise ValueError(f"{side} run-set is empty — nothing to score (NORTHSTAR §6).")
+    out = {}
+    for key, v in run_set.items():
+        lst = list(v) if isinstance(v, list) else [v]
+        if not lst:
+            raise ValueError(f"{side} run-set has an empty seed bank for {key} — fail loud (§2.1).")
+        out[key] = lst
+    return out
+
+
+def _reduce_seed_bank_pi(seed_results, n, B_I, L_I):
+    """Median PI over a seed bank for one instance — byte-identical to the frozen default_PI recipe.
+
+    Mirrors :func:`benchmarks.baselines.default_instance_anchors` (median over the per-seed primal
+    integral). A never-feasible seed contributes ``+∞`` (§6 item 5); with the canonical odd 7-seed
+    bank the median lands on a single middle value, so an instance feasible on ≤ half its seeds
+    reduces to ``+∞`` = "not reliably feasible" (→ a feasibility regression in
+    :func:`aggregate_stratified` — the correct anti-greedy hard-instance behavior).
+
+    seed_results : list[OptimizeResult-like] ; n,B_I,L_I as in :func:`score_instance`  ->  float|inf.
+    """
+    pis = [score_instance(r, n, B_I, L_I)["PI"] for r in seed_results]
+    return float(statistics.median(pis))
+
+
+def _check_matched_seeds(candidate_results, default_results):
+    """Enforce matched seeds across the two run-sets (NORTHSTAR §13); returns the bank-size audit.
+
+    For every JOINTLY-present instance: if BOTH sides' results carry a non-None ``.seed`` (the master
+    seed; ``OptimizeResult.seed``), the seed MULTISETS must be equal — else RAISE (a §13 pairing
+    violation is silent corruption, and the only thing that catches seed cherry-picking). MULTISET,
+    not set: a candidate that pads a favorable seed (``[0,0,1]`` vs ``[0,1,1]``) re-weights the
+    median-over-seeds PI while keeping the same seed *set*, so set-equality would wave it through.
+    Within-bank duplicate seeds are rejected outright (a repeated master seed is zero-diversity
+    padding, not a real bank entry). If ``.seed`` is absent on either side (e.g. a bare stub), fall
+    back to a bank-SIZE equality check. RAISES on a mismatch.
+    """
+    audit = {"candidate": {k: len(v) for k, v in candidate_results.items()},
+             "default": {k: len(v) for k, v in default_results.items()}}
+    for key in sorted(set(candidate_results) & set(default_results)):
+        c, d = candidate_results[key], default_results[key]
+        c_seeds = [getattr(r, "seed", None) for r in c]
+        d_seeds = [getattr(r, "seed", None) for r in d]
+        if all(s is not None for s in c_seeds) and all(s is not None for s in d_seeds):
+            for label, seeds in (("candidate", c_seeds), ("default", d_seeds)):
+                if len(set(seeds)) != len(seeds):
+                    raise ValueError(
+                        f"duplicate master seed in the {label} bank at {key} (seeds {sorted(seeds)}): a "
+                        f"repeated seed is zero-diversity padding that re-weights the median-over-seeds "
+                        f"PI — a paired comparison needs DISTINCT matched seeds (NORTHSTAR §13)."
+                    )
+            if sorted(c_seeds) != sorted(d_seeds):
+                raise ValueError(
+                    f"matched-seed violation at {key}: candidate seeds {sorted(c_seeds)} != default "
+                    f"seeds {sorted(d_seeds)} (NORTHSTAR §13 — the paired comparison requires the SAME "
+                    f"seed bank on both sides; cherry-picked or re-weighted seeds are inadmissible)."
+                )
+        elif len(c) != len(d):
+            raise ValueError(
+                f"seed-bank size mismatch at {key}: candidate {len(c)} vs default {len(d)} runs, and "
+                f".seed is absent so multiset-identity is unverifiable — match the banks (NORTHSTAR §13)."
+            )
+    return audit
+
+
+def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_FRACTION,
+                     floor_instance_fraction=FLOOR_INSTANCE_FRACTION, default_sizes=()):
+    """§8 item 3 late-stage exploration floor, aggregated over a matched seed bank (bd 8an.2.1, Q3).
+
+    Two-level, anti-conflation, low-variance-stable:
+      LEVEL 1 — per (instance, seed), judged on ITS OWN P workers: ``lift_{i,s} = best_of_P −
+        median_of_P`` over that one portfolio's feasible final incumbents (:func:`exploration_floor`).
+        NEVER pool workers across seeds — that conflates seed variance with worker variance and would
+        manufacture a lift no single portfolio had.
+      LEVEL 2a — collapse seeds per instance with the MEDIAN of the per-solve lift (a stable estimator
+        over the small bank — NOT a per-solve pass-fraction vote, which would coin-flip at the boundary
+        over ~7 seeds). ``instance_pass`` iff that median lift exceeds ``fraction · spread_obj[n]``
+        (REL_TOL-snapped via :func:`_exceeds`). An instance with no feasible worker in ANY seed → no
+        lift → fails.
+      LEVEL 2b — per stratum: pass iff the FRACTION of instances passing ≥ ``floor_instance_fraction``
+        (one easy instance cannot mask a collapsed one).
+    A low-variance greedy portfolio has ``best ≈ median`` on every solve → lift ≈ 0 < threshold across
+    seeds → the stratum fails: the provable anti-greedy rejection §8.3 demands. A size the default
+    covers but the candidate OMITS fails (anti-dodge; mirrors :func:`aggregate_stratified`'s size union).
+
+    RAISES if a gated stratum has feasible candidate workers but no objective-space spread (cannot
+    normalize), or if NO candidate solve in a default-covered stratum emitted ``final_incumbents`` at
+    all (the M0e harness dependency — never a silent pass).
+
+    candidate_results : {(size,index): list[OptimizeResult-like]} (normalized) ;
+    spreads_obj : {size: float} (:func:`default_objective_spreads`) ; default_sizes : iterable[size].
+    Returns {"overall_pass": bool, "per_size": {size: {...}}}.
+    """
+    cand_sizes = {s for (s, _i) in candidate_results}
+    all_sizes = sorted(cand_sizes | set(default_sizes))
+    per_size = {}
+    overall_pass = True
+    for size in all_sizes:
+        keys = [k for k in candidate_results if k[0] == size]
+        spread_obj = spreads_obj.get(size)
+        if not keys:
+            # default covers this stratum, candidate omits it entirely → fail (anti-dodge).
+            per_size[size] = {"n_instances": 0, "n_instances_passing": 0, "instance_pass_fraction": 0.0,
+                              "instance_lifts": {}, "per_seed_lift": {}, "threshold": None,
+                              "spread_obj": spread_obj, "stratum_pass": False,
+                              "reason": "candidate omits a default-covered stratum"}
+            overall_pass = False
+            continue
+        any_produced = any((getattr(r, "final_incumbents", None) or [])
+                           for k in keys for r in candidate_results[k])
+        any_feasible = any(ok for k in keys for r in candidate_results[k]
+                           for (_v, ok) in (getattr(r, "final_incumbents", None) or []))
+        if not any_produced:
+            raise ValueError(
+                f"§8.3 floor: no per-worker final_incumbents for any candidate solve at n={size} — the "
+                f"M0e harness must emit result.final_incumbents (NORTHSTAR §11); cannot pass silently."
+            )
+        if spread_obj is None and any_feasible:
+            raise ValueError(
+                f"§8.3 floor: objective-space default spread for n={size} is None (the default produced "
+                f"<2 feasible final incumbents there) but the candidate has feasible workers — cannot "
+                f"normalize the lift; freeze a default spread or fix the run-set (fail loud, §2.1)."
+            )
+        threshold = (fraction * spread_obj) if spread_obj is not None else None
+        instance_lifts = {}
+        per_seed_lift = {}
+        n_pass = 0
+        for k in keys:
+            seed_lifts = []
+            for r in candidate_results[k]:
+                fi = getattr(r, "final_incumbents", None) or []
+                if spread_obj is None:
+                    seed_lifts.append(None)  # all-infeasible stratum, no normalizer needed
+                else:
+                    seed_lifts.append(exploration_floor(fi, spread_obj, fraction)["lift"])
+            per_seed_lift[k] = seed_lifts
+            present = [lift for lift in seed_lifts if lift is not None]
+            if present:
+                il = float(statistics.median(present))
+                instance_lifts[k] = il
+                if _exceeds(il, threshold):
+                    n_pass += 1
+            else:
+                instance_lifts[k] = None
+        n_inst = len(keys)
+        frac_pass = n_pass / n_inst
+        stratum_pass = frac_pass >= floor_instance_fraction
+        per_size[size] = {"n_instances": n_inst, "n_instances_passing": n_pass,
+                          "instance_pass_fraction": frac_pass, "instance_lifts": instance_lifts,
+                          "per_seed_lift": per_seed_lift, "threshold": threshold,
+                          "spread_obj": spread_obj, "stratum_pass": stratum_pass}
+        if not stratum_pass:
+            overall_pass = False
+    return {"overall_pass": overall_pass, "per_size": per_size}
+
+
+def score_verdict(candidate_results, default_results, baselines, *, k=NOISE_MARGIN_K,
+                  fraction=EXPLORE_FLOOR_FRACTION, floor_instance_fraction=FLOOR_INSTANCE_FRACTION,
+                  largest_n=LARGEST_N, stat=SPREAD_STAT, require_largest_n=True, strict_xcheck=False):
+    """End-to-end M1 verdict: does the candidate schedule BEAT the CBQS-default? (NORTHSTAR §6/§8).
+
+    Pure composition over already-solved run-sets and the frozen anchor table — NO solving. Wires:
+      candidate PI  : matched-seed MEDIAN over the seed bank, vs frozen B_I/L_I (:func:`_reduce_seed_bank_pi`);
+      default PI    : the FROZEN ``default_PI`` column is AUTHORITATIVE for the gate (§6.1 froze it);
+      §6.6 (L2)     : :func:`aggregate_stratified` over PI deltas, margin = ``k · default_pi_spreads`` (PI space);
+      §8.3 (L3)     : :func:`_aggregate_floor` over the objective-space :func:`default_objective_spreads`;
+    and ANDs the two into one ``overall_pass`` (lexicographic: feasibility tier — folded inside
+    :func:`aggregate_stratified` — ⊳ §6.6 PI ⊳ §8.3 floor; the floor can veto but never revive a §6.6
+    failure). The supplied default run-set is needed regardless (the objective spread reads its
+    ``final_incumbents``, which are not frozen); it is ALSO re-scored and cross-checked against the
+    frozen ``default_PI`` (recorded in ``default_xcheck_failures``; a breach raises iff ``strict_xcheck``).
+
+    RAISES on: an empty candidate or default run-set; a matched-seed violation; an unevaluable
+    largest-``n`` gate when ``require_largest_n`` (today the frozen table's n=3000 ``default_PI`` is
+    empty — pending bd 0o8 — so a TRUE end-to-end verdict needs the large-``n`` freeze; pass
+    ``require_largest_n=False`` for an inspectable partial verdict during development); a §8.3 stratum
+    with no ``final_incumbents`` anywhere; a missing objective spread for a stratum with feasible
+    candidate workers. NEVER coerces a None/non-finite anchor to 0 (recorded in ``default_pi_missing``
+    / the candidate ``skipped_no_anchor`` channel).
+
+    candidate_results, default_results : {(size,index): OptimizeResult-like | list[...]} (matched bank) ;
+    baselines : :func:`benchmarks.baselines.load_frozen_baselines` table.
+    Returns the verdict dict documented in bd 8an.2.1 (overall_pass + the §6.6 / §8.3 sub-results +
+    full bookkeeping for calibration/audit).
+    """
+    candidate = _normalize_run_set(candidate_results, side="candidate")
+    default = _normalize_run_set(default_results, side="default")
+    seed_bank = _check_matched_seeds(candidate, default)
+
+    # --- default PI: the FROZEN column is authoritative (Q2). Resolved FIRST so the candidate side can
+    #     skip instances with no default anchor to compare against — otherwise aggregate_stratified is
+    #     asked to gate a size with no default spread and RAISES mid-verdict, defeating the documented
+    #     partial-verdict path (a real freeze state: baselines status=='default_unreliable' writes L_I
+    #     but withholds default_PI). The run-set is re-scored further below only for the cross-check. ---
+    run_keys = set(candidate) | set(default)
+    default_PI = {}
+    default_pi_missing = []
+    for key in run_keys:
+        entry = baselines.get(key)
+        dpi = entry.get("default_PI") if entry else None
+        if dpi is None or not math.isfinite(float(dpi)):
+            default_pi_missing.append(key)
+        else:
+            default_PI[key] = float(dpi)
+    default_pi_missing_set = set(default_pi_missing)
+
+    # --- candidate PI (median over the matched seed bank) + score_run_set-style bookkeeping ------
+    cand_book = {"scored": {}, "infeasible": [], "dropped": [], "skipped_no_anchor": [],
+                 "feasibility_fraction_by_size": {}}
+    cand_feas = {}
+    candidate_PI = {}
+    for key, seed_results in candidate.items():
+        size, _i = key
+        kind, B_I, L_I, reason = _classify_anchor(key, baselines)
+        if kind == "skip":
+            cand_book["skipped_no_anchor"].append((key, reason))
+            continue
+        if kind == "drop":
+            cand_book["dropped"].append((key, reason))
+            continue
+        if key in default_pi_missing_set:
+            # Scoreable (B_I/L_I present) but no frozen default_PI to compare against — recorded in the
+            # top-level default_pi_missing and EXCLUDED from the §6.6 comparison (cannot compute δ_I).
+            cand_book["skipped_no_anchor"].append(
+                (key, "no frozen default_PI to compare (recorded in default_pi_missing)"))
+            continue
+        pi = _reduce_seed_bank_pi(seed_results, size, B_I, L_I)
+        candidate_PI[key] = pi
+        cand_book["scored"][key] = pi
+        cnt = cand_feas.setdefault(size, [0, 0])
+        cnt[1] += 1
+        if math.isfinite(pi):
+            cnt[0] += 1
+        else:
+            cand_book["infeasible"].append(key)
+    cand_book["feasibility_fraction_by_size"] = {s: c[0] / c[1] for s, c in cand_feas.items() if c[1]}
+
+    default_book = {"scored": {}, "infeasible": [], "dropped": [], "skipped_no_anchor": [],
+                    "feasibility_fraction_by_size": {}}
+    default_feas = {}
+    default_rescored = {}
+    for key, seed_results in default.items():
+        size, _i = key
+        kind, B_I, L_I, reason = _classify_anchor(key, baselines)
+        if kind == "skip":
+            default_book["skipped_no_anchor"].append((key, reason))
+            continue
+        if kind == "drop":
+            default_book["dropped"].append((key, reason))
+            continue
+        pi = _reduce_seed_bank_pi(seed_results, size, B_I, L_I)
+        default_rescored[key] = pi
+        default_book["scored"][key] = pi
+        cnt = default_feas.setdefault(size, [0, 0])
+        cnt[1] += 1
+        if math.isfinite(pi):
+            cnt[0] += 1
+        else:
+            default_book["infeasible"].append(key)
+    default_book["feasibility_fraction_by_size"] = {
+        s: c[0] / c[1] for s, c in default_feas.items() if c[1]}
+
+    default_xcheck_failures = []
+    for key in set(default_rescored) & set(default_PI):
+        rs, fr = default_rescored[key], default_PI[key]
+        if math.isfinite(rs) != math.isfinite(fr):
+            # Categorical drift: the freeze claims feasibility (finite default_PI) but the live default
+            # run-set does not reach it (rs = +∞), or vice versa. This is the LARGEST possible divergence
+            # and the strongest stale-freeze / wrong-run-set signal — record it unconditionally with
+            # rel=+∞ (the finite-vs-finite REL_TOL band would never catch it). CLAUDE.md §2.1.
+            default_xcheck_failures.append((key, rs, fr, float("inf")))
+        elif math.isfinite(rs) and math.isfinite(fr):
+            rel = abs(rs - fr) / max(abs(fr), PI_EPS)
+            if rel > XCHECK_REL_TOL:
+                default_xcheck_failures.append((key, rs, fr, rel))
+    if strict_xcheck and default_xcheck_failures:
+        raise ValueError(
+            f"strict_xcheck: the supplied default run-set re-scores away from the frozen default_PI "
+            f"beyond XCHECK_REL_TOL={XCHECK_REL_TOL} on {len(default_xcheck_failures)} instance(s) "
+            f"(e.g. {default_xcheck_failures[0]}) — stale freeze or a wrong default run-set."
+        )
+
+    # --- the two spread bases: §6.6 PI-space margin vs §8.3 objective-space floor -----------------
+    spreads_PI = default_pi_spreads(default_PI, stat=stat)
+    spreads_obj = default_objective_spreads(default, stat=stat)
+
+    if require_largest_n and not any(s == largest_n for (s, _i) in default_PI):
+        raise ValueError(
+            f"require_largest_n: no frozen default_PI at the largest-n stratum (n={largest_n}) — the §6.6 "
+            f"hard-instance strict-improvement gate is unevaluable. The large-n freeze is pending "
+            f"(bd 0o8); pass require_largest_n=False for an inspectable partial verdict, or freeze n={largest_n}."
+        )
+
+    aggregation = aggregate_stratified(candidate_PI, default_PI, spreads_PI, k=k, largest_n=largest_n)
+    floor = _aggregate_floor(candidate, spreads_obj, fraction=fraction,
+                             floor_instance_fraction=floor_instance_fraction,
+                             default_sizes={s for (s, _i) in default})
+
+    overall_pass = aggregation["overall_pass"] and floor["overall_pass"]
+
+    # Fail-loud internal invariant: §6.6 passing must imply NO feasibility regression in any stratum
+    # (the feasibility tier is the dominant key — if aggregate_stratified ever decouples them, catch it).
+    if aggregation["overall_pass"] and any(
+            rec.get("feasibility_regressed") for rec in aggregation["per_size"].values()):
+        raise AssertionError(
+            "invariant violated: aggregate_stratified reports overall_pass while a stratum has "
+            "feasibility_regressed — the §6 item 5 feasibility tier must dominate PI (CLAUDE.md §2.1/§2.5)."
+        )
+
+    return {
+        "overall_pass": overall_pass,
+        "aggregation": aggregation,
+        "floor": floor,
+        "candidate_scoring": cand_book,
+        "default_scoring": default_book,
+        "candidate_PI": candidate_PI,
+        "default_PI": default_PI,
+        "spreads_PI": spreads_PI,
+        "spreads_obj": spreads_obj,
+        "feasibility_fraction_by_size": {
+            "candidate": cand_book["feasibility_fraction_by_size"],
+            "default": default_book["feasibility_fraction_by_size"],
+        },
+        "default_xcheck_failures": default_xcheck_failures,
+        "default_pi_missing": sorted(default_pi_missing),
+        "candidate_only_instances": sorted(set(candidate) - set(default)),
+        "default_only_instances": sorted(set(default) - set(candidate)),
+        "seed_bank": seed_bank,
+        "params": {"k": k, "fraction": fraction, "floor_instance_fraction": floor_instance_fraction,
+                   "largest_n": largest_n, "stat": stat, "require_largest_n": require_largest_n,
+                   "strict_xcheck": strict_xcheck},
     }

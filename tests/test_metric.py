@@ -8,6 +8,7 @@ not "it runs"). The one real-data test is skipped unless ``CBQS_BENCHMARKS_DIR``
 """
 import math
 import os
+import statistics
 import types
 
 import pytest
@@ -18,6 +19,8 @@ from benchmarks.metric import (
     EXPLORE_FLOOR_FRACTION,
     NOISE_MARGIN_K,
     LARGEST_N,
+    FLOOR_INSTANCE_FRACTION,
+    XCHECK_REL_TOL,
     oracle_budget,
     require_anchor,
     d_i,
@@ -31,14 +34,21 @@ from benchmarks.metric import (
     aggregate_stratified,
     default_pi_spreads,
     score_run_set,
+    default_objective_spreads,
+    score_verdict,
+    _normalize_run_set,
+    _reduce_seed_bank_pi,
+    _check_matched_seeds,
+    _aggregate_floor,
 )
 
 
-def _result(history=None, final_incumbents=None):
-    """Minimal OptimizeResult stand-in (the metric only duck-types .history/.final_incumbents)."""
+def _result(history=None, final_incumbents=None, seed=None):
+    """Minimal OptimizeResult stand-in (the metric duck-types .history/.final_incumbents/.seed)."""
     return types.SimpleNamespace(
         history=list(history) if history is not None else [],
         final_incumbents=list(final_incumbents) if final_incumbents is not None else [],
+        seed=seed,
     )
 
 
@@ -462,3 +472,416 @@ def test_pi_eps_floor_never_overrides_real_gap():
         checked += 1
     # If L_I is still empty everywhere (pre-8an.1.16), this asserts nothing — that's expected.
     assert checked >= 0
+
+
+# --------------------------------------------------------------------------- #
+# Step 6 — bd 8an.2.1: objective-space §8.3 spread producer + end-to-end verdict driver
+#
+# Golden trick: a single feasible incumbent stamped at oracle 0 and held to T_I gives
+# PI == γ(obj) EXACTLY (pre-feasible width 0; tail = γ(obj)·T_I / T_I). With B_I=100, L_I=0
+# (D=100) that is PI = (100 − obj)/100, so obj∈{80,70,60,50,40,30,10} ⇒ PI∈{0.2,0.3,0.4,0.5,
+# 0.6,0.7,0.9}. spread([80,90,100]) (inclusive quartiles) == 10.0 (Q1=85, Q3=95).
+# --------------------------------------------------------------------------- #
+
+def _bank(obj, fincs, seeds=(0, 1, 2)):
+    """A matched seed bank for ONE instance: each seed a single feasible incumbent at oracle 0
+    (PI = γ(obj)) plus the per-worker final incumbents *fincs* (objective-space, for the floor).
+    ``obj is None`` ⇒ empty history ⇒ never feasible (PI = +∞)."""
+    hist = [(obj, 0)] if obj is not None else []
+    return [_result(history=list(hist), final_incumbents=list(fincs), seed=s) for s in seeds]
+
+
+def _bl(B_I=100.0, L_I=0.0, default_PI=0.5, method="hexaly"):
+    """A frozen-baseline row (load_frozen_baselines shape)."""
+    return {"B_I": B_I, "B_I_method": method, "L_I": L_I, "default_PI": default_PI}
+
+
+# --- objective-space spread producer --------------------------------------- #
+
+def test_default_objective_spreads_excludes_infeasible():
+    # The (70,False) worker contributes NO point (never-feasible exclusion); IQR over [100,90,80].
+    res = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True), (70, False)])]}
+    out = default_objective_spreads(res)
+    assert out[10] == pytest.approx(spread([100, 90, 80])) == pytest.approx(10.0)
+
+
+def test_default_objective_spreads_pools_within_instance_across_seed_bank():
+    # One instance, two seeds: feasible objectives pool WITHIN the instance across its seed bank.
+    res = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)]),
+                     _result(final_incumbents=[(85, True), (75, True), (65, True)])]}
+    out = default_objective_spreads(res)
+    assert out[10] == pytest.approx(spread([100, 90, 80, 85, 75, 65]))
+
+
+def test_default_objective_spreads_per_instance_not_cross_instance():
+    # THE faithfulness test (panel risk #4): per-instance IQR then MEDIAN across instances, NOT a raw
+    # cross-instance pool. Two instances at very different objective levels: pooling raw would let the
+    # inter-instance LEVEL gap dominate the IQR; per-instance IQRs are each 10 / 100 → median 55.
+    res = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])],
+           (10, 1): [_result(final_incumbents=[(1000, True), (900, True), (800, True)])]}
+    out = default_objective_spreads(res)
+    expected = statistics.median([spread([100, 90, 80]), spread([1000, 900, 800])])
+    assert out[10] == pytest.approx(expected) == pytest.approx(55.0)
+    # and it is NOT the contaminated cross-instance pool (which is ~782.5).
+    assert out[10] != pytest.approx(spread([100, 90, 80, 1000, 900, 800]))
+
+
+def test_default_objective_spreads_size_absent_when_lt2_feasible():
+    # Only 1 feasible worker total at a size → no measurable IQR → size ABSENT (not 0.0) so the
+    # floor's None-guard fires rather than a silent zero threshold.
+    res = {(10, 0): [_result(final_incumbents=[(100, True), (90, False)])]}
+    assert 10 not in default_objective_spreads(res)
+
+
+def test_default_objective_spreads_raises_on_nonfinite():
+    res = {(10, 0): [_result(final_incumbents=[(float("nan"), True), (90, True)])]}
+    with pytest.raises(ValueError):
+        default_objective_spreads(res)
+
+
+# --- run-set normalization, seed-bank PI reduction, matched seeds ----------- #
+
+def test_normalize_run_set_wraps_bare_result_and_raises_empty():
+    n1 = _normalize_run_set({(10, 0): _result(history=[(1, 1)])}, side="x")
+    assert isinstance(n1[(10, 0)], list) and len(n1[(10, 0)]) == 1
+    with pytest.raises(ValueError):
+        _normalize_run_set({}, side="x")
+    with pytest.raises(ValueError):
+        _normalize_run_set({(10, 0): []}, side="x")
+
+
+def test_reduce_seed_bank_pi_matches_default_instance_anchors():
+    # Parity with baselines.default_instance_anchors: median over per-seed PI at the SAME (B_I, L_I).
+    from benchmarks import baselines as B
+    n, B_I = 40, 100.0
+    runs = [_result(history=[(60, 5), (70, 9)]),
+            _result(history=[(55, 5), (80, 9)]),
+            _result(history=[(58, 5), (75, 9)])]
+    a = B.default_instance_anchors(runs, B_I=B_I, n=n)  # computes L_I = median first-feasible = 58
+    assert a["status"] == "ok"
+    assert _reduce_seed_bank_pi(runs, n, B_I, a["L_I"]) == pytest.approx(a["default_PI"])
+
+
+def test_reduce_seed_bank_pi_minority_feasible_is_inf():
+    # 1 feasible + 2 never-feasible → median of [finite, +inf, +inf] is +inf (not reliably feasible).
+    runs = [_result(history=[(75, 5)]), _result(history=[]), _result(history=[])]
+    assert _reduce_seed_bank_pi(runs, 40, 100.0, 50.0) == float("inf")
+
+
+def test_check_matched_seeds_raises_on_seed_set_mismatch():
+    cand = {(10, 0): [_result(seed=0), _result(seed=1), _result(seed=2)]}
+    deflt = {(10, 0): [_result(seed=0), _result(seed=1), _result(seed=9)]}
+    with pytest.raises(ValueError):
+        _check_matched_seeds(cand, deflt)
+    ok = {(10, 0): [_result(seed=2), _result(seed=0), _result(seed=1)]}
+    audit = _check_matched_seeds(cand, ok)
+    assert audit["candidate"][(10, 0)] == 3 and audit["default"][(10, 0)] == 3
+
+
+def test_check_matched_seeds_falls_back_to_size_when_no_seed():
+    cand = {(10, 0): [_result() for _ in range(3)]}   # .seed is None
+    _check_matched_seeds(cand, {(10, 0): [_result() for _ in range(3)]})  # 3 == 3 → ok
+    with pytest.raises(ValueError):
+        _check_matched_seeds(cand, {(10, 0): [_result() for _ in range(7)]})
+
+
+# --- two-level exploration floor ------------------------------------------- #
+
+def test_aggregate_floor_passes_diverse_and_is_median_over_seeds():
+    # spread_obj 10, fraction 0.5 → threshold 5. Per-seed lifts 10 and 12 → median 11 > 5 → pass.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)]),
+                      _result(final_incumbents=[(100, True), (88, True), (76, True)])]}
+    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, floor_instance_fraction=1.0, default_sizes={10})
+    assert out["per_size"][10]["per_seed_lift"][(10, 0)] == pytest.approx([10.0, 12.0])
+    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(11.0)
+    assert out["overall_pass"] is True
+
+
+def test_aggregate_floor_greedy_collapse_fails():
+    # Low-variance greedy portfolio: best ≈ median ⇒ lift 0 < threshold on every seed ⇒ FAIL.
+    flat = _result(final_incumbents=[(90, True), (90, True), (90, True)])
+    cand = {(10, 0): [flat, flat]}
+    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(0.0)
+    assert out["overall_pass"] is False
+
+
+def test_aggregate_floor_no_pooling_across_seeds():
+    # Each seed's portfolio is internally flat (lift 0), but the POOLED population [80×3,120×3] would
+    # show a big best-vs-median lift. Judged per-solve, the floor correctly FAILS (anti-conflation).
+    cand = {(10, 0): [_result(final_incumbents=[(80, True), (80, True), (80, True)]),
+                      _result(final_incumbents=[(120, True), (120, True), (120, True)])]}
+    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+    assert out["per_size"][10]["per_seed_lift"][(10, 0)] == pytest.approx([0.0, 0.0])
+    assert out["overall_pass"] is False
+
+
+def test_aggregate_floor_median_not_pass_fraction():
+    # Per-seed lifts {12, 1}: a per-solve pass-fraction would be 1/2 (coin-flip at FLOOR 0.5), but the
+    # MEDIAN lift 6.5 > 5 passes deterministically — pins the median-over-seeds rule.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (88, True), (76, True)]),   # lift 12
+                      _result(final_incumbents=[(91, True), (90, True), (89, True)])]}    # lift 1
+    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(6.5)
+    assert out["overall_pass"] is True
+
+
+def test_aggregate_floor_instance_fraction_knob():
+    # 3 instances, 2 passing (lifts 10, 8, 2 at threshold 5) → fraction 2/3.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])],   # lift 10
+            (10, 1): [_result(final_incumbents=[(100, True), (92, True), (84, True)])],   # lift 8
+            (10, 2): [_result(final_incumbents=[(92, True), (90, True), (88, True)])]}    # lift 2
+    so = {10: 10.0}
+    out6 = _aggregate_floor(cand, so, fraction=0.5, floor_instance_fraction=0.6, default_sizes={10})
+    assert out6["per_size"][10]["instance_pass_fraction"] == pytest.approx(2 / 3)
+    assert out6["overall_pass"] is True
+    out1 = _aggregate_floor(cand, so, fraction=0.5, floor_instance_fraction=1.0, default_sizes={10})
+    assert out1["overall_pass"] is False
+
+
+def test_aggregate_floor_absent_candidate_stratum_fails():
+    # Default covers n=500, candidate omits it → anti-dodge stratum fail.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])]}
+    out = _aggregate_floor(cand, {10: 10.0, 500: 5.0}, fraction=0.5, default_sizes={10, 500})
+    assert out["per_size"][500]["stratum_pass"] is False
+    assert out["overall_pass"] is False
+
+
+def test_aggregate_floor_raises_on_none_spread_when_needed():
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])]}
+    with pytest.raises(ValueError):  # feasible workers but no objective spread → cannot normalize
+        _aggregate_floor(cand, {}, fraction=0.5, default_sizes={10})
+
+
+def test_aggregate_floor_raises_when_no_final_incumbents():
+    cand = {(10, 0): [_result(final_incumbents=[])]}  # M0e harness produced nothing
+    with pytest.raises(ValueError):
+        _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+
+
+def test_aggregate_floor_zero_feasible_solve_is_fail():
+    # final_incumbents produced but all infeasible → lift None → instance fails (NOT a raise).
+    cand = {(10, 0): [_result(final_incumbents=[(50, False), (60, False)])]}
+    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+    assert out["per_size"][10]["instance_lifts"][(10, 0)] is None
+    assert out["overall_pass"] is False
+
+
+# --- end-to-end score_verdict ---------------------------------------------- #
+
+def _pass_setup(sizes=(10, 20)):
+    """A candidate that beats the default on §6.6 AND has diverse portfolios (passes §8.3)."""
+    baselines, cand, deflt = {}, {}, {}
+    # default frozen PI 0.5/0.6/0.7 per stratum; candidate PI 0.2/0.3/0.4 (uniformly 0.3 better).
+    cand_obj = {0: 80, 1: 70, 2: 60}     # γ → 0.2 / 0.3 / 0.4
+    def_obj = {0: 50, 1: 40, 2: 30}      # γ → 0.5 / 0.6 / 0.7  (re-scores to the frozen value)
+    def_pi = {0: 0.5, 1: 0.6, 2: 0.7}
+    cand_fincs = [(100, True), (90, True), (80, True)]   # lift 10
+    def_fincs = [(100, True), (95, True), (90, True)]    # per-instance IQR 10
+    for n in sizes:
+        for i in range(3):
+            baselines[(n, i)] = _bl(default_PI=def_pi[i])
+            cand[(n, i)] = _bank(cand_obj[i], cand_fincs)
+            deflt[(n, i)] = _bank(def_obj[i], def_fincs)
+    return baselines, cand, deflt
+
+
+def test_score_verdict_pass_small_n():
+    baselines, cand, deflt = _pass_setup()
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert out["aggregation"]["overall_pass"] is True
+    assert out["floor"]["overall_pass"] is True
+    assert out["overall_pass"] is True
+    assert out["default_xcheck_failures"] == []           # default run-set re-scores to frozen
+    assert out["candidate_PI"][(10, 0)] == pytest.approx(0.2)
+    assert out["default_PI"][(10, 0)] == pytest.approx(0.5)
+
+
+def test_score_verdict_floor_vetoes_pi_winner():
+    # Same §6.6 winner, but greedy-flat candidate portfolios → §8.3 floor vetoes (AND, never revive).
+    baselines, cand, deflt = _pass_setup()
+    flat = [(90, True), (90, True), (90, True)]           # lift 0
+    for key in cand:
+        cand[key] = _bank({(10, 0): 80, (10, 1): 70, (10, 2): 60,
+                           (20, 0): 80, (20, 1): 70, (20, 2): 60}[key], flat)
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert out["aggregation"]["overall_pass"] is True
+    assert out["floor"]["overall_pass"] is False
+    assert out["overall_pass"] is False
+
+
+def test_score_verdict_feasibility_regression_dominates():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    cand[(10, 2)] = _bank(None, [(0, False), (0, False), (0, False)])  # never feasible where default is
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert out["aggregation"]["per_size"][10]["feasibility_regressed"] is True
+    assert out["overall_pass"] is False
+    assert out["feasibility_fraction_by_size"]["candidate"][10] < \
+           out["feasibility_fraction_by_size"]["default"][10]
+
+
+def test_score_verdict_largest_n_strict_improvement_gate():
+    # Candidate == default on the largest-n stratum (no regression, no improvement) → strict gate_A fails,
+    # even with diverse portfolios. Pins the §6.6 hard-instance gate flowing through the driver.
+    baselines, cand, deflt = {}, {}, {}
+    def_pi = {0: 0.5, 1: 0.6, 2: 0.7}
+    same_obj = {0: 50, 1: 40, 2: 30}     # candidate == default objective ⇒ PI ties
+    cand_fincs = [(100, True), (90, True), (80, True)]
+    def_fincs = [(100, True), (95, True), (90, True)]
+    for i in range(3):
+        baselines[(LARGEST_N, i)] = _bl(default_PI=def_pi[i])
+        cand[(LARGEST_N, i)] = _bank(same_obj[i], cand_fincs)
+        deflt[(LARGEST_N, i)] = _bank(same_obj[i], def_fincs)
+    out = score_verdict(cand, deflt, baselines)   # require_largest_n default True; n=3000 frozen here
+    assert out["aggregation"]["per_size"][LARGEST_N]["gate_A_pass"] is False
+    assert out["overall_pass"] is False
+
+
+def test_score_verdict_raises_unevaluable_largest_n():
+    # require_largest_n True but the run-set covers no feasible-frozen largest-n instance → RAISE;
+    # require_largest_n False → an inspectable partial verdict (no raise).
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    with pytest.raises(ValueError):
+        score_verdict(cand, deflt, baselines, require_largest_n=True)
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert "overall_pass" in out
+
+
+def test_score_verdict_consumes_frozen_default_pi_with_xcheck():
+    # The supplied default run-set re-scores AWAY from frozen (0.9 vs 0.5); the gate uses the FROZEN
+    # value verbatim, the drift is recorded, and strict_xcheck escalates it to a raise.
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    for i in range(3):
+        deflt[(10, i)] = _bank(10, [(100, True), (95, True), (90, True)])  # γ(10)=0.9, far from frozen
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert out["default_PI"][(10, 0)] == pytest.approx(0.5)               # frozen, not the 0.9 re-score
+    assert any(key == (10, 0) for (key, _rs, _fr, _rel) in out["default_xcheck_failures"])
+    with pytest.raises(ValueError):
+        score_verdict(cand, deflt, baselines, require_largest_n=False, strict_xcheck=True)
+
+
+def test_score_verdict_none_default_pi_skipped_never_zero():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    baselines[(10, 1)] = _bl(default_PI=None)             # frozen default_PI not yet available
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert (10, 1) in out["default_pi_missing"]
+    assert (10, 1) not in out["default_PI"]               # never coerced to a 0 anchor
+
+
+def test_score_verdict_raises_seed_bank_mismatch():
+    baselines = {(10, 0): _bl(default_PI=0.5)}
+    fincs = [(100, True), (90, True), (80, True)]
+    cand = {(10, 0): [_result(history=[(80, 0)], final_incumbents=fincs) for _ in range(3)]}
+    deflt = {(10, 0): [_result(history=[(50, 0)], final_incumbents=fincs) for _ in range(7)]}
+    with pytest.raises(ValueError):                       # 3 vs 7, no .seed
+        score_verdict(cand, deflt, baselines, require_largest_n=False)
+    cand_s = {(10, 0): _bank(80, fincs, seeds=(0, 1, 2))}
+    deflt_s = {(10, 0): _bank(50, fincs, seeds=(0, 1, 9))}
+    with pytest.raises(ValueError):                       # equal size, different seed sets
+        score_verdict(cand_s, deflt_s, baselines, require_largest_n=False)
+
+
+def test_score_verdict_raises_empty_run_sets():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    with pytest.raises(ValueError):
+        score_verdict({}, deflt, baselines, require_largest_n=False)
+    with pytest.raises(ValueError):
+        score_verdict(cand, {}, baselines, require_largest_n=False)
+
+
+def test_score_verdict_uses_pi_space_margin_objective_space_floor():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert out["spreads_PI"] == default_pi_spreads(out["default_PI"])         # §6.6 margin = PI space
+    assert out["spreads_obj"] == default_objective_spreads(
+        {k: deflt[k] for k in deflt})                                          # §8.3 floor = objective space
+    assert out["spreads_PI"][10] != pytest.approx(out["spreads_obj"][10])      # distinct units (0.1 vs 10)
+
+
+def test_score_verdict_feasibility_invariant_holds():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    # the asserted internal invariant: §6.6 overall_pass ⇒ no stratum feasibility-regressed.
+    assert not (out["aggregation"]["overall_pass"] and
+                any(r.get("feasibility_regressed") for r in out["aggregation"]["per_size"].values()))
+
+
+def test_score_verdict_determinism():
+    baselines, cand, deflt = _pass_setup()
+    a = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    b = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    assert a == b
+
+
+def test_score_verdict_params_echo():
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    out = score_verdict(cand, deflt, baselines, k=2.0, fraction=0.25, floor_instance_fraction=0.5,
+                        stat="std", require_largest_n=False, strict_xcheck=False)
+    assert out["params"] == {"k": 2.0, "fraction": 0.25, "floor_instance_fraction": 0.5,
+                             "largest_n": LARGEST_N, "stat": "std", "require_largest_n": False,
+                             "strict_xcheck": False}
+
+
+# --------------------------------------------------------------------------- #
+# Step 6b — review-driven hardening (bd 8an.2.1 adversarial review, all confirmed findings)
+# --------------------------------------------------------------------------- #
+
+def test_check_matched_seeds_rejects_duplicate_and_reweighted_banks():
+    # Findings 2/5/9: set-equality is multiplicity-blind. A within-bank duplicate (zero-diversity
+    # padding that re-weights the median) must RAISE, and a re-weighted bank with the same seed SET
+    # but different multiplicities ([0,0,1] vs [0,1,1]) must RAISE too.
+    dup = {(10, 0): [_result(seed=0), _result(seed=0), _result(seed=1)]}
+    honest = {(10, 0): [_result(seed=0), _result(seed=1), _result(seed=2)]}
+    with pytest.raises(ValueError):           # duplicate seed in the candidate bank
+        _check_matched_seeds(dup, honest)
+    with pytest.raises(ValueError):           # both re-weighted (same set {0,1}, different multiset)
+        _check_matched_seeds({(10, 0): [_result(seed=0), _result(seed=0), _result(seed=1)]},
+                             {(10, 0): [_result(seed=0), _result(seed=1), _result(seed=1)]})
+    # a clean, distinct, equal multiset still passes (order-insensitive).
+    _check_matched_seeds({(10, 0): [_result(seed=2), _result(seed=0), _result(seed=1)]}, honest)
+
+
+def test_default_objective_spreads_absent_when_iqr_zero_and_floor_cannot_pass():
+    # Finding 7 (the anti-greedy hole): ≥2 IDENTICAL feasible incumbents give IQR 0, which must be
+    # treated as "no measurable diversity" → size ABSENT (not 0.0), so the floor's None-guard fires
+    # rather than a 0.0 threshold admitting any near-greedy candidate lift > 0.
+    converged = {(10, 0): [_result(final_incumbents=[(90, True), (90, True), (90, True)])]}
+    spreads = default_objective_spreads(converged)
+    assert 10 not in spreads
+    near_greedy = {(10, 0): [_result(final_incumbents=[(90.000001, True), (90, True), (90, True)])]}
+    with pytest.raises(ValueError):           # spread absent + feasible workers → fail loud, no silent pass
+        _aggregate_floor(near_greedy, spreads, fraction=0.5, default_sizes={10})
+
+
+def test_score_verdict_xcheck_flags_feasibility_mismatch():
+    # Findings 1/8: the frozen default_PI is finite (freeze says "reliably feasible") but the supplied
+    # live default run-set re-scores to +inf (median PI over the bank is non-finite — default_unreliable).
+    # The finite-vs-finite REL_TOL band would skip this; it must be recorded and escalate under strict.
+    baselines = {(10, i): _bl(default_PI=0.5) for i in range(3)}
+    cand = {(10, i): _bank({0: 80, 1: 70, 2: 60}[i], [(100, True), (90, True), (80, True)]) for i in range(3)}
+    # default bank: seed 0 feasible (so an objective spread exists), seeds 1,2 never feasible → median PI +inf.
+    def _unreliable_default():
+        return [_result(history=[(50, 0)], final_incumbents=[(100, True), (90, True), (80, True)], seed=0),
+                _result(history=[], final_incumbents=[(0, False), (0, False), (0, False)], seed=1),
+                _result(history=[], final_incumbents=[(0, False), (0, False), (0, False)], seed=2)]
+    deflt = {(10, i): _unreliable_default() for i in range(3)}
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)
+    fails = {key for (key, _rs, _fr, _rel) in out["default_xcheck_failures"]}
+    assert (10, 0) in fails                              # finite-frozen vs +inf-live recorded
+    assert out["default_PI"][(10, 0)] == pytest.approx(0.5)   # frozen still authoritative for the gate
+    with pytest.raises(ValueError):
+        score_verdict(cand, deflt, baselines, require_largest_n=False, strict_xcheck=True)
+
+
+def test_score_verdict_partial_freeze_stratum_recorded_not_raised():
+    # Finding 4: a stratum with frozen B_I/L_I present but default_PI None (the default_unreliable freeze
+    # state) must be RECORDED in default_pi_missing and excluded from the comparison — NOT raise mid-verdict.
+    baselines, cand, deflt = _pass_setup(sizes=(10,))
+    baselines[(3000, 0)] = _bl(default_PI=None)          # L_I/B_I present, default_PI withheld
+    cand[(3000, 0)] = _bank(80, [(100, True), (90, True), (80, True)])
+    deflt[(3000, 0)] = _bank(50, [(100, True), (95, True), (90, True)])
+    out = score_verdict(cand, deflt, baselines, require_largest_n=False)   # must not raise
+    assert (3000, 0) in out["default_pi_missing"]
+    assert (3000, 0) not in out["candidate_PI"]          # excluded — no default anchor to compare
+    assert (3000, 0) not in out["default_PI"]            # never coerced to a 0 anchor
+    assert "overall_pass" in out
