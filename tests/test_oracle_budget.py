@@ -26,6 +26,28 @@ def _knapsack(n):
     return m
 
 
+def _stalling(n):
+    """Covering (>=) knapsack whose warm-start is infeasible (bd 8an.1.17).
+
+    Maximize sum (i%7+1) x_i subject to a near-total covering constraint
+    sum (i%5+1) x_i >= sum(weights) - 2. The greedy warm-start is infeasible, so
+    the worker dwells in the opt_sat (constraint-tightening) phase -- where the
+    Grover count is a fixed j=1 (cost 3) -- without a tightness improvement, so
+    `rounds` grows unbounded. The opt_sat->opt switch then draws from a huge
+    m=ceil((6/5)**rounds), so a SINGLE stage-3 Grover round overshoots T(n) by
+    >2x on the pre-fix code (the real Eq.29 c2 covering-constraint blow-up:
+    measured 44x at n=100, 26000x at n=500). With the cap-j clamp the per-round
+    charge 2j+1 is capped to the remaining budget, so cumulative oracles land at
+    exactly T(n) (within one bounded final round)."""
+    m = Model()
+    x = m.add_variables(n)
+    w = [i % 5 + 1 for i in range(n)]
+    m.set_objective(sum((i % 7 + 1) * x[i] for i in range(n)), sense=MAXIMIZE)
+    m.add_constraint(sum(w[i] * x[i] for i in range(n)) >= sum(w) - 2)
+    m.close()
+    return m
+
+
 def _T(n):
     """Default per-worker oracle budget T(n) = (n/4)^2 + 1200 (float, NORTHSTAR §3)."""
     return int((n / 4.0) ** 2 + 1200)
@@ -43,6 +65,29 @@ class TestOracleBudget:
         T = _T(n)
         assert T <= r.oracle_calls < 2 * T, (
             f"oracle_calls={r.oracle_calls} not in [T, 2T)=[{T}, {2*T}) for n={n}"
+        )
+
+    def test_stalling_instance_budget_binds(self):
+        """REGRESSION (bd 8an.1.17): a STALLING instance must terminate AT the
+        budget T(n), not overshoot by an unbounded Grover round.
+
+        Pre-fix the per-round charge 2j+1 is added AFTER the `total_oracles < M`
+        gate, and m=ceil((6/5)**rounds) grows unbounded between improvements, so
+        a single stuck round overshoots T(n) by orders of magnitude (here ~2.6x
+        at n=60; 44x at the real n=100). The cap-j clamp caps 2j+1 to the
+        remaining budget, so a stage-3 terminal round lands at exactly T(n) (a
+        stage-2 break at most 2 oracles short). KNOWN-CORRECT value, not a
+        no-crash check: cumulative oracle charges == T(n)."""
+        n = 60
+        m = _stalling(n)
+        m.seed = 7
+        m.set_param("M", -1)  # opt into real T(n); conftest caps the default to 200
+        m.set_param("num_workers", 1)
+        r = m.solve()
+        T = _T(n)
+        assert T - 2 <= r.oracle_calls <= T, (
+            f"stalling oracle_calls={r.oracle_calls} not in [{T-2}, {T}] for n={n} "
+            f"(pre-fix bd 8an.1.17 overshoot is ~3683 = 2.6x)"
         )
 
     def test_explicit_budget_caps_cumulative_oracles(self):

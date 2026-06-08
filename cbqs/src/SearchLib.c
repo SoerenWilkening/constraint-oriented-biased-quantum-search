@@ -9,6 +9,7 @@
 #include "platform.h"
 #include <stdio.h>   /* fprintf */
 #include <stdlib.h>  /* abort */
+#include <limits.h>  /* INT_MAX (oracle-budget clamp, bd 8an.1.17) */
 /* Intentionally NOT <Python.h>: this file uses no Python C-API symbol
  * (callback_t is a plain void(*)(void) from definitions.h). Including it made
  * MSVC's pyconfig.h auto-link pragma demand pythonXY.lib, breaking the C-test
@@ -163,10 +164,36 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 			return 0;
 		}
 
-		int m = ceil(pow(c, rounds));
+		/* bd 8an.1.17: cap the Grover iteration count to the REMAINING oracle
+		 * budget BEFORE charging, so 2*j+1 <= remaining and the cumulative count
+		 * lands at <= mod->M (== T(n) for a stage-3 terminal round) instead of
+		 * overshooting by a whole unbounded round. The :159 loop guard ensures
+		 * total_oracles < mod->M, so remaining >= 1. A SHORTER Grover round is a
+		 * faithful (QTG-implementable, A/B-priceable) round, NOT a mid-flight
+		 * abort (NORTHSTAR §1.1/§1.2, §6). The clamp also bounds the O(j^2)
+		 * classical sample cost and kills the int overflow of
+		 * m = ceil((6/5)^rounds) at ~118 stuck rounds (m is forced <= j_max). */
+		size_t remaining = mod->M - total_oracles;   /* >= 1 by the :159 loop guard */
+		int m = (int) ceil(pow(c, rounds));
 		int j;
-		if (stage == 2) j = 1; // when improving constraint tightness, use only small constant number of grover iterations
-		else j = prng_next_int(m + 1);
+		if (stage == 2) {
+			/* opt_sat uses a fixed small Grover count (j=1, cost 3) for
+			 * constraint tightening; it cannot be shortened, so if one such round
+			 * will not fit the remaining budget, stop before charging rather than
+			 * overshoot. */
+			if (remaining < 3) break;
+			j = 1;
+		} else {
+			/* Clamp m to j_max = floor((remaining-1)/2) so 2*j+1 <= 2*j_max+1 <=
+			 * remaining. Compute j_max in size_t (mod->M is size_t and a raw-API
+			 * caller may leave it huge) and bound it to INT_MAX-1 before the cast
+			 * so prng_next_int's int argument m+1 is always a valid positive int. */
+			size_t j_max_sz = (remaining - 1) / 2;
+			if (j_max_sz > (size_t)(INT_MAX - 1)) j_max_sz = (size_t)(INT_MAX - 1);
+			int j_max = (int) j_max_sz;
+			if (m < 0 || m > j_max) m = j_max;
+			j = prng_next_int(m + 1);
+		}
 		/* Charge 2j+1 oracles. total_oracles gates termination (never resets);
 		 * ctx->oracle_count is the per-worker, race-free metric that replaces
 		 * the racy shared mod->qtg_applications (CLAUDE.md §1.2). */
