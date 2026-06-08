@@ -284,6 +284,36 @@ int initial_state_preparation(model_t *mod) {
 }
 
 
+/*
+ * opt_sample_count -- classical sample budget for one Grover round of j iterations.
+ *
+ * The faithful classical simulation of a Grover round draws 4j^2+1 candidate
+ * states and returns the first improver, so its success probability is
+ * 1-(1-p)^(4j^2+1) where p is the single-candidate improvement probability.
+ * This is the O(n*j^2) classical wall-time that makes large-n (large-j) solves
+ * intractable (bd 0o8): with j_max ~ n^2/32 a single stuck round is ~n^5.
+ *
+ * When ctx->opt_sample_cap > 0 the count is clamped to `cap`, bounding a round
+ * at O(n*cap) instead of O(n*j^2). This does NOT touch the oracle accounting:
+ * the 2j+1 charge is applied in ctg BEFORE search_function (SearchLib.c), so j,
+ * the cap-j clamp, and ctx->oracle_count are all unchanged (CLAUDE.md §1.2).
+ * The only effect is the per-round classical success probability for rare
+ * improvers (p < ~1/cap): capping treats them as non-improving, an APPROXIMATE
+ * sampler (the bd 0o8 word) whose deviation is measured by the success-law test
+ * and tunable via `cap`. cap==0 reproduces the exact unbounded rejection sim.
+ *
+ * Computed in int64: the legacy `4 * j * j + 1` with int j is signed-overflow
+ * UB for j > ~23170 (reachable at n >= ~860), so this also fixes a latent bug.
+ * For j <= 23170 (every committed test/baseline) the value is identical to the
+ * legacy int computation, so cap==0 stays bit-for-bit faithful (§8).
+ */
+static inline int64_t opt_sample_count(const solver_ctx_t *ctx, int j) {
+	int64_t L = 4LL * (int64_t) j * (int64_t) j + 1;
+	int64_t cap = ctx->opt_sample_cap;
+	if (cap > 0 && L > cap) return cap;
+	return L;
+}
+
 int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful,
@@ -310,9 +340,10 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	for (l = 0; l < Leff; l++) {
 		// Reset reusable state instead of alloc/free
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -412,14 +443,14 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
             free_state(new_sol, 1);
             free(ChangedBits);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
 			return 1;
 		}
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(ChangedBits);
 	free(potentials);
@@ -453,9 +484,10 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	for (l = 0; l < Leff; l++) {
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -537,7 +569,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
             sw_set_inplace(cur_sol->vector, new_sol->vector);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 1;
-		    *samples += l;
+		    *samples += (int) l;
 		    free_state(new_sol, 1);
 			free(potentials);
 			free(ret_total1);
@@ -559,14 +591,14 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 0;
             free_state(new_sol, 1);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
             return 1;
         }
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);
@@ -599,9 +631,10 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	for (l = 0; l < Leff; l++) {
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -668,14 +701,14 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			sw_set_inplace(cur_sol->branch, new_sol->branch);
 
             free_state(new_sol, 1);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
             return 1;
         }
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);

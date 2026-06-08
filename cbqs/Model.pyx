@@ -63,6 +63,9 @@ _PARAM_DEFS = {
 	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/4)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
 	'opt_switch_oracles':       {'default': -1,    'coerce': int,          'validate': None,
 	                             'description': 'Cumulative per-worker oracle count at which the optimize phase switches from constraint-tightening (opt_sat) to objective maximization (opt), replacing the legacy counter>10 heuristic (NORTHSTAR §4). The switch only fires once a feasible point exists. -1 auto-calculates int(0.1*M); the effective value is clamped to [0, int(0.25*M)] (alpha<=0.25). Set before solve.'},
+	'opt_sample_cap':           {'default': 0,     'coerce': int,          'validate': lambda v: v >= 0,
+	                             'validate_msg': 'opt_sample_cap must be >= 0',
+	                             'description': 'bd 0o8: per-worker cap on the classical Grover-round sample count (4j^2+1) simulated in CSearch_{sat,opt_sat,opt}. 0 (default) == unbounded, the exact O(4j^2) rejection simulation (faithful but O(n*j^2) wall-time -> large-n intractable). When >0 a round draws at most this many candidates, bounding the classical sim to O(n*cap) per round. This does NOT change the oracle count (the 2j+1 charge is applied in ctg before the sim, CLAUDE.md §1.2); it only reduces the per-round success probability for rare improvers (p < ~1/cap), an APPROXIMATE sampler whose deviation is tunable via cap. Used by the large-n baseline freeze. Set before solve.'},
 	'stopping_time':            {'default': 300,   'coerce': float,        'validate': lambda v: v > 0,
 	                             'validate_msg': 'stopping_time must be positive',
 	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
@@ -752,6 +755,7 @@ or {self.runtime}s sampling
 		# Read all params from _params (with defaults from _PARAM_DEFS)
 		M = self._get_effective('M')
 		opt_switch_oracles = self._get_effective('opt_switch_oracles')
+		opt_sample_cap = self._get_effective('opt_sample_cap')
 		stopping_time = self._get_effective('stopping_time')
 		stop_val = self._get_effective('stop_val')
 		callback = self._get_effective('callback')
@@ -790,6 +794,7 @@ or {self.runtime}s sampling
 
 		self.mod.M = M
 		self.mod.opt_switch_oracles = opt_switch_oracles
+		self.mod.opt_sample_cap = opt_sample_cap
 		self.mod.depth_look_ahead = depth_look_ahead
 		self.mod.stop_val = stop_val
 		self.mod.stopping_time = stopping_time

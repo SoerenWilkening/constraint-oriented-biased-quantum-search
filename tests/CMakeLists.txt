@@ -283,6 +283,23 @@ add_cmocka_test(test_csearch_ordering
     ${CBQS_SRC_DIR}/arena.c
 )
 
+# --- bd 0o8: classical Grover-round sample cap (opt_sample_cap) ---
+add_cmocka_test(test_opt_sample_cap
+    test_opt_sample_cap.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
 # --- M1: Phase-specific BranchingStats in solver_ctx_t ---
 add_cmocka_test(test_solver_ctx_phases
     test_solver_ctx_phases.c

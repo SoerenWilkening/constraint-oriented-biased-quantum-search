@@ -100,6 +100,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->opt_flip_sum = 0;
     ctx->opt_flip_sumsq = 0;
     ctx->opt_free_sum = 0;
+    ctx->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim) */
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */

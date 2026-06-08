@@ -19,6 +19,7 @@ model_t *init_model(void){
      * post-feasible oracles and so never fired at mod->M=10). The Python
      * harness sets a concrete int(0.1*M) default in solve(). M0f / NORTHSTAR §4. */
     mod->opt_switch_oracles = SIZE_MAX;
+    mod->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim, legacy) */
     mod->monte_carlo_estimate = 0;
     mod->ignore_constraint_search = 0;
     mod->initial_state = NULL;

@@ -18,6 +18,11 @@ typedef struct {
                                  * opt_sat->opt exploit->explore switch in ctg, replacing the
                                  * hardcoded counter>10. SIZE_MAX disables the auto-switch.
                                  * NORTHSTAR §4: learned, in oracle units, bounded [0, alpha*T(n)]. */
+    size_t opt_sample_cap;      /* bd 0o8: cap on the classical Grover-round sample count
+                                 * (4j²+1) in CSearch_{sat,opt_sat,opt}; 0 == unbounded. Copied
+                                 * to ctx->opt_sample_cap at ctg entry. Bounds the O(n·j²) sim
+                                 * wall-time of large-j rounds WITHOUT touching the 2j+1 oracle
+                                 * charge (CLAUDE.md §1.2). See solver_ctx.h / opt_sample_count. */
     int break_item;
 	int n;
 	double stopping_time;

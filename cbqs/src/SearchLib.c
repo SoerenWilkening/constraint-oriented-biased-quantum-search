@@ -107,6 +107,12 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	int rounds = 0;
 	double c = 6. / 5;
 
+	/* bd 0o8: publish the model-level classical-sample cap onto this worker's
+	 * ctx so CSearch_{sat,opt_sat,opt} can bound the O(n·j²) sim cost of large-j
+	 * rounds (opt_sample_count in solver.c). Per-worker write, race-free. 0 ==
+	 * unbounded (exact rejection sim). The 2j+1 oracle charge below is untouched. */
+	ctx->opt_sample_cap = (int64_t) mod->opt_sample_cap;
+
 	/* Function pointer for CSearch_* functions - all now take ctx as first parameter */
 	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
  

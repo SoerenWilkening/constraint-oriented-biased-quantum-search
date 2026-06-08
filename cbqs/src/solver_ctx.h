@@ -88,6 +88,17 @@ struct solver_ctx {
     uint64_t opt_flip_sumsq;   /* Σ NumChanges² (for the radius variance)       */
     uint64_t opt_free_sum;     /* Σ both-feasible "free" decisions per candidate*/
 
+    /** bd 0o8: per-worker cap on the classical Grover-round sample count
+     *  (4j²+1) used by CSearch_{sat,opt_sat,opt}. 0 == unbounded (the exact
+     *  O(4j²) rejection sim; legacy behavior). When > 0 a round draws at most
+     *  `cap` candidates, bounding the O(n·j²) classical wall-time that makes
+     *  large-n (large-j) solves intractable (NORTHSTAR §11, bd 0o8). It does
+     *  NOT touch the 2j+1 oracle charge (applied in ctg BEFORE search_function,
+     *  CLAUDE.md §1.2) -- the oracle count is unchanged; only the per-round
+     *  classical success probability for rare improvers (p < ~1/cap) is reduced.
+     *  Copied from mod->opt_sample_cap at ctg entry (per-worker, race-free). */
+    int64_t opt_sample_cap;
+
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
 
