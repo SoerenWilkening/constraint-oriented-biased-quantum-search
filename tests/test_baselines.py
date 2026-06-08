@@ -7,6 +7,7 @@ CBQS-benchmarks clone is available via CBQS_BENCHMARKS_DIR.
 import csv
 import os
 import sys
+import types
 
 import pytest
 
@@ -14,6 +15,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "benchmarks"))
 import baselines as B  # noqa: E402
 
 _SCHEMA = ["size", "index", "obj", "time", "oracles", "preprocess-time", "method"]
+
+
+def _res(history):
+    """Minimal OptimizeResult stand-in (the anchor logic only reads .history)."""
+    return types.SimpleNamespace(history=list(history))
 
 
 def _write_results_csv(path, rows):
@@ -223,6 +229,125 @@ def test_freeze_raises_when_no_bi_rows(tmp_path):
     with pytest.raises(ValueError, match="0 B_I instances"):
         B.freeze_baselines(bench_root=root, out_path=str(tmp_path / "x.csv"),
                            require_all=False)
+
+
+# --------------------------------------------------------------------------- #
+# L_I / default-PI anchors from CBQS-default seed-bank runs (bd 8an.1.16)
+# --------------------------------------------------------------------------- #
+
+def test_first_feasible_objective():
+    assert B.first_feasible_objective(_res([(40, 100), (80, 500)])) == 40.0
+    assert B.first_feasible_objective(_res([])) is None  # never feasible
+
+
+def test_default_instance_anchors_ok():
+    # B_I=100, L_I=median(first-feasible[40,60,50])=50, D_I=50, T_I=1000.
+    # per-run PI: run1=0.70, run2=0.60, run3=1.00 -> default_PI=median=0.70.
+    results = [_res([(40, 100), (80, 500)]),   # 100 + 1.0*400 + 0.4*500 = 700 -> 0.70
+               _res([(60, 200), (90, 600)]),   # 200 + 0.8*400 + 0.2*400 = 600 -> 0.60
+               _res([(50, 300)])]              # 300 + 1.0*700        = 1000 -> 1.00
+    a = B.default_instance_anchors(results, B_I=100, n=10, T_I=1000)
+    assert a["status"] == "ok"
+    assert a["L_I"] == 50.0
+    assert a["default_PI"] == pytest.approx(0.70)
+    assert a["n_feasible_runs"] == 3
+
+
+def test_default_instance_anchors_never_feasible():
+    a = B.default_instance_anchors([_res([]), _res([])], B_I=100, n=10, T_I=1000)
+    assert a["status"] == "never_feasible" and a["L_I"] is None and a["default_PI"] is None
+
+
+def test_default_instance_anchors_dropped_when_L_ge_B():
+    # median first-feasible == B_I -> drop (non-discriminating, >= boundary).
+    results = [_res([(100, 5)]), _res([(100, 9)]), _res([(100, 7)])]
+    a = B.default_instance_anchors(results, B_I=100, n=10, T_I=1000)
+    assert a["status"] == "dropped_L_ge_B" and a["L_I"] == 100.0 and a["default_PI"] is None
+
+
+def test_freeze_default_anchors_fills_drops_and_empties(tmp_path):
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI\n"
+        "10,0,100,hexaly,,\n"   # feasible -> ok
+        "10,1,100,hexaly,,\n"   # L_I == B_I -> dropped (omitted)
+        "10,2,100,hexaly,,\n"   # never feasible -> empty anchors
+    )
+
+    def run_fn(n, index, seeds):
+        if index == 0:
+            return [_res([(40, 100), (80, 500)]), _res([(60, 200), (90, 600)]), _res([(50, 300)])]
+        if index == 1:
+            return [_res([(100, 5)]), _res([(100, 9)]), _res([(100, 7)])]
+        return [_res([]), _res([])]
+
+    out = tmp_path / "out.csv"
+    summary = B.freeze_default_anchors(seeds=(0, 1, 2), frozen_path=str(frozen),
+                                       out_path=str(out), run_fn=run_fn)
+    table = B.load_frozen_baselines(str(out))
+    assert table[(10, 0)]["L_I"] == 50.0
+    # default_PI = median per-run PI at the REAL budget T(10) (the orchestrator uses oracle_budget,
+    # not the T_I=1000 of the unit test) — compute the expectation the same way to avoid a magic #.
+    import statistics as _st
+    from metric import compute_primal_integral, oracle_budget
+    _T = oracle_budget(10)
+    _expected = _st.median([compute_primal_integral(h, 100, 50, _T) for h in (
+        [(40, 100), (80, 500)], [(60, 200), (90, 600)], [(50, 300)])])
+    assert table[(10, 0)]["default_PI"] == pytest.approx(_expected)
+    assert (10, 1) not in table  # L_I >= B_I dropped from the table
+    assert (10, 2) in table       # kept, but anchors EMPTY -> never silently 0 (8an.1.16 guard)
+    assert table[(10, 2)]["L_I"] is None and table[(10, 2)]["default_PI"] is None
+    assert summary["ok"] == [(10, 0)]
+    assert summary["dropped"] and summary["dropped"][0][:2] == (10, 1)
+    assert summary["never_feasible"] == [(10, 2)]
+
+
+def test_freeze_default_anchors_partial_sizes_keeps_others(tmp_path):
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI\n"
+        "10,0,100,hexaly,,\n"
+        "100,0,200,gurobi,123,0.5\n"   # already-frozen anchors for n=100
+    )
+    out = tmp_path / "out.csv"
+    # only recompute n=10; n=100's existing anchors must survive verbatim.
+    B.freeze_default_anchors(seeds=(0,), frozen_path=str(frozen), out_path=str(out), sizes=[10],
+                             run_fn=lambda n, i, s: [_res([(50, 100)])])
+    table = B.load_frozen_baselines(str(out))
+    assert table[(100, 0)]["L_I"] == 123.0 and table[(100, 0)]["default_PI"] == 0.5
+    assert table[(10, 0)]["L_I"] == 50.0
+
+
+def test_freeze_default_anchors_requires_frozen_table(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        B.freeze_default_anchors(frozen_path=str(tmp_path / "nope.csv"), run_fn=lambda *a: [])
+
+
+_HAS_INSTANCES = bool(os.environ.get("CBQS_BENCHMARKS_DIR")) and os.path.isdir(
+    os.path.join(os.environ.get("CBQS_BENCHMARKS_DIR", ""),
+                 "Paper_general_constraints", "instances", "10_0"))
+
+
+@pytest.mark.skipif(not _HAS_INSTANCES, reason="CBQS_BENCHMARKS_DIR instances not available")
+def test_real_default_anchors_n10_end_to_end():
+    """Real n=10 CBQS-default run over a tiny seed bank → first-feasible parses, the anchor status
+    is one of the valid kinds, and any computed default_PI sits in the metric's [-0.5, 1] range.
+    Uses the real T(n) budget (M=-1) — n=10 is trivially cheap (NORTHSTAR §1.2: never a capped M)."""
+    pytest.importorskip("cbqs")
+    results = B.run_default_seed_bank(10, 0, seeds=(0, 1, 2), M=-1, num_workers=2)
+    # harness contract: every history is feasible-only and oracle-ascending.
+    for r in results:
+        oracles = [o for (_v, o) in r.history]
+        assert oracles == sorted(oracles)
+    frozen = os.path.join(os.path.dirname(__file__), "..", "benchmarks", "baselines_frozen.csv")
+    table = B.load_frozen_baselines(frozen)
+    if (10, 0) not in table or table[(10, 0)]["B_I"] is None:
+        pytest.skip("no B_I for (10,0) in frozen table")
+    a = B.default_instance_anchors(results, B_I=table[(10, 0)]["B_I"], n=10)
+    assert a["status"] in ("ok", "dropped_L_ge_B", "default_unreliable", "never_feasible")
+    if a["status"] == "ok":
+        assert -0.5 <= a["default_PI"] <= 1.0
+        assert a["L_I"] < table[(10, 0)]["B_I"]
 
 
 _REAL_PLOTS = os.path.join(os.environ.get("CBQS_BENCHMARKS_DIR", ""),
