@@ -582,8 +582,9 @@ cpdef run_quantum_local_search(initial: state_py,
                                con: new_constraint,
                                obj: new_constraint,
                                int distance,
-                               callback):
-	srand(100 * os.getpid() + int(time.time()))
+                               callback,
+                               seed=None,
+                               int worker_id=0):
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
 	global python_callback
@@ -591,8 +592,25 @@ cpdef run_quantum_local_search(initial: state_py,
 	python_callback = _drop_oracle_arg(callback) if callback is not None else None
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 
-	with nogil:
-		quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
+	# bd 3c4: seed the thread-local PRNG (g_prng_state) that quantum_local_search
+	# draws from (prng_next_double/int) BEFORE the nogil call -- per worker, mirroring
+	# 8an.1.3 / run_sampling. Without this the path never seeded g_prng_state (the old
+	# srand only seeded the C library rand(), which this path never uses), so the
+	# quantum search ran on whatever leftover/zero stream the worker thread held:
+	# non-reproducible, and -- since a fresh thread's all-zero xoshiro state is a
+	# fixed point -- every fixed-seed portfolio worker collapsed onto one trajectory.
+	# Create a ctx, set seed + worker_id, init_prng (seeds g_prng_state from the master
+	# jumped worker_id times; worker_id==0 reproduces the legacy single stream).
+	cdef solver_ctx_t *ctx = solver_ctx_create()
+	if seed is not None:
+		ctx.seed = seed
+	solver_ctx_set_worker_id(ctx, worker_id)
+	solver_ctx_init_prng(ctx)
+	try:
+		with nogil:
+			quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
+	finally:
+		solver_ctx_free(ctx)
 
 def set_predicted_params(mod, double bias, double branching_factor,
                          double bias_factor, weights, variable_priorities, int n):

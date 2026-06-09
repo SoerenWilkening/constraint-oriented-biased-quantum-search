@@ -377,5 +377,119 @@ class TestPerWorkerPRNGDecorrelation:
         )
 
 
+class TestQuantumLocalSearchPRNGSeeding:
+    """M0c follow-up (bd 3c4): run_quantum_local_search must seed the thread-local
+    PRNG (g_prng_state) per-worker before the nogil quantum_local_search, which
+    draws from it via prng_next_double/int.
+
+    Before the fix this path NEVER seeded g_prng_state -- the only seeding was a
+    vestigial srand() on the C library rand(), which quantum_local_search does not
+    use. So the search ran on whatever leftover stream the worker thread held, and
+    on a fresh thread that is the all-zero xoshiro state -- a fixed point -- so
+    every fixed-seed portfolio worker collapsed onto one identical trajectory
+    (CLAUDE.md §5). The fix mirrors 8an.1.3 for the ctg path: create a solver_ctx,
+    set (seed, worker_id), and init_prng so each worker jumps the stream by its
+    worker_id (worker_id=0 reproduces the legacy stream).
+
+    These tests drive run_quantum_local_search directly with explicit (seed,
+    worker_id). quantum_local_search mutates the passed state in place
+    (cur_sol == initial.state), so the final bit vector tuple(initial) is the
+    observable. A fully symmetric knapsack (unit weights/values, capacity n//2)
+    has many equal-value optima, so distinct PRNG streams settle on distinct bit
+    patterns -- the decorrelation signal -- even when the optimal value coincides.
+
+    RED note (honest TDD provenance): these tests pass (seed, worker_id) to
+    run_quantum_local_search, args the PRE-fix 5-arg signature did not accept, so
+    against literally-unpatched code they raise TypeError -- an arity error, not the
+    logical assertion. The genuine logical RED was verified by KEEPING the new
+    signature but neutralising the seeding (drop solver_ctx_init_prng): then
+    g_prng_state stays the all-zero fixed point, test_seed_drives_the_search and
+    test_fixed_seed_workers_not_collapsed FAIL with a single collapsed result while
+    test_worker0_reproducible trivially passes (degenerate stream is reproducible).
+    So the latter two carry the RED-GREEN load for the decorrelation invariant.
+    """
+
+    def _symmetric_model(self, n=40):
+        m = Model()
+        x = m.add_variables(n)
+        # Unit weights AND unit values: every size-(n//2) subset is optimal, so the
+        # realized solution is purely a function of the PRNG stream.
+        m.set_objective(sum(x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum(x[i] for i in range(n)) <= n // 2)
+        m.close()
+        return m
+
+    def _final_bits(self, m, seed, worker_id):
+        from cbqs.SearchLib import run_quantum_local_search
+        from cbqs.state import state_py
+        # Fresh all-zeros start each call (the search mutates it in place); only the
+        # seeded PRNG stream varies between measurements.
+        initial = state_py(0, [0] * m.n)
+        run_quantum_local_search(initial, m.constraint, m.objective, 2, None, seed, worker_id)
+        return tuple(initial)
+
+    def test_worker0_reproducible(self):
+        """Same (seed, worker_id=0) reproduces an identical quantum search."""
+        m = self._symmetric_model()
+        b1 = self._final_bits(m, 777, 0)
+        b2 = self._final_bits(m, 777, 0)
+        assert b1 == b2, (
+            "fixed (seed, worker_id=0) must reproduce the quantum-local-search "
+            "result (was: g_prng_state left at the thread's leftover stream)"
+        )
+
+    def test_seed_drives_the_search(self):
+        """The seed actually feeds the stream: distinct seeds diverge."""
+        m = self._symmetric_model()
+        results = {self._final_bits(m, s, 0) for s in (1, 2, 3, 4, 5)}
+        assert len(results) > 1, (
+            "the quantum-local-search result must depend on the seed "
+            "(g_prng_state was never seeded from it)"
+        )
+
+    def test_fixed_seed_workers_not_collapsed(self):
+        """Fixed seed, distinct worker_ids must not collapse onto one trajectory."""
+        m = self._symmetric_model()
+        results = {self._final_bits(m, 777, w) for w in range(8)}
+        assert len(results) > 1, (
+            "fixed-seed workers all produced the identical quantum search -- "
+            "portfolio collapse (g_prng_state not decorrelated by worker_id)"
+        )
+
+    def test_public_method_runs_across_workers(self):
+        """The PUBLIC Model.quantum_local_search() fan-out runs end-to-end across
+        multiple workers and actually searches (bd 3c4).
+
+        This guards the rewritten public path, which no other test exercises: before
+        the fix it passed self.initial_state (None in the normal flow) -> TypeError
+        and the method never ran; the underlying path also segfaulted (Python
+        self.constraint left unprocessed -> NULL incremental-eval index arrays) and
+        heap-corrupted (uninitialised state .branch freed by free_state). A
+        regression in any of those kills the process here. Per-worker OUTCOME
+        diversity is asserted by the direct-call tests above (which can observe each
+        worker's mutated-in-place result); the public method discards per-worker
+        states, so through it we assert crash-free completion + that the search fired
+        at least one improving incumbent (i.e. it genuinely ran, not a silent no-op).
+        """
+        m = Model()
+        n = 12
+        x = m.add_variables(n)
+        m.set_objective(sum((i % 7 + 1) * x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum((i % 5 + 1) * x[i] for i in range(n)) <= n)
+        m.close()
+        m.seed = 4242
+        m.set_param("num_workers", 4)
+        m.set_param("distance", 2)
+        improvements = []
+        m.set_param("callback", lambda: improvements.append(1))
+        # Must not raise (was TypeError on None initial_state) nor segfault/abort
+        # (NULL constraint indices / uninitialised-branch free).
+        m.quantum_local_search()
+        assert len(improvements) >= 1, (
+            "public quantum_local_search() ran but never improved an incumbent "
+            "across 4 workers -- the search did not actually execute"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

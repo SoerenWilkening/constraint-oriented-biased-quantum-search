@@ -692,6 +692,13 @@ or {self.runtime}s sampling
 				raise ValueError("Model has no constraints; add constraints before closing")
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
+			# bd 3c4: also preprocess the Python-side self.constraint, symmetric with
+			# self.objective above. close() processed the C-model constraint
+			# (self.mod.con, used by solve()/ctg) but NOT this object, so its
+			# incremental-eval index arrays (positive/negative_indices+offsets) stayed
+			# NULL -- and the quantum_local_search path consumes self.constraint
+			# directly, segfaulting in adjusted_constraint_violation on the NULL arrays.
+			self.constraint.process(self.n)
 			process_constraints(self.mod.obj, self.n, enforce_density)
 			process_constraints(self.mod.con, self.n, enforce_density)
 			# Set default branching bias if not explicitly configured via set_param
@@ -1024,14 +1031,31 @@ or {self.runtime}s sampling
 		callback = self._get_effective('callback')
 		num_workers = self._get_effective('num_workers')
 
+		# bd 3c4: each worker needs its OWN fresh initial state. quantum_local_search
+		# mutates cur_sol (== the passed state) IN PLACE, so a single shared object
+		# would be corrupted/raced across workers. The former code passed
+		# self.initial_state, which is None in the normal flow -> the public method
+		# raised TypeError and never ran. Build the per-worker start from the model's
+		# C initial state (all-zeros by default), seeded all the same so divergence
+		# comes only from the decorrelated per-worker PRNG stream.
+		if not self.initialized:
+			self.manual_initial(0, [0] * self.n)
+		init_bits = [sw_tstbit(self.mod.initial_state[0].vector, _i) for _i in range(self.n)]
+
+		# Pass each worker its 0-based index (and the model seed) so
+		# run_quantum_local_search seeds a decorrelated per-worker PRNG stream,
+		# mirroring 8an.1.3's run_sampling fan-out. The former `for _` gave every
+		# worker the same (unseeded) stream -> portfolio collapse under a fixed seed.
 		Parallel(n_jobs=num_workers, backend="threading")(
 			delayed(run_quantum_local_search)(
-				self.initial_state,
+				state_py(0, list(init_bits)),
 				self.constraint,
 				self.objective,
 				distance,
-				callback
-			) for _ in range(num_workers)
+				callback,
+				self._seed,
+				worker_id
+			) for worker_id in range(num_workers)
 		)
 
 	def approximate_benchmarking(self, samples = 1024, M = 100):

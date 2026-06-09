@@ -636,7 +636,15 @@ state_t *quantum_local_search_states(
 	prepare(obj, cur_sol, &ful); // prepare for optimized computation of objective value
 
 	size_t feasible_state_counter = 0;
-	state_t *st = malloc(num_moves * sizeof(state_t));
+	/* bd 3c4: calloc, not malloc, so every state_t field is zero-initialised. The
+	 * loop sets tot_profit/prob/vector/feasible but NOT .branch, and free_state()
+	 * sw_clear()s BOTH .vector and .branch. With malloc, .branch.part was an
+	 * uninitialised garbage pointer that free_state() then free()d -> heap
+	 * corruption ("pointer being freed was not allocated"); test.c only survived
+	 * on lucky garbage. calloc gives .branch = {NULL,0,0}, which free()s safely
+	 * (free(NULL)) and copy_state()'s sw_set handles (sw_init(0)). Mirrors the
+	 * calloc in updated_local(), whose states free cleanly for the same reason. */
+	state_t *st = calloc(num_moves, sizeof(state_t));
 	for (size_t i = 0; i < num_moves; ++i) {
 		st[feasible_state_counter].tot_profit = 0LL;
 		st[feasible_state_counter].prob = 1. / ((double) num_moves);
