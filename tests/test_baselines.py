@@ -323,6 +323,134 @@ def test_freeze_default_anchors_requires_frozen_table(tmp_path):
         B.freeze_default_anchors(frozen_path=str(tmp_path / "nope.csv"), run_fn=lambda *a: [])
 
 
+# --------------------------------------------------------------------------- #
+# bd 0o8: opt_sample_cap governance + calibration
+# --------------------------------------------------------------------------- #
+
+def test_load_frozen_backward_compat_no_cap_column(tmp_path):
+    """A legacy 6-column table (no default_cap) loads as cap 0 = faithful (no crash)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI\n"
+        "10,0,100,hexaly,50,0.5\n"
+    )
+    table = B.load_frozen_baselines(str(frozen))
+    assert table[(10, 0)]["default_cap"] == 0
+
+
+def test_freeze_default_anchors_records_cap(tmp_path):
+    """Freezing at opt_sample_cap=C records C in default_cap and flags the run approximate."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap\n"
+        "10,0,100,hexaly,,,\n"
+    )
+    out = tmp_path / "out.csv"
+    summary = B.freeze_default_anchors(seeds=(0,), frozen_path=str(frozen), out_path=str(out),
+                                       opt_sample_cap=500,
+                                       run_fn=lambda n, i, s: [_res([(40, 100), (90, 500)])])
+    table = B.load_frozen_baselines(str(out))
+    assert table[(10, 0)]["default_cap"] == 500
+    assert summary["approximate"] is True and summary["cap"] == 500
+    assert summary["anchored_cap"] == 500
+
+
+def test_freeze_default_anchors_cap_zero_writes_empty(tmp_path):
+    """cap=0 (exact) writes an EMPTY default_cap cell (diffable; loads back as 0)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text("size,index,B_I,B_I_method,L_I,default_PI,default_cap\n10,0,100,hexaly,,,\n")
+    out = tmp_path / "out.csv"
+    B.freeze_default_anchors(seeds=(0,), frozen_path=str(frozen), out_path=str(out),
+                             run_fn=lambda n, i, s: [_res([(40, 100), (90, 500)])])
+    assert ",0\n" not in out.read_text()  # no literal cap 0 written
+    assert B.load_frozen_baselines(str(out))[(10, 0)]["default_cap"] == 0
+
+
+def test_freeze_default_anchors_rejects_mixed_cap(tmp_path):
+    """GOVERNANCE: recomputing one size at cap>0 while another anchored size stays at cap 0
+    would mix faithful + approximate anchors — must raise (bd 0o8 must_fix)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap\n"
+        "10,0,100,hexaly,,,\n"
+        "100,0,200,gurobi,123,0.5,\n"   # already-frozen FAITHFUL (cap 0) anchor for n=100
+    )
+    with pytest.raises(ValueError, match="MIXED-cap"):
+        B.freeze_default_anchors(seeds=(0,), frozen_path=str(frozen), out_path=str(tmp_path / "o.csv"),
+                                 sizes=[10], opt_sample_cap=500,
+                                 run_fn=lambda n, i, s: [_res([(40, 100), (90, 500)])])
+
+
+def test_freeze_default_anchors_uniform_cap_ok(tmp_path):
+    """Re-freezing ALL anchored sizes at the SAME cap is allowed and records it everywhere."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap\n"
+        "10,0,100,hexaly,,,\n"
+        "100,0,200,gurobi,123,0.5,\n"
+    )
+    out = tmp_path / "out.csv"
+    B.freeze_default_anchors(seeds=(0,), frozen_path=str(frozen), out_path=str(out),
+                             opt_sample_cap=500,  # sizes=None -> recompute every size at 500
+                             run_fn=lambda n, i, s: [_res([(40, 100), (190 if n == 100 else 90, 500)])])
+    table = B.load_frozen_baselines(str(out))
+    assert table[(10, 0)]["default_cap"] == 500
+    assert table[(100, 0)]["default_cap"] == 500  # re-frozen at the same cap, not kept verbatim
+
+
+def test_assess_cap_convergence_converges():
+    """_assess picks the SMALLER cap of the first consecutive pair within tol."""
+    rows = [{"cap": 10, "default_PI": 0.90}, {"cap": 20, "default_PI": 0.80},
+            {"cap": 40, "default_PI": 0.795}, {"cap": 80, "default_PI": 0.793}]
+    cap, converged, bias = B._assess_cap_convergence(rows, tol=0.02)
+    assert converged is True and cap == 20          # |0.795-0.80|/0.80 = 0.6% <= 2%
+    assert bias == pytest.approx(0.00625, rel=1e-3)
+
+
+def test_assess_cap_convergence_not_converged():
+    """Monotone-but-never-flattening PI -> not converged; recommend the largest cap."""
+    rows = [{"cap": 10, "default_PI": 0.9}, {"cap": 20, "default_PI": 0.6},
+            {"cap": 40, "default_PI": 0.3}]
+    cap, converged, bias = B._assess_cap_convergence(rows, tol=0.02)
+    assert converged is False and cap == 40 and bias is not None
+
+
+def test_assess_cap_convergence_skips_non_finite_pi():
+    """Rows with None/inf default_PI (never-feasible-at-this-cap) are ignored."""
+    rows = [{"cap": 10, "default_PI": None}, {"cap": 20, "default_PI": float("inf")},
+            {"cap": 40, "default_PI": 0.5}]
+    cap, converged, _ = B._assess_cap_convergence(rows, tol=0.02)
+    assert converged is False and cap == 40  # only one usable point
+
+
+def test_calibrate_cap_sweeps_and_recommends(tmp_path):
+    """calibrate_cap runs the seed bank per cap and its recommendation matches _assess on
+    the realized per-cap default_PI (ties the wiring to the convergence logic, no magic #)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text("size,index,B_I,B_I_method,L_I,default_PI,default_cap\n10,0,100,hexaly,,,\n")
+
+    # bigger cap -> better second incumbent -> lower (converging) PI; L_I fixed at 50.
+    second = {10: 70, 20: 85, 40: 88, 80: 89}
+
+    def run_fn(n, index, seeds, cap):
+        return [_res([(50, 1), (second[cap], 500)])]
+
+    res = B.calibrate_cap(10, 0, caps=[10, 20, 40, 80], seeds=(0,), frozen_path=str(frozen),
+                          run_fn=run_fn, tol=0.02)
+    assert [r["cap"] for r in res["caps"]] == [10, 20, 40, 80]
+    assert all(r["default_PI"] is not None for r in res["caps"])
+    exp_cap, exp_conv, _ = B._assess_cap_convergence(res["caps"], 0.02)
+    assert res["recommended_cap"] == exp_cap and res["converged"] == exp_conv
+
+
+def test_calibrate_cap_requires_b_i(tmp_path):
+    """Fail-loud: calibrating an instance with no frozen B_I raises (nothing to anchor)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text("size,index,B_I,B_I_method,L_I,default_PI,default_cap\n10,0,,,,,\n")
+    with pytest.raises(ValueError, match="No frozen B_I"):
+        B.calibrate_cap(10, 0, caps=[10, 20], frozen_path=str(frozen), run_fn=lambda *a: [])
+
+
 _HAS_INSTANCES = bool(os.environ.get("CBQS_BENCHMARKS_DIR")) and os.path.isdir(
     os.path.join(os.environ.get("CBQS_BENCHMARKS_DIR", ""),
                  "Paper_general_constraints", "instances", "10_0"))

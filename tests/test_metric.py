@@ -34,6 +34,7 @@ from benchmarks.metric import (
     aggregate_stratified,
     default_pi_spreads,
     score_run_set,
+    anchor_cap_summary,
     default_objective_spreads,
     score_verdict,
     _normalize_run_set,
@@ -319,6 +320,42 @@ def test_score_run_set_missing_key_skipped():
     out = score_run_set({(10, 7): _result(history=[(1, 1)])}, baselines={})
     assert any(k == (10, 7) for k, _r in out["skipped_no_anchor"])
     assert out["scored"] == {}
+
+
+# --------------------------------------------------------------------------- #
+# bd 0o8: opt_sample_cap anchor provenance + mixed-cap guard
+# --------------------------------------------------------------------------- #
+
+def test_anchor_cap_summary_faithful_and_approximate():
+    """cap 0 (or missing) => faithful; cap>0 => approximate; only ANCHORED rows count."""
+    faithful = {(10, 0): {"B_I": 100.0, "L_I": 50.0, "default_cap": 0},
+                (10, 1): {"B_I": 100.0, "L_I": None, "default_cap": 999}}  # no anchor → ignored
+    s = anchor_cap_summary(faithful)
+    assert s == {"cap": 0, "approximate": False, "mixed": False, "caps": [0]}
+
+    approx = {(500, 0): {"B_I": 9.0, "L_I": 5.0, "default_cap": 2000}}
+    s = anchor_cap_summary(approx)
+    assert s["cap"] == 2000 and s["approximate"] is True and s["mixed"] is False
+
+
+def test_anchor_cap_summary_missing_column_is_zero():
+    """A legacy anchor dict with no default_cap key reads as faithful (cap 0)."""
+    assert anchor_cap_summary({(10, 0): {"B_I": 1.0, "L_I": 0.5}})["cap"] == 0
+
+
+def test_score_run_set_surfaces_cap_provenance():
+    """score_run_set reports the anchor cap + approximate flag so the verdict is labeled."""
+    out = score_run_set({(500, 0): _result(history=[(7, 5)])},
+                        baselines={(500, 0): {"B_I": 9.0, "L_I": 5.0, "default_cap": 2000}})
+    assert out["anchor_cap"] == 2000 and out["anchor_approximate"] is True
+
+
+def test_score_run_set_rejects_mixed_cap_anchors():
+    """A table mixing faithful (cap 0) and approximate (cap>0) anchors is unscoreable."""
+    baselines = {(10, 0): {"B_I": 100.0, "L_I": 50.0, "default_cap": 0},
+                 (500, 0): {"B_I": 9.0, "L_I": 5.0, "default_cap": 2000}}
+    with pytest.raises(ValueError, match="Mixed-cap"):
+        score_run_set({(10, 0): _result(history=[(60, 5)])}, baselines)
 
 
 # --------------------------------------------------------------------------- #

@@ -534,6 +534,30 @@ def _classify_anchor(key, baselines):
     return ("score", B_I, L_I, None)
 
 
+def anchor_cap_summary(baselines):
+    """Provenance of the CBQS-default anchors' classical-sample cap (bd 0o8).
+
+    Returns ``{"cap", "approximate", "mixed", "caps"}`` over the ANCHORED rows (those with a
+    non-None ``L_I`` — the ones the §6 metric actually consumes):
+      - ``cap``: the single ``opt_sample_cap`` shared by all anchored rows (``None`` if none).
+      - ``approximate``: ``cap > 0`` — a binding cap means the default under-finds rare improvers,
+        so the anchor (and therefore the verdict) is APPROXIMATE, not faithful.
+      - ``mixed``: more than one distinct cap among anchored rows — a corrupt table (candidates
+        would be scored against a mix of faithful and approximate anchors). :func:`score_run_set`
+        fails loud on this; the freeze (:func:`benchmarks.baselines.freeze_default_anchors`) refuses
+        to write it.
+    A legacy table without the ``default_cap`` column loads as cap 0 (faithful), so this is a no-op
+    on existing data.
+    """
+    caps = {int(e.get("default_cap") or 0)
+            for e in baselines.values()
+            if e is not None and e.get("L_I") is not None}
+    return {"cap": (next(iter(caps)) if len(caps) == 1 else None),
+            "approximate": any(c > 0 for c in caps),
+            "mixed": len(caps) > 1,
+            "caps": sorted(caps)}
+
+
 def score_run_set(results_by_instance, baselines):
     """Score a full Eq.29 run-set against the frozen baseline table.
 
@@ -549,6 +573,16 @@ def score_run_set(results_by_instance, baselines):
     results_by_instance : {(size,index): OptimizeResult-like} ; baselines : load_frozen_baselines table.
     Returns {"scored","infeasible","dropped","skipped_no_anchor","feasibility_fraction_by_size"}.
     """
+    # bd 0o8: refuse to score against a mixed-cap anchor table (some faithful, some approximate)
+    # — that silently blends incomparable baselines. The freeze prevents writing one; this guards
+    # a hand-edited / partially-frozen table at the consumer (CLAUDE.md §2.1).
+    cap_info = anchor_cap_summary(baselines)
+    if cap_info["mixed"]:
+        raise ValueError(
+            f"Mixed-cap anchor table (opt_sample_cap values {cap_info['caps']}): the CBQS-default "
+            f"anchors were frozen at different classical-sample caps, so faithful and approximate "
+            f"anchors would be scored together. Re-freeze ALL anchored sizes at one cap (bd 0o8)."
+        )
     scored = {}
     infeasible = []
     dropped = []
@@ -580,6 +614,10 @@ def score_run_set(results_by_instance, baselines):
         "dropped": dropped,
         "skipped_no_anchor": skipped_no_anchor,
         "feasibility_fraction_by_size": feasibility_fraction_by_size,
+        # bd 0o8 provenance: the cap the consumed anchors were frozen at, and whether the
+        # verdict is therefore APPROXIMATE (cap>0 => default under-finds rare improvers).
+        "anchor_cap": cap_info["cap"],
+        "anchor_approximate": cap_info["approximate"],
     }
 
 

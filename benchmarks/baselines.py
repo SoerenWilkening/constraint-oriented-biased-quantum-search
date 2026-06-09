@@ -34,6 +34,7 @@ import csv
 import math
 import os
 import statistics
+import time
 
 try:  # reuse the CBQS_BENCHMARKS_DIR resolver in both import contexts
     from eq29_loader import default_bench_root          # flat (tests put benchmarks/ on sys.path)
@@ -54,7 +55,18 @@ RESULT_CSVS = ("classical_comparison.csv", "res.csv")
 
 #: Columns of the frozen baseline table. L_I / default_PI are emitted empty (pending
 #: the oracle-indexed CBQS-default runs — M0c/d/e — and the §6 metric, M1).
-FROZEN_COLUMNS = ("size", "index", "B_I", "B_I_method", "L_I", "default_PI")
+#: ``default_cap`` (bd 0o8) records the ``opt_sample_cap`` the default anchors were run
+#: at: ``0``/empty == the EXACT (unbounded) Grover-round sim → a FAITHFUL anchor; ``>0``
+#: == a binding classical-sample cap → an APPROXIMATE anchor (the default finds rare
+#: improvers less often, so the anchor is degraded and the bias grows with n). All anchored
+#: rows in a table MUST share one cap (:func:`freeze_default_anchors` enforces it) or
+#: candidates would be scored against a mix of faithful and approximate anchors.
+FROZEN_COLUMNS = ("size", "index", "B_I", "B_I_method", "L_I", "default_PI", "default_cap")
+
+#: Relative-change threshold (in default_PI) below which doubling ``opt_sample_cap`` is
+#: judged not to move the anchor — i.e. the cap is large enough to be effectively faithful
+#: (:func:`calibrate_cap`). 2% is well under the §6.6 metric noise margin.
+DEFAULT_CALIBRATION_TOL = 0.02
 
 
 def _csv_paths(bench_root=None):
@@ -186,7 +198,7 @@ def freeze_baselines(bench_root=None, out_path=None, require_all=True):
         w.writerow(FROZEN_COLUMNS)
         for size, index in sorted(b_i):
             val, method = b_i[(size, index)]
-            w.writerow([size, index, _fmt_num(val), method, "", ""])
+            w.writerow([size, index, _fmt_num(val), method, "", "", ""])
     return out_path
 
 
@@ -194,17 +206,21 @@ def load_frozen_baselines(path):
     """Load a frozen baseline table into ``{(size, index): {col: value}}``.
 
     ``B_I`` is returned as float; empty ``L_I`` / ``default_PI`` cells load as ``None``.
-    This is the accessor the §6 metric (M1) consumes.
+    ``default_cap`` (bd 0o8) loads as int (0 == exact/faithful anchor); a MISSING column or
+    empty cell reads as ``0`` so the legacy 6-column table (committed before 0o8) is read as
+    fully-faithful. This is the accessor the §6 metric (M1) consumes.
     """
     table = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
             key = (int(r["size"]), int(r["index"]))
+            cap_field = (r.get("default_cap") or "").strip()
             table[key] = {
                 "B_I": float(r["B_I"]) if r["B_I"] != "" else None,
                 "B_I_method": r["B_I_method"] or None,
                 "L_I": float(r["L_I"]) if r["L_I"] != "" else None,
                 "default_PI": float(r["default_PI"]) if r["default_PI"] != "" else None,
+                "default_cap": int(cap_field) if cap_field else 0,
             }
     return table
 
@@ -274,13 +290,20 @@ def default_instance_anchors(results, B_I, n, T_I=None):
     return {**base, "L_I": L_I, "default_PI": default_PI, "per_run_PI": per_run_PI, "status": "ok"}
 
 
-def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers=None, verify=True):
+def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers=None,
+                          verify=True, opt_sample_cap=0):
     """Run the CBQS-DEFAULT schedule on one Eq.29 instance once per master seed (NORTHSTAR §6/§11).
 
     Default schedule = ``build_model`` + ``close()`` (auto ``branching_bias = n/4``) with NO custom
     phase params. ``M=-1`` uses the real per-worker budget ``T(n)`` — do NOT freeze anchors at a
     capped ``M`` (§1.2/§6). Returns one ``OptimizeResult`` per seed. Requires cbqs built + the Eq.29
     instances (``CBQS_BENCHMARKS_DIR`` or ``bench_root``).
+
+    ``opt_sample_cap`` (bd 0o8) is ORTHOGONAL to ``M``: ``M`` is the oracle budget (kept at the real
+    ``T(n)`` — never capped, §1.2), while ``opt_sample_cap`` bounds only the *classical* Grover-round
+    sample count to make large-n solves tractable. ``0`` (default) is the EXACT sim → a faithful
+    anchor; ``>0`` is APPROXIMATE (rare improvers under-found) and only for the large-n freeze after
+    calibration (:func:`calibrate_cap`). The oracle count is identical either way.
     """
     try:  # lazy: pulls in cbqs (the C extension) only when an actual solve is requested
         from eq29_loader import load_eq29, build_model
@@ -295,27 +318,38 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
         if num_workers is not None:
             m.set_param("num_workers", num_workers)
         m.set_param("verify", verify)
+        m.set_param("opt_sample_cap", int(opt_sample_cap))
         results.append(m.solve())
     return results
 
 
 def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
                            out_path=None, sizes=None, run_fn=None, M=-1, num_workers=None,
-                           log=None):
+                           opt_sample_cap=0, log=None):
     """Fill L_I + default-PI in the frozen baseline table from CBQS-default seed-bank runs (bd 8an.1.16).
 
     Loads the frozen B_I table (*frozen_path*, default the committed ``baselines_frozen.csv``), runs
-    the default schedule over *seeds* per instance, writes ``L_I`` + ``default_PI``, DROPS instances
-    with ``L_I >= B_I`` (non-discriminating, §6 item 1), and writes the updated table to *out_path*
-    (default: in place). *sizes* restricts which strata to (re)compute — unlisted sizes keep their
-    existing row verbatim, so a partial freeze never wipes already-frozen anchors. ``run_fn(n, index,
-    seeds) -> list[OptimizeResult]`` is injectable (real ``run_default_seed_bank`` by default; a mock
-    in tests). A never-feasible-default or unreliable-default instance keeps its row with EMPTY
-    anchors (the M1 guard then skips it — never reads empty as 0). Returns a summary dict.
+    the default schedule over *seeds* per instance, writes ``L_I`` + ``default_PI`` + ``default_cap``,
+    DROPS instances with ``L_I >= B_I`` (non-discriminating, §6 item 1), and writes the updated table
+    to *out_path* (default: in place). *sizes* restricts which strata to (re)compute — unlisted sizes
+    keep their existing row verbatim, so a partial freeze never wipes already-frozen anchors.
+    ``run_fn(n, index, seeds) -> list[OptimizeResult]`` is injectable (real ``run_default_seed_bank``
+    by default; a mock in tests). A never-feasible-default or unreliable-default instance keeps its row
+    with EMPTY anchors (the M1 guard then skips it — never reads empty as 0). Returns a summary dict.
 
-    Fail-loud (§2.1): raises if the frozen table is missing/empty (run ``freeze`` first).
+    ``opt_sample_cap`` (bd 0o8): the classical Grover-round sample cap the recomputed anchors are run
+    at. ``0`` (default) = the EXACT sim → FAITHFUL anchors. ``>0`` = an APPROXIMATE freeze for large-n
+    tractability — pick it with :func:`calibrate_cap`. GOVERNANCE (core-change gate must_fix): all
+    ANCHORED rows in the written table must share ONE cap; this raises if a recompute at one cap would
+    leave the table mixing caps (e.g. capping large-n while small-n stays exact at 0). To freeze
+    approximate, re-run with the cap over ALL sizes (the cap is recorded per row and surfaced by the
+    M1 metric so the verdict is labeled approximate).
+
+    Fail-loud (§2.1): raises if the frozen table is missing/empty (run ``freeze`` first), or if the
+    result would mix caps across anchored rows.
     """
     _log = log or (lambda *_a, **_k: None)
+    opt_sample_cap = int(opt_sample_cap)
     frozen_path = frozen_path or os.path.join(os.path.dirname(__file__), "baselines_frozen.csv")
     if not os.path.isfile(frozen_path):
         raise FileNotFoundError(
@@ -328,17 +362,21 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
     if run_fn is None:
         def run_fn(n, index, _seeds):
             return run_default_seed_bank(n, index, _seeds, bench_root=bench_root,
-                                         M=M, num_workers=num_workers)
+                                         M=M, num_workers=num_workers,
+                                         opt_sample_cap=opt_sample_cap)
 
     out_rows = []
     summary = {"ok": [], "dropped": [], "never_feasible": [], "default_unreliable": [],
-               "skipped": [], "n_processed": 0}
+               "skipped": [], "n_processed": 0,
+               "cap": opt_sample_cap, "approximate": opt_sample_cap > 0}
     for (size, index) in sorted(table):
         row = table[(size, index)]
         B_I, method = row["B_I"], row["B_I_method"]
         if (sizes is not None and size not in sizes) or B_I is None:
             # Keep verbatim: a stratum we are not (re)computing, or one with no frontier B_I.
-            out_rows.append((size, index, B_I, method, row["L_I"], row["default_PI"]))
+            # Its recorded cap is preserved so the same-cap guard below sees the real mix.
+            out_rows.append((size, index, B_I, method, row["L_I"], row["default_PI"],
+                             row["default_cap"]))
             if B_I is None:
                 summary["skipped"].append((size, index, "B_I None"))
             continue
@@ -352,52 +390,175 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
             continue  # OMIT from the table (§6 item 1)
         if status == "never_feasible":
             summary["never_feasible"].append((size, index))
-            out_rows.append((size, index, B_I, method, None, None))
+            out_rows.append((size, index, B_I, method, None, None, opt_sample_cap))
             _log(f"empty {size}_{index}: default never feasible over {len(seeds)} seeds")
             continue
         if status == "default_unreliable":
             summary["default_unreliable"].append((size, index, a["L_I"]))
-            out_rows.append((size, index, B_I, method, a["L_I"], None))
+            out_rows.append((size, index, B_I, method, a["L_I"], None, opt_sample_cap))
             _log(f"warn  {size}_{index}: L_I={a['L_I']} but median PI non-finite — default_PI withheld")
             continue
-        out_rows.append((size, index, B_I, method, a["L_I"], a["default_PI"]))
+        out_rows.append((size, index, B_I, method, a["L_I"], a["default_PI"], opt_sample_cap))
         summary["ok"].append((size, index))
-        _log(f"ok    {size}_{index}: L_I={a['L_I']} default_PI={a['default_PI']:.6f}")
+        cap_tag = f" cap={opt_sample_cap}(APPROX)" if opt_sample_cap > 0 else ""
+        _log(f"ok    {size}_{index}: L_I={a['L_I']} default_PI={a['default_PI']:.6f}{cap_tag}")
+
+    # GOVERNANCE (bd 0o8, core-change gate must_fix): every ANCHORED row (one that
+    # contributes an L_I the metric consumes) must share ONE cap — else candidates would be
+    # scored against a mix of faithful (cap 0) and approximate (cap>0) anchors, silently
+    # corrupting the §6.6 verdict. Refuse to write a mixed-cap table.
+    anchored_caps = {cap for (_s, _i, _b, _m, L_I, _pi, cap) in out_rows if L_I is not None}
+    if len(anchored_caps) > 1:
+        raise ValueError(
+            f"Refusing to write a MIXED-cap anchor table (caps present: {sorted(anchored_caps)}). "
+            f"A binding opt_sample_cap makes an anchor APPROXIMATE; mixing it with faithful (cap 0) "
+            f"or differently-capped anchors corrupts the M1 verdict. Re-freeze ALL anchored sizes at "
+            f"the SAME cap (omit --sizes, or pass every size), or use cap 0 everywhere. "
+            f"(bd 0o8 freeze governance.)"
+        )
+    summary["anchored_cap"] = next(iter(anchored_caps)) if anchored_caps else None
 
     out_path = out_path or frozen_path
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(FROZEN_COLUMNS)
-        for (size, index, B_I, method, L_I, default_PI) in out_rows:
+        for (size, index, B_I, method, L_I, default_PI, cap) in out_rows:
             w.writerow([size, index,
                         _fmt_num(B_I) if B_I is not None else "",
                         method or "",
                         _fmt_num(L_I) if L_I is not None else "",
-                        _fmt_num(default_PI) if default_PI is not None else ""])
+                        _fmt_num(default_PI) if default_PI is not None else "",
+                        cap if cap else ""])
     summary["out_path"] = out_path
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# Cap calibration (bd 0o8): pick the smallest opt_sample_cap that is faithful enough
+# --------------------------------------------------------------------------- #
+
+def _assess_cap_convergence(rows, tol):
+    """Find the smallest cap whose default_PI has CONVERGED (NORTHSTAR §6, bd 0o8).
+
+    *rows* is the per-cap calibration output (ascending cap, each a dict with a finite-or-None
+    ``default_PI``). As ``cap -> inf`` the anchor approaches the faithful (uncapped) value, so a
+    cap is "converged" once DOUBLING it (the next swept cap) moves ``default_PI`` by <= *tol*
+    (relative). Returns ``(recommended_cap, converged: bool, bias_estimate)`` where
+    ``bias_estimate`` is the relative move across the converging step — an upper bound on the
+    residual anchor bias of *recommended_cap* vs the faithful limit (smaller is better). When no
+    consecutive pair converges, ``converged`` is False and the largest cap is recommended with the
+    smallest observed step as the (un-converged) bias — the caller should prefer a larger cap,
+    an uncapped reference, or option-(b) batch compute.
+    """
+    usable = [r for r in rows if r["default_PI"] is not None and math.isfinite(r["default_PI"])]
+    if len(usable) < 2:
+        only = usable[0]["cap"] if usable else (rows[-1]["cap"] if rows else None)
+        return only, False, None
+    best_step = None
+    for a, b in zip(usable, usable[1:]):
+        denom = max(abs(a["default_PI"]), PI_EPS_FALLBACK)
+        rel = abs(b["default_PI"] - a["default_PI"]) / denom
+        if best_step is None or rel < best_step[1]:
+            best_step = (a["cap"], rel)
+        if rel <= tol:
+            return a["cap"], True, rel  # the SMALLER cap already suffices
+    # no convergence: recommend the largest cap, report the smallest observed step as the bias
+    return usable[-1]["cap"], False, (best_step[1] if best_step else None)
+
+
+#: Mirror of metric.PI_EPS's role for the convergence denominator (avoid importing the metric
+#: just for a divide-by-zero floor); default_PI lives in roughly [-0.5, 1], so this never bites.
+PI_EPS_FALLBACK = 1e-9
+
+
+def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
+                  num_workers=None, run_fn=None, tol=DEFAULT_CALIBRATION_TOL, log=None):
+    """Sweep ``opt_sample_cap`` on ONE Eq.29 instance and report where the default anchor converges.
+
+    The large-n freeze blocker (bd 0o8) is the O(n·j²) classical Grover-round sim; capping the
+    sample count makes it tractable but biases the anchor for rare improvers (p < ~1/cap). At large
+    n the uncapped reference is itself intractable, so faithfulness is established by CONVERGENCE:
+    run the CBQS-default seed bank at each cap in *caps* and find the smallest cap past which
+    doubling it no longer moves ``default_PI`` (within *tol*). That cap is "effectively faithful";
+    the freeze should use it (or larger). If nothing converges, capping is insufficient at this n —
+    prefer a larger cap, an uncapped reference, or option-(b) batch compute.
+
+    ``run_fn(n, index, seeds, cap) -> list[OptimizeResult]`` is injectable (real
+    ``run_default_seed_bank`` by default; a mock in tests). Returns a dict with the per-cap table
+    (``caps``: cap, status, L_I, default_PI, wall_s, n_feasible_runs), ``recommended_cap``,
+    ``converged``, and ``bias_estimate``.
+
+    Fail-loud (§2.1): raises if (n,index) has no frozen ``B_I`` to anchor against.
+    """
+    _log = log or (lambda *_a, **_k: None)
+    frozen_path = frozen_path or os.path.join(os.path.dirname(__file__), "baselines_frozen.csv")
+    table = load_frozen_baselines(frozen_path)
+    entry = table.get((n, index))
+    if entry is None or entry["B_I"] is None:
+        raise ValueError(
+            f"No frozen B_I for ({n},{index}) in {frozen_path} — run `freeze` first; calibration "
+            f"scores default_PI against B_I."
+        )
+    B_I = entry["B_I"]
+    if run_fn is None:
+        def run_fn(_n, _i, _seeds, _cap):
+            return run_default_seed_bank(_n, _i, _seeds, bench_root=bench_root,
+                                         num_workers=num_workers, opt_sample_cap=_cap)
+
+    rows = []
+    for cap in sorted(set(int(c) for c in caps)):
+        t0 = time.perf_counter()
+        results = run_fn(n, index, seeds, cap)
+        wall = time.perf_counter() - t0
+        a = default_instance_anchors(results, B_I, n)
+        rows.append({"cap": cap, "status": a["status"], "L_I": a["L_I"],
+                     "default_PI": a["default_PI"], "wall_s": wall,
+                     "n_feasible_runs": a["n_feasible_runs"]})
+        pi = a["default_PI"]
+        _log(f"cap={cap:<10} status={a['status']:<18} "
+             f"L_I={a['L_I']} default_PI={pi if pi is None else round(pi, 6)} "
+             f"wall={wall:.2f}s")
+
+    recommended, converged, bias = _assess_cap_convergence(rows, tol)
+    _log(f"-> recommended_cap={recommended} converged={converged} "
+         f"bias_estimate={bias if bias is None else round(bias, 5)} (tol={tol})")
+    return {"n": n, "index": index, "B_I": B_I, "tol": tol, "seeds": tuple(seeds),
+            "caps": rows, "recommended_cap": recommended, "converged": converged,
+            "bias_estimate": bias}
 
 
 def _main(argv=None):
     import argparse
 
     p = argparse.ArgumentParser(description="Freeze the Eq.29 baseline table (B_I; L_I/default-PI).")
-    p.add_argument("command", choices=["freeze", "freeze-default"],
+    p.add_argument("command", choices=["freeze", "freeze-default", "calibrate"],
                    help="'freeze' = B_I from committed CSVs; 'freeze-default' = L_I/default-PI from "
-                        "CBQS-default seed-bank runs (bd 8an.1.16, needs cbqs + CBQS_BENCHMARKS_DIR).")
+                        "CBQS-default seed-bank runs (bd 8an.1.16); 'calibrate' = sweep opt_sample_cap "
+                        "on one instance to find the smallest faithful cap (bd 0o8). The latter two "
+                        "need cbqs + CBQS_BENCHMARKS_DIR.")
     p.add_argument("--bench-root", default=None,
                    help="CBQS-benchmarks clone root (else CBQS_BENCHMARKS_DIR).")
     p.add_argument("--out", default=None, help="output CSV path")
     p.add_argument("--allow-partial", action="store_true",
                    help="freeze from whichever CSVs are present (default: require both).")
-    p.add_argument("--frozen", default=None, help="frozen B_I table to read (freeze-default).")
+    p.add_argument("--frozen", default=None, help="frozen B_I table to read (freeze-default/calibrate).")
     p.add_argument("--sizes", default=None,
                    help="freeze-default: comma-separated n's to (re)compute (else all).")
     p.add_argument("--seeds", default=None,
-                   help="freeze-default: comma-separated master seed bank (else DEFAULT_SEED_BANK).")
+                   help="freeze-default/calibrate: comma-separated master seed bank (else DEFAULT_SEED_BANK).")
     p.add_argument("--num-workers", type=int, default=None,
-                   help="freeze-default: portfolio workers per solve (else solver default).")
+                   help="freeze-default/calibrate: portfolio workers per solve (else solver default).")
+    p.add_argument("--opt-sample-cap", type=int, default=0,
+                   help="freeze-default: classical Grover-round sample cap (bd 0o8). 0 (default) = exact "
+                        "FAITHFUL anchors; >0 = APPROXIMATE (large-n tractability) — calibrate it first.")
+    p.add_argument("--size", type=int, default=None, help="calibrate: instance size n.")
+    p.add_argument("--index", type=int, default=None, help="calibrate: instance index.")
+    p.add_argument("--caps", default=None,
+                   help="calibrate: comma-separated opt_sample_cap values to sweep (ascending).")
+    p.add_argument("--tol", type=float, default=DEFAULT_CALIBRATION_TOL,
+                   help=f"calibrate: relative default_PI convergence threshold (default {DEFAULT_CALIBRATION_TOL}).")
     args = p.parse_args(argv)
+    seeds = (tuple(int(s) for s in args.seeds.split(",")) if args.seeds else DEFAULT_SEED_BANK)
     if args.command == "freeze":
         out = freeze_baselines(bench_root=args.bench_root, out_path=args.out,
                                require_all=not args.allow_partial)
@@ -405,13 +566,26 @@ def _main(argv=None):
         print(f"Froze B_I for {len(table)} instances -> {out}")
     elif args.command == "freeze-default":
         sizes = ([int(s) for s in args.sizes.split(",")] if args.sizes else None)
-        seeds = (tuple(int(s) for s in args.seeds.split(",")) if args.seeds else DEFAULT_SEED_BANK)
         summary = freeze_default_anchors(seeds=seeds, bench_root=args.bench_root,
                                          frozen_path=args.frozen, out_path=args.out, sizes=sizes,
-                                         num_workers=args.num_workers, log=print)
+                                         num_workers=args.num_workers,
+                                         opt_sample_cap=args.opt_sample_cap, log=print)
+        approx = " [APPROXIMATE]" if summary.get("approximate") else ""
         print(f"freeze-default: {len(summary['ok'])} ok, {len(summary['dropped'])} dropped, "
               f"{len(summary['never_feasible'])} never-feasible, "
-              f"{len(summary['default_unreliable'])} unreliable -> {summary['out_path']}")
+              f"{len(summary['default_unreliable'])} unreliable, cap={summary.get('cap', 0)}{approx} "
+              f"-> {summary['out_path']}")
+    elif args.command == "calibrate":
+        if args.size is None or args.index is None or not args.caps:
+            p.error("calibrate requires --size, --index, and --caps")
+        caps = [int(c) for c in args.caps.split(",")]
+        res = calibrate_cap(args.size, args.index, caps=caps, seeds=seeds,
+                            bench_root=args.bench_root, frozen_path=args.frozen,
+                            num_workers=args.num_workers, tol=args.tol, log=print)
+        verdict = ("FAITHFUL ENOUGH" if res["converged"]
+                   else "NOT CONVERGED — use a larger cap / uncapped reference / batch compute")
+        print(f"calibrate ({res['n']},{res['index']}): recommended_cap={res['recommended_cap']} "
+              f"({verdict}); bias_estimate={res['bias_estimate']}")
 
 
 if __name__ == "__main__":
