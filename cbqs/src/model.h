@@ -4,6 +4,9 @@
 
 #ifndef IMPROVED_QUANTUM_SEARCH_MODEL_H
 #define IMPROVED_QUANTUM_SEARCH_MODEL_H
+#include <stdint.h>   /* int64_t qtg_applications (bd 9fi): depend on it directly,
+                       * not transitively via constraint.h, so an include reorder
+                       * can't silently break the field's declaration. */
 #include "state.h"
 #include "constraint.h"
 
@@ -34,7 +37,11 @@ typedef struct {
 	int reset_delta;
 	int max_delta;
     int solver;
-    int qtg_applications;
+    int64_t qtg_applications;   /* bd 9fi: post-parallel aggregation slot = max over
+                                 * workers of the per-worker size_t oracle_count. int64
+                                 * (not int) so a raw-API huge mod->M cannot truncate the
+                                 * aggregate or overflow the Cython assignment. Must stay in
+                                 * lockstep with Model.pxd's mirror (CLAUDE.md §1.2). */
     int max_worse_acceptances;
     int stopping_condition;
     int distance;

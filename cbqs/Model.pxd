@@ -24,7 +24,7 @@ cdef extern from "src/model.h":
 		int reset_delta;
 		int max_delta;
 		int solver
-		int qtg_applications
+		int64_t qtg_applications   # bd 9fi: int64 to mirror model.h (must match exactly)
 		int max_worse_acceptances;
 		int stopping_condition;
 		int distance;
