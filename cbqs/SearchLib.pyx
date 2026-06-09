@@ -124,6 +124,19 @@ def QSearch_wrapper(bfs: state_py, int M) -> tuple[state_py | None, int, int]:
 
 # define callback functionality ===============================
 
+# Per-thread callback dispatch (bd ta2). The callback used to live in a single
+# module-global `cdef object python_callback` that every joblib threading worker
+# overwrote before its nogil run, so last-writer-wins could route one worker's C
+# callback to another solve's Python callable -- the track_history=False direct
+# path, which (unlike _history_callback_fn) does not re-dispatch by ident, is the
+# exposed surface. threading.local keys the callback to the OS thread that
+# my_callback_c runs on. That is always the worker thread: ctg / local_search /
+# quantum_local_search invoke the callback synchronously on their own caller (no
+# internal pthread fan-out; the accept_best_routine worker pool is join-bounded
+# and never touches the callback), so each worker reads back exactly the callback
+# it installed.
+_callback_tls = threading.local()
+
 # Python-compatible C wrapper. Matches the M0e callback_t ABI void(void* ctx):
 # `ctx_ptr` is a solver_ctx_t* (or NULL from quantum_local_search). We read the
 # per-worker, never-reset ctx->oracle_count (M0d) and hand it to the Python
@@ -132,11 +145,9 @@ cdef void my_callback_c(void* ctx_ptr) with gil:
 	cdef unsigned long long oracle = 0
 	if ctx_ptr is not NULL:
 		oracle = <unsigned long long> (<solver_ctx_t*> ctx_ptr).oracle_count
-	if python_callback is not None:
-		python_callback(oracle)
-
-# python function to store the callback
-cdef object python_callback = None
+	cb = getattr(_callback_tls, 'python_callback', None)
+	if cb is not None:
+		cb(oracle)
 
 
 # Per-thread/per-solve callback state for thread-safe history tracking.
@@ -323,7 +334,6 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 	t_start: float = time.time()
 	t_total: float = 0
 	srand(randint(0, 10000000))
-	global python_callback
 
 	# Determine callback pointer based on track_history and user callback
 	cdef callback_t cb_ptr
@@ -376,10 +386,10 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		tid = threading.get_ident()
 		mode = mod.mod[0].solver
 		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
-		python_callback = _history_callback_fn
+		_callback_tls.python_callback = _history_callback_fn
 	elif callback is not None:
 		# Direct user callback without history wrapping; wrap to drop the M0e oracle arg.
-		python_callback = _drop_oracle_arg(callback)
+		_callback_tls.python_callback = _drop_oracle_arg(callback)
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -470,6 +480,9 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		# Clean up per-thread state
 		if track_history:
 			_solve_states.pop(threading.get_ident(), None)
+		# Release this thread's callback so a pooled thread doesn't retain the
+		# Model/closure across solves (bd ta2).
+		_callback_tls.python_callback = None
 		solver_ctx_free(ctx)
 
 
@@ -482,7 +495,6 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 	cdef state_t *st = cur_sol.state
 	cdef unsigned long long seed_used_local = 0
 	cdef double *bw_ptr_ls = NULL
-	global python_callback
 
 	# Determine callback pointer based on track_history and user callback
 	cdef callback_t cb_ptr
@@ -544,10 +556,10 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 		tid = threading.get_ident()
 		mode = mod.mod[0].solver
 		_solve_states[tid] = _SolveState(mod, callback, solve_start_time, mode)
-		python_callback = _history_callback_fn
+		_callback_tls.python_callback = _history_callback_fn
 	elif callback is not None:
 		# Direct user callback without history wrapping; wrap to drop the M0e oracle arg.
-		python_callback = _drop_oracle_arg(callback)
+		_callback_tls.python_callback = _drop_oracle_arg(callback)
 
 	# End preprocessing, start solve timing
 	preprocess_end = time_mod.monotonic()
@@ -576,6 +588,8 @@ cpdef run_local_search(Model mod, object callback, bint track_history=True, doub
 		# Clean up per-thread state
 		if track_history:
 			_solve_states.pop(threading.get_ident(), None)
+		# Release this thread's callback (bd ta2).
+		_callback_tls.python_callback = None
 		solver_ctx_free(ctx)
 
 cpdef run_quantum_local_search(initial: state_py,
@@ -587,9 +601,10 @@ cpdef run_quantum_local_search(initial: state_py,
                                int worker_id=0):
 	cdef state_t *st = initial.state
 	cdef size_t oracle_applications = 0
-	global python_callback
+	# Per-thread callback dispatch (bd ta2): this revived multi-worker public path
+	# is the live caller that turned the latent module-global race into a real one.
 	# Wrap the zero-arg user callback to the M0e (oracle:int)->None ABI (ctx is NULL here).
-	python_callback = _drop_oracle_arg(callback) if callback is not None else None
+	_callback_tls.python_callback = _drop_oracle_arg(callback) if callback is not None else None
 	cdef callback_t cb_ptr = <callback_t> my_callback_c
 
 	# bd 3c4: seed the thread-local PRNG (g_prng_state) that quantum_local_search
@@ -610,6 +625,8 @@ cpdef run_quantum_local_search(initial: state_py,
 		with nogil:
 			quantum_local_search(&obj.con, &con.con, st, distance, &oracle_applications, cb_ptr)
 	finally:
+		# Release this thread's callback (bd ta2).
+		_callback_tls.python_callback = None
 		solver_ctx_free(ctx)
 
 def set_predicted_params(mod, double bias, double branching_factor,
