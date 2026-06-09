@@ -28,6 +28,48 @@ import numpy as np
 from benchmarks.synthetic_eq29 import build_synthetic_model, make_matrices
 
 
+# --- M3 selection-size contract (bd 4zg / 8an.1.7; NORTHSTAR §4, §9) ----------
+# The radius lever is scale-stable only for n >= 100. n=10 (and any n < 100) sits
+# in the small-n compression regime (f≈0.5, ~38–56% radius compression, NORTHSTAR
+# §4): the covering constraint structurally forces more decisions at small n, so
+# realized radius ≈ f(n)·r drifts low. That is STRUCTURAL — the bias formula only
+# sets the per-free-variable flip probability and cannot recover it (bd 4zg). The
+# M3 population search must therefore EXCLUDE n < 100 from selection and iterate on
+# the scale-stable sizes. This is the single source of truth for that split,
+# consumed by scale_invariance_characterization.py and (later) the M3 agent loop;
+# tests/test_selection_sizes.py pins it so the exclusion cannot silently regress.
+# (n=10 remains a *drift control* in tests/test_scale_invariance.py, not an
+# asserted-invariant size.)
+SCALE_STABLE_MIN_N = 100    #: below this, realized radius compresses (bd 4zg)
+INNER_LOOP_MAX_N = 1000     #: iterate selection on scale-stable sizes up to here;
+                            #: validate on the near-target large sizes (>= this).
+
+
+def selection_sizes(sizes, *, inner_loop_max=INNER_LOOP_MAX_N):
+    """Partition candidate problem sizes into the M3 selection split (bd 4zg).
+
+    Excludes the small-n compression regime from selection. Returns a dict whose
+    lists preserve ``sizes`` input order:
+
+      * ``scale_stable``     — n >= ``SCALE_STABLE_MIN_N`` (radius lever invariant)
+      * ``inner_loop``       — scale-stable AND <= ``inner_loop_max`` (cheap sizes
+                               the population search scores every generation)
+      * ``validation``       — n >= ``inner_loop_max`` (near-target large sizes,
+                               scored less often; incl. the n=3000 calibration set)
+      * ``excluded_small_n`` — n < ``SCALE_STABLE_MIN_N`` (compression regime;
+                               never used for selection — a drift control only)
+
+    The default ``inner_loop_max`` reproduces the split that
+    scale_invariance_characterization.py emits (inner-loop = {n: 100<=n<=1000}).
+    """
+    return {
+        "scale_stable":     [n for n in sizes if n >= SCALE_STABLE_MIN_N],
+        "inner_loop":       [n for n in sizes if SCALE_STABLE_MIN_N <= n <= inner_loop_max],
+        "validation":       [n for n in sizes if n >= inner_loop_max],
+        "excluded_small_n": [n for n in sizes if n < SCALE_STABLE_MIN_N],
+    }
+
+
 def _per_worker_estimates(branch_diagnostics, n):
     """Per-worker (f, r_mean) estimates from a result's branch_diagnostics.
 

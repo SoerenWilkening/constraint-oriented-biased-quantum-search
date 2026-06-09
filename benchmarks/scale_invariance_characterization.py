@@ -28,7 +28,7 @@ import math
 import os
 import statistics
 
-from benchmarks.scale_invariance import collect_profiles, cross_n_summary
+from benchmarks.scale_invariance import collect_profiles, cross_n_summary, selection_sizes
 
 _PI_HOOK = (
     "PI variance is deferred to M1 (8an.2) + M0b-2 (8an.1.16): it needs the "
@@ -104,8 +104,11 @@ def characterize(sizes=(10, 100, 1000, 3000), n_instances=3, seeds=(0, 1),
             "noise_margin_proxy": ostat.get("obj_std"),
         }
 
-    # B. invariance regime (n≥100 scale-stable; n=10 = small-n compression).
-    big = [n for n in sizes if n >= 100]
+    # B. invariance regime + selection split from the bd 4zg selection_sizes
+    # contract (single source of truth; excludes the n<100 small-n compression
+    # regime). big == scale_stable (n≥100); n<100 = small-n compression.
+    sel = selection_sizes(sizes)
+    big = sel["scale_stable"]
     invariance = {
         "scale_stable_sizes": big,
         "f_rel_spread_big": cross_n_summary(
@@ -119,12 +122,13 @@ def characterize(sizes=(10, 100, 1000, 3000), n_instances=3, seeds=(0, 1),
         ),
     }
 
-    # Inner-loop vs validation size split (NORTHSTAR §9 splits / §11).
-    # Inner loop = the cheap, scale-stable sizes the population search iterates on;
-    # validation = the near-target large sizes scored less often.
+    # Inner-loop vs validation size split (NORTHSTAR §9 splits / §11), from the
+    # bd 4zg selection_sizes contract. Inner loop = the cheap, scale-stable sizes
+    # the population search iterates on; validation = the near-target large sizes
+    # scored less often.
     split = {
-        "inner_loop_sizes": [n for n in big if n <= 1000],
-        "validation_sizes": [n for n in sizes if n >= 1000],
+        "inner_loop_sizes": sel["inner_loop"],
+        "validation_sizes": sel["validation"],
         "rationale": (
             "Iterate on n≥100 sizes up to 1000 (scale-stable, cheap enough for "
             "many candidates); validate on the near-target large sizes "

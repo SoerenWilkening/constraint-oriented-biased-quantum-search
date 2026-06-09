@@ -30,7 +30,14 @@ def _cap_default_oracle_budget(request):
     if request.module.__name__ == "test_set_param":
         yield
         return
-    param_defs = sys.modules["cbqs.Model"]._PARAM_DEFS
+    model_mod = sys.modules.get("cbqs.Model")
+    if model_mod is None:
+        # A pure-Python test that never imports cbqs (e.g. the benchmark
+        # selection-size contract, bd 4zg) has no solve() default budget to
+        # cap — nothing to do.
+        yield
+        return
+    param_defs = model_mod._PARAM_DEFS
     original = param_defs["M"]["default"]
     param_defs["M"]["default"] = 200
     try:
