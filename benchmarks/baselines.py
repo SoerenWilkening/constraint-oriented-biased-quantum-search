@@ -291,7 +291,7 @@ def default_instance_anchors(results, B_I, n, T_I=None):
 
 
 def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers=None,
-                          verify=True, opt_sample_cap=0):
+                          verify=True, opt_sample_cap=0, vectorized=True):
     """Run the CBQS-DEFAULT schedule on one Eq.29 instance once per master seed (NORTHSTAR §6/§11).
 
     Default schedule = ``build_model`` + ``close()`` (auto ``branching_bias = n/4``) with NO custom
@@ -304,6 +304,14 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
     sample count to make large-n solves tractable. ``0`` (default) is the EXACT sim → a faithful
     anchor; ``>0`` is APPROXIMATE (rare improvers under-found) and only for the large-n freeze after
     calibration (:func:`calibrate_cap`). The oracle count is identical either way.
+
+    ``vectorized`` (default True) forces ``build_model``'s ``bilinear_reduce``/matmul build path
+    instead of letting it auto-select the O(n²) Python triple-loop below ``VECTORIZED_THRESHOLD``
+    (=1000). On the dense real Eq.29 instances the loop build is the freeze bottleneck below n=1000
+    (>2.5 min at n=500 vs ~0.9 s vectorized); the two paths build the SAME QCQP
+    (``eq29_loader.test_vectorized_matches_loop_terms`` / ``test_build_model_solves_consistent``), so
+    forcing it does not change the anchors — only the build wall-time. Pass False to keep the loop
+    path (e.g. to reproduce a legacy build exactly).
     """
     try:  # lazy: pulls in cbqs (the C extension) only when an actual solve is requested
         from eq29_loader import load_eq29, build_model
@@ -312,7 +320,7 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
     c1, c2, c3 = load_eq29(n, index, bench_root)
     results = []
     for seed in seeds:
-        m = build_model(c1, c2, c3)
+        m = build_model(c1, c2, c3, vectorized=vectorized)
         m.seed = int(seed)
         m.set_param("M", M)
         if num_workers is not None:
@@ -325,7 +333,7 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
 
 def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
                            out_path=None, sizes=None, run_fn=None, M=-1, num_workers=None,
-                           opt_sample_cap=0, log=None):
+                           opt_sample_cap=0, vectorized=True, log=None):
     """Fill L_I + default-PI in the frozen baseline table from CBQS-default seed-bank runs (bd 8an.1.16).
 
     Loads the frozen B_I table (*frozen_path*, default the committed ``baselines_frozen.csv``), runs
@@ -363,7 +371,7 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
         def run_fn(n, index, _seeds):
             return run_default_seed_bank(n, index, _seeds, bench_root=bench_root,
                                          M=M, num_workers=num_workers,
-                                         opt_sample_cap=opt_sample_cap)
+                                         opt_sample_cap=opt_sample_cap, vectorized=vectorized)
 
     out_rows = []
     summary = {"ok": [], "dropped": [], "never_feasible": [], "default_unreliable": [],
@@ -472,7 +480,8 @@ PI_EPS_FALLBACK = 1e-9
 
 
 def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
-                  num_workers=None, run_fn=None, tol=DEFAULT_CALIBRATION_TOL, log=None):
+                  num_workers=None, run_fn=None, tol=DEFAULT_CALIBRATION_TOL, vectorized=True,
+                  log=None):
     """Sweep ``opt_sample_cap`` on ONE Eq.29 instance and report where the default anchor converges.
 
     The large-n freeze blocker (bd 0o8) is the O(n·j²) classical Grover-round sim; capping the
@@ -503,7 +512,8 @@ def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, f
     if run_fn is None:
         def run_fn(_n, _i, _seeds, _cap):
             return run_default_seed_bank(_n, _i, _seeds, bench_root=bench_root,
-                                         num_workers=num_workers, opt_sample_cap=_cap)
+                                         num_workers=num_workers, opt_sample_cap=_cap,
+                                         vectorized=vectorized)
 
     rows = []
     for cap in sorted(set(int(c) for c in caps)):
@@ -557,6 +567,11 @@ def _main(argv=None):
                    help="calibrate: comma-separated opt_sample_cap values to sweep (ascending).")
     p.add_argument("--tol", type=float, default=DEFAULT_CALIBRATION_TOL,
                    help=f"calibrate: relative default_PI convergence threshold (default {DEFAULT_CALIBRATION_TOL}).")
+    p.add_argument("--no-vectorized-build", dest="vectorized", action="store_false",
+                   help="freeze-default/calibrate: use the O(n^2) Python build loop instead of the "
+                        "vectorized matmul path (slow on dense n<1000 instances; same QCQP — for "
+                        "reproducing a legacy build). Default: vectorized.")
+    p.set_defaults(vectorized=True)
     args = p.parse_args(argv)
     seeds = (tuple(int(s) for s in args.seeds.split(",")) if args.seeds else DEFAULT_SEED_BANK)
     if args.command == "freeze":
@@ -569,7 +584,8 @@ def _main(argv=None):
         summary = freeze_default_anchors(seeds=seeds, bench_root=args.bench_root,
                                          frozen_path=args.frozen, out_path=args.out, sizes=sizes,
                                          num_workers=args.num_workers,
-                                         opt_sample_cap=args.opt_sample_cap, log=print)
+                                         opt_sample_cap=args.opt_sample_cap,
+                                         vectorized=args.vectorized, log=print)
         approx = " [APPROXIMATE]" if summary.get("approximate") else ""
         print(f"freeze-default: {len(summary['ok'])} ok, {len(summary['dropped'])} dropped, "
               f"{len(summary['never_feasible'])} never-feasible, "
@@ -581,7 +597,8 @@ def _main(argv=None):
         caps = [int(c) for c in args.caps.split(",")]
         res = calibrate_cap(args.size, args.index, caps=caps, seeds=seeds,
                             bench_root=args.bench_root, frozen_path=args.frozen,
-                            num_workers=args.num_workers, tol=args.tol, log=print)
+                            num_workers=args.num_workers, tol=args.tol,
+                            vectorized=args.vectorized, log=print)
         verdict = ("FAITHFUL ENOUGH" if res["converged"]
                    else "NOT CONVERGED — use a larger cap / uncapped reference / batch compute")
         print(f"calibrate ({res['n']},{res['index']}): recommended_cap={res['recommended_cap']} "

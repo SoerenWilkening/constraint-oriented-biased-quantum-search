@@ -451,6 +451,48 @@ def test_calibrate_cap_requires_b_i(tmp_path):
         B.calibrate_cap(10, 0, caps=[10, 20], frozen_path=str(frozen), run_fn=lambda *a: [])
 
 
+class _FakeModel:
+    """Stand-in for cbqs.Model so the freeze-path build plumbing is testable without a clone."""
+    def __init__(self):
+        self.seed = 0
+
+    def set_param(self, *_a, **_k):
+        pass
+
+    def solve(self):
+        return types.SimpleNamespace(history=[(1, 1)], oracle_calls=1, objective=1)
+
+
+def _patch_build(monkeypatch, recorder):
+    """Patch eq29_loader.load_eq29/build_model; build records its `vectorized` kwarg."""
+    import eq29_loader as L
+    monkeypatch.setattr(L, "load_eq29", lambda n, i, br=None: ([[0]], [[0]], [[0]]))
+
+    def fake_build(c1, c2, c3, vectorized=None):
+        recorder.append(vectorized)
+        return _FakeModel()
+
+    monkeypatch.setattr(L, "build_model", fake_build)
+
+
+def test_run_default_seed_bank_forces_vectorized_by_default(monkeypatch):
+    """bd 0o8 build-path fix: the freeze forces build_model(vectorized=True) so dense n<1000
+    instances build via the fast matmul path (>2.5min O(n^2) loop at n=500 -> ~0.9s). The two
+    paths build the SAME QCQP (eq29_loader equivalence tests), so anchors are unchanged."""
+    seen = []
+    _patch_build(monkeypatch, seen)
+    B.run_default_seed_bank(500, 0, seeds=(0, 1))
+    assert seen == [True, True]  # one build per seed, all vectorized
+
+
+def test_run_default_seed_bank_vectorized_override(monkeypatch):
+    """vectorized=False keeps the legacy O(n^2) loop build (exact-reproduction escape hatch)."""
+    seen = []
+    _patch_build(monkeypatch, seen)
+    B.run_default_seed_bank(500, 0, seeds=(0,), vectorized=False)
+    assert seen == [False]
+
+
 _HAS_INSTANCES = bool(os.environ.get("CBQS_BENCHMARKS_DIR")) and os.path.isdir(
     os.path.join(os.environ.get("CBQS_BENCHMARKS_DIR", ""),
                  "Paper_general_constraints", "instances", "10_0"))
