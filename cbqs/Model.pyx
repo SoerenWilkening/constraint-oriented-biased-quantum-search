@@ -810,13 +810,19 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s)
 		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
 		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
 		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
 		# Write it once here, single-threaded, into the (now unwritten-by-ctg)
 		# qtg_applications slot so the result/property read a race-free value.
 		self.mod.qtg_applications = max((r[1] for r in res), default=0)
+		# bd lif: ctg now writes its wall-clock telemetry to the per-worker
+		# ctx->runtime (r[9]) instead of the racy shared mod->runtime. Reduce it
+		# max-over-workers (the portfolio finishes when the slowest worker does)
+		# once here, single-threaded, into the (now unwritten-by-ctg) mod->runtime
+		# slot so result.solve_time and the .runtime property read a race-free value.
+		self.mod.runtime = max((r[9] for r in res), default=0.0)
 		self.final_state = self.global_opt
 
 		# Per-worker FINAL incumbents (value, feasible) -- r[5] -- for §8.3

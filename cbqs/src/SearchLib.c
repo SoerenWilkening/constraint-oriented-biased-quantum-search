@@ -83,7 +83,8 @@ static void handle_signal(int signum) {
  *
  * Writes: ctx->oracle_count (per-worker, never reset -- the faithful oracle
  *             metric; replaces the racy shared mod->qtg_applications),
- *         mod->runtime (unprotected -- telemetry only; no longer gates),
+ *         ctx->runtime (per-worker wall-clock telemetry; replaces the racy
+ *             shared mod->runtime, reduced max-over-workers in solve() -- bd lif),
  *         mod->global_opt->tot_profit (mutex-protected via update_lock),
  *         mod->global_opt->vector (mutex-protected via update_lock),
  *         mod->global_opt->feasible (mutex-protected via update_lock),
@@ -211,7 +212,12 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 				&samples
 		);
         total_time = (cbqs_monotonic_ns() - t1_ns) / 1e9;
-        mod->runtime = total_time;
+        /* Per-worker wall-clock telemetry. Was `mod->runtime = total_time`, an
+         * unlocked write to a SHARED field that every threading worker raced on
+         * (last-writer-wins; CLAUDE.md §5, bd lif). ctx->runtime is per-worker so
+         * the write is race-free without locking, exactly like ctx->oracle_count;
+         * solve() reduces it max-over-workers into mod->runtime post-fan-out. */
+        ctx->runtime = total_time;
 		rounds++;
 
 		/* Periodic stop check (every 256 iterations) */

@@ -222,6 +222,46 @@ static void test_opt_switch_feasibility_gate(void **state) {
     free_model(mod);
 }
 
+/* ---------- bd lif: per-worker wall-clock telemetry (ctx->runtime) ---------- */
+
+/* ctg must record its wall-clock telemetry in the PER-WORKER ctx->runtime, never
+ * the shared mod->runtime. The old `mod->runtime = total_time` was an unlocked,
+ * last-writer-wins write executed every loop iteration by all threading workers
+ * (CLAUDE.md §5) -- the same race class as the qtg_applications counter fixed in
+ * 8an.1.4. Pin the invariant deterministically without needing TSan: seed the
+ * shared field with a sentinel, run ctg, and assert ctg left mod->runtime
+ * UNTOUCHED while populating a positive ctx->runtime. On HEAD (pre-fix) ctg
+ * overwrites mod->runtime, so mod->runtime != SENTINEL => this fails (RED). */
+static void test_ctg_runtime_per_worker(void **state) {
+    (void)state;
+    model_t *mod = build_knapsack_5var();
+    mod->M = 200;
+    const double SENTINEL = -42.0;
+    mod->runtime = SENTINEL;
+
+    int arr[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, arr, 5);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    assert_true(ctx->runtime == 0.0);   /* fresh ctx: telemetry zero-initialised */
+    ctx->seed = 0xC0FFEEULL;
+    solver_ctx_init_prng(ctx);
+
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+    ctg(ctx, mod, cur_sol, NULL, inc);
+
+    /* ctg must NOT touch the shared field -- the race is gone. */
+    assert_true(mod->runtime == SENTINEL);
+    /* ... and MUST record this worker's wall-clock in its own ctx: the run spent
+     * a 200-oracle budget over real search_function work, so elapsed > 0. */
+    assert_true(ctx->runtime > 0.0);
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 /* ---------- M0g (bd 8an.1.7): opt-phase branching diagnostics ---------- */
 
 /* All-decisions-FREE model: constraint sum x <= 1000 is always satisfiable both
@@ -353,6 +393,7 @@ int main(void) {
         cmocka_unit_test(test_init_incumbents),
         cmocka_unit_test(test_incumbents_initial_state),
         cmocka_unit_test(test_ctg_oracle_budget),
+        cmocka_unit_test(test_ctg_runtime_per_worker),
         cmocka_unit_test(test_opt_switch_feasibility_gate),
         cmocka_unit_test(test_csearch_opt_diagnostics_exact),
         cmocka_unit_test(test_csearch_opt_diagnostics_flips),

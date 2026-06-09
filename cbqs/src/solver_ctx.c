@@ -94,6 +94,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->num_threads_used = 0;
     ctx->worker_id = 0;
     ctx->oracle_count = 0;
+    ctx->runtime = 0.0;  /* bd lif: per-worker wall-clock telemetry (see solver_ctx.h) */
     /* Opt-phase branching diagnostics (M0g / bd 8an.1.7) — pure per-worker
      * observation counters, accumulated over the solve (see solver_ctx.h). */
     ctx->opt_candidates = 0;

@@ -342,7 +342,7 @@ class TestPerWorkerPRNGDecorrelation:
         m.reset()
         m.manual_initial(0, [0] * m.n)
         r = run_sampling(m, None, [1], True, 0.0, worker_id)
-        # r = (cur_sol, qtg, feasible, arr, t_total, incumb, history, prep, branch_diag)
+        # r = (cur_sol, qtg, feasible, arr, t_total, incumb, history, prep, branch_diag, worker_runtime_s)
         history = r[6]
         return tuple(value for (value, _elapsed) in history)
 

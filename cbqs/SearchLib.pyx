@@ -461,7 +461,11 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 			"opt_flip_sumsq": <unsigned long long> ctx.opt_flip_sumsq,
 			"opt_free_sum":   <unsigned long long> ctx.opt_free_sum,
 		}
-		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag
+		# Index 9 is this worker's own wall-clock telemetry (ctx.runtime, seconds;
+		# bd lif). Read here while ctx is still alive (the finally below frees it).
+		# solve() reduces it max-over-workers into mod->runtime, replacing the racy
+		# unlocked shared mod->runtime write ctg used to do every iteration.
+		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, <double> ctx.runtime
 	finally:
 		# Clean up per-thread state
 		if track_history:

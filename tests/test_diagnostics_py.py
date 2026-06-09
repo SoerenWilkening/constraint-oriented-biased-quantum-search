@@ -84,6 +84,22 @@ class TestSolveDiagnostics:
         assert result.preprocessing_time >= 0
         assert result.time > 0
 
+    def test_solve_time_is_race_free_aggregate(self):
+        """bd lif: ctg records wall-clock in the per-worker ctx->runtime; solve()
+        reduces it max-over-workers into mod->runtime, replacing the racy unlocked
+        shared write ctg used to do every iteration. The telemetry must still flow
+        end-to-end: a multi-worker solve yields a finite, non-negative solve_time,
+        and result.solve_time and the .runtime property read the same (now
+        race-free) post-fan-out value."""
+        import math
+        m = _build_knapsack_model()
+        _configure_solve(m, num_workers=4)
+        result = m.solve()
+        assert result.solve_time >= 0.0
+        assert math.isfinite(result.solve_time)
+        # Both read the single post-fan-out mod->runtime aggregate (race-free).
+        assert result.solve_time == pytest.approx(m.runtime * 1000.0)
+
     def test_result_has_oracle_calls(self):
         """result.oracle_calls >= 0."""
         m = _build_knapsack_model()

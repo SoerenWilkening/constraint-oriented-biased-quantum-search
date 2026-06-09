@@ -71,6 +71,14 @@ struct solver_ctx {
      *  mod->qtg_applications (NORTHSTAR §11, CLAUDE.md §1.2). */
     size_t oracle_count;
 
+    /** Per-worker wall-clock telemetry: seconds elapsed in this worker's ctg
+     *  call (monotonic clock). Replaces the racy shared mod->runtime, which ctg
+     *  wrote unlocked every loop iteration so all threading workers raced on it
+     *  (last-writer-wins; CLAUDE.md §5, same class as the oracle_count race fixed
+     *  in 8an.1.4). Pure telemetry — it never gates termination. solve() reduces
+     *  it max-over-workers post-fan-out into mod->runtime (bd lif). */
+    double runtime;
+
     /** Opt-phase branching diagnostics (M0g / bd 8an.1.7, NORTHSTAR §9).
      *  Per-worker observation counters accumulated over EVERY candidate the
      *  exploratory `opt` phase (CSearch_opt) generates — the phase where the
