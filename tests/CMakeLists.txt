@@ -24,6 +24,40 @@ set(CBQS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cbqs/src")
 option(ASAN "Enable AddressSanitizer" OFF)
 option(WERROR "Enable -Werror for strict warning compliance" OFF)
 
+# --- Sanitizer runtime smoke check (bd aft) ----------------------------------
+# Apple clang's compiler-rt SIGILLs at process startup on macOS 26+ (Darwin 25+):
+# every instrumented binary exits 132 before main, so the CLAUDE.md §7 local
+# sanitizer gate is SILENTLY non-functional (it reads as "all tests crash"). When
+# a sanitizer is requested, compile+run a trivial instrumented program at
+# configure time and fail LOUDLY with the remedy if the runtime can't start. On
+# Linux / a working toolchain (incl. CI) this passes silently.
+if(ASAN OR CMAKE_C_FLAGS MATCHES "-fsanitize")
+    include(CheckCSourceRuns)
+    if(ASAN)
+        set(CMAKE_REQUIRED_FLAGS "-fsanitize=address")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=address")
+    endif()
+    # Any -fsanitize=thread already lives in CMAKE_C_FLAGS, so the check inherits it.
+    check_c_source_runs("int main(void){return 0;}" CBQS_SANITIZER_RUNTIME_OK)
+    unset(CMAKE_REQUIRED_FLAGS)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(NOT CBQS_SANITIZER_RUNTIME_OK)
+        set(_san_hint "")
+        if(APPLE)
+            string(CONCAT _san_hint
+                "\n  macOS 26+ (Darwin 25+): Apple clang's sanitizer runtime is broken (bd aft)."
+                "\n  Use Homebrew LLVM clang (verified working) — reconfigure a fresh build dir with"
+                "\n      -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang"
+                "\n  or just run  tests/run_sanitizers.sh  (it selects the right compiler).")
+        endif()
+        message(FATAL_ERROR
+            "Sanitizer runtime fails to start with "
+            "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} (${CMAKE_C_COMPILER}): "
+            "a trivial instrumented program exits before main, so the gate would "
+            "report a spurious crash for every test.${_san_hint}")
+    endif()
+endif()
+
 # Helper function to create a CMocka test
 # Usage: add_cmocka_test(NAME test_source.c [extra_cbqs_sources...])
 function(add_cmocka_test NAME)

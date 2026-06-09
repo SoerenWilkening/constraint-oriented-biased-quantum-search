@@ -264,15 +264,26 @@ ctest --test-dir build-tests --output-on-failure    # ALL 21 targets — do this
 #   ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)"
 ```
 
-**Sanitizers — run the matching one before touching its code (see §3 core areas):**
+**Sanitizers — run the matching one before touching its code (see §3 core areas).**
+The one-command gate runs both and picks a working toolchain automatically:
+```bash
+tests/run_sanitizers.sh            # ASan (full) + TSan (thread_safety); also: asan | tsan
+```
+> **macOS (bd aft):** Apple clang's sanitizer runtime SIGILLs at startup on macOS 26+
+> (Darwin 25+) — every instrumented binary exits 132 *before* main, so the manual
+> `cmake` commands below need Homebrew LLVM clang (`brew install llvm`) via
+> `-DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang`. `run_sanitizers.sh` does this
+> for you; the CMake config also **fails loudly** with this remedy if a sanitizer
+> build is configured with the broken toolchain. Linux/CI are unaffected.
+
 ```bash
 # ASan (heap/UAF/leaks) — before memory-ownership changes (arena, dyn_expr, state, local_search):
-cmake -S tests -B build-asan -DASAN=ON -DWERROR=ON && cmake --build build-asan -j
+cmake -S tests -B build-asan -DASAN=ON -DWERROR=ON && cmake --build build-asan -j   # macOS: add -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
 ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 ctest --test-dir build-asan --output-on-failure
 
 # TSan (data races) — before touching solver_ctx, the threading workers, or the oracle counter:
 cmake -S tests -B build-tsan -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+  -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"   # macOS: -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
 cmake --build build-tsan -j && TSAN_OPTIONS=halt_on_error=1 ctest --test-dir build-tsan -R test_thread_safety -V
 
 # Valgrind (definite leaks / invalid access) — Expression/Constraint/state/local_search/solver:
