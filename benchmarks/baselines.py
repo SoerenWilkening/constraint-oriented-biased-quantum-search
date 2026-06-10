@@ -550,15 +550,115 @@ def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, f
             "bias_estimate": bias}
 
 
+# --------------------------------------------------------------------------- #
+# §8.3 floor calibration (M1 exit: "floor calibrated"; bd 8an.2)
+# --------------------------------------------------------------------------- #
+
+FLOOR_CALIBRATION_CSV = os.path.join(os.path.dirname(__file__), "floor_calibration.csv")
+
+
+def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
+                    num_workers=None, run_fn=None, vectorized=True, out_path=None, log=None):
+    """Measure the §8.3 floor's real-data operating point per size (M1 "floor calibrated").
+
+    The floor gates a candidate's per-portfolio lift (best_of_P − median_of_P) against
+    ``fraction · spread_obj[n]`` — but the two quantities live on different estimators (per-portfolio
+    lift vs. pooled per-instance IQR), so ``EXPLORE_FLOOR_FRACTION`` cannot be chosen a priori: too
+    high and the DEFAULT fails its own floor (the capstone's neutral-reference sanity — a candidate
+    identical to the default must tie, not fail), too low and the anti-greedy gate loses bite.
+
+    Per size: run the CBQS-default seed bank over the frozen-anchored instances, then reuse the
+    metric's own producers — ``default_objective_spreads`` for ``spread_obj`` and ``_aggregate_floor``
+    (at ``fraction=0``) for the per-instance MEDIAN per-portfolio lifts — as the single source of
+    truth (no re-implementation of LEVEL 1/2a). Report per size::
+
+        max_admissible_fraction = min_instance_lift / spread_obj
+
+    Any ``EXPLORE_FLOOR_FRACTION`` strictly below the MINIMUM of that over measurable sizes keeps
+    the default passing its own floor everywhere it is evaluable (FLOOR_INSTANCE_FRACTION = 1.0).
+    Sizes the default converges on (no measurable spread — bd 7zx) are recorded ``unmeasurable``;
+    the floor skips them by design. Writes the artifact CSV (default
+    ``benchmarks/floor_calibration.csv``) for §13 one-command replay.
+
+    ``run_fn(n, index, seeds) -> list[OptimizeResult]`` is injectable (tests).
+    Returns {"per_size": {n: {...}}, "max_admissible_fraction": float|None, "out_path": str}.
+    """
+    _log = log or (lambda *_a, **_k: None)
+    try:
+        from metric import default_objective_spreads, _aggregate_floor
+    except ImportError:  # pragma: no cover - package import
+        from benchmarks.metric import default_objective_spreads, _aggregate_floor
+    frozen_path = frozen_path or os.path.join(os.path.dirname(__file__), "baselines_frozen.csv")
+    out_path = out_path or FLOOR_CALIBRATION_CSV
+    table = load_frozen_baselines(frozen_path)
+    if run_fn is None:
+        def run_fn(_n, _i, _seeds):
+            return run_default_seed_bank(_n, _i, _seeds, bench_root=bench_root,
+                                         num_workers=num_workers, vectorized=vectorized)
+
+    per_size = {}
+    for n in sorted(set(int(s) for s in sizes)):
+        keys = sorted(k for k in table if k[0] == n and table[k].get("L_I") is not None)
+        if not keys:
+            _log(f"n={n}: no anchored instances in {frozen_path} — skipped")
+            continue
+        runs = {}
+        t0 = time.perf_counter()
+        for key in keys:
+            runs[key] = run_fn(key[0], key[1], seeds)
+        wall = time.perf_counter() - t0
+        spreads = default_objective_spreads(runs)
+        floor = _aggregate_floor(runs, spreads, fraction=0.0, default_sizes={n})
+        rec = floor["per_size"][n]
+        if rec.get("skipped"):
+            per_size[n] = {"n_instances": len(keys), "spread_obj": None, "min_lift": None,
+                           "median_lift": None, "max_admissible_fraction": None,
+                           "status": "unmeasurable", "wall_s": wall}
+            _log(f"n={n}: UNMEASURABLE (default converged — no objective-space spread) "
+                 f"[{len(keys)} instances, {wall:.0f}s]")
+            continue
+        lifts = [v for v in rec["instance_lifts"].values() if v is not None]
+        spread_obj = rec["spread_obj"]
+        min_lift = min(lifts) if lifts else None
+        med_lift = float(statistics.median(lifts)) if lifts else None
+        max_frac = (min_lift / spread_obj) if (min_lift is not None and spread_obj) else None
+        per_size[n] = {"n_instances": len(keys), "spread_obj": spread_obj, "min_lift": min_lift,
+                       "median_lift": med_lift, "max_admissible_fraction": max_frac,
+                       "status": "ok" if max_frac else "no_lift", "wall_s": wall}
+        _log(f"n={n}: spread_obj={spread_obj:.1f} min_lift={min_lift} median_lift={med_lift} "
+             f"max_admissible_fraction={max_frac if max_frac is None else round(max_frac, 4)} "
+             f"[{len(keys)} instances, {wall:.0f}s]")
+
+    measurable = [v["max_admissible_fraction"] for v in per_size.values()
+                  if v["max_admissible_fraction"]]
+    overall = min(measurable) if measurable else None
+    with open(out_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["size", "n_instances", "spread_obj", "min_lift", "median_lift",
+                    "max_admissible_fraction", "status"])
+        for n in sorted(per_size):
+            v = per_size[n]
+            w.writerow([n, v["n_instances"],
+                        "" if v["spread_obj"] is None else v["spread_obj"],
+                        "" if v["min_lift"] is None else v["min_lift"],
+                        "" if v["median_lift"] is None else v["median_lift"],
+                        "" if v["max_admissible_fraction"] is None else v["max_admissible_fraction"],
+                        v["status"]])
+    _log(f"-> max admissible EXPLORE_FLOOR_FRACTION over measurable sizes: "
+         f"{overall if overall is None else round(overall, 4)} -> {out_path}")
+    return {"per_size": per_size, "max_admissible_fraction": overall, "out_path": out_path}
+
+
 def _main(argv=None):
     import argparse
 
     p = argparse.ArgumentParser(description="Freeze the Eq.29 baseline table (B_I; L_I/default-PI).")
-    p.add_argument("command", choices=["freeze", "freeze-default", "calibrate"],
+    p.add_argument("command", choices=["freeze", "freeze-default", "calibrate", "calibrate-floor"],
                    help="'freeze' = B_I from committed CSVs; 'freeze-default' = L_I/default-PI from "
                         "CBQS-default seed-bank runs (bd 8an.1.16); 'calibrate' = sweep opt_sample_cap "
-                        "on one instance to find the smallest faithful cap (bd 0o8). The latter two "
-                        "need cbqs + CBQS_BENCHMARKS_DIR.")
+                        "on one instance to find the smallest faithful cap (bd 0o8); 'calibrate-floor' "
+                        "= measure the §8.3 floor operating point per size (M1, bd 8an.2). All but "
+                        "'freeze' need cbqs + CBQS_BENCHMARKS_DIR.")
     p.add_argument("--bench-root", default=None,
                    help="CBQS-benchmarks clone root (else CBQS_BENCHMARKS_DIR).")
     p.add_argument("--out", default=None, help="output CSV path")
@@ -616,6 +716,15 @@ def _main(argv=None):
                    else "NOT CONVERGED — use a larger cap / uncapped reference / batch compute")
         print(f"calibrate ({res['n']},{res['index']}): recommended_cap={res['recommended_cap']} "
               f"({verdict}); bias_estimate={res['bias_estimate']}")
+    elif args.command == "calibrate-floor":
+        if not args.sizes:
+            p.error("calibrate-floor requires --sizes")
+        floor_sizes = [int(s) for s in args.sizes.split(",")]
+        res = calibrate_floor(sizes=floor_sizes, seeds=seeds, bench_root=args.bench_root,
+                              frozen_path=args.frozen, num_workers=args.num_workers,
+                              vectorized=args.vectorized, out_path=args.out, log=print)
+        print(f"calibrate-floor: max admissible EXPLORE_FLOOR_FRACTION = "
+              f"{res['max_admissible_fraction']} -> {res['out_path']}")
 
 
 if __name__ == "__main__":

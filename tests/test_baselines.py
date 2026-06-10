@@ -559,3 +559,42 @@ def test_real_baselines_sane():
         assert method in B.BI_METHODS, f"B_I method {method} is not a non-CBQS primal solver"
     sizes = {s for (s, _) in b_i}
     assert {10, 100, 1000, 3000}.issubset(sizes), f"missing paper sizes; got {sorted(sizes)}"
+
+
+def test_calibrate_floor_artifact_and_admissible_fraction(tmp_path, monkeypatch):
+    """M1 'floor calibrated' (bd 8an.2): calibrate_floor measures, per size, the default's own
+    per-portfolio lift vs the pooled objective-space spread — via the metric's own producers —
+    and reports max_admissible_fraction = min_lift/spread_obj. EXPLORE_FLOOR_FRACTION must sit
+    strictly below the minimum over measurable sizes, else the DEFAULT fails its own §8.3 floor
+    (the capstone's neutral-reference sanity). Converged sizes are recorded unmeasurable."""
+    frozen = tmp_path / "frozen.csv"
+    with open(frozen, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["size", "index", "B_I", "B_I_method", "L_I", "default_PI"])
+        w.writerow([10, 0, 100, "hexaly", 1, 0.5])     # anchored -> calibrated
+        w.writerow([20, 0, 100, "hexaly", 1, 0.5])     # anchored, converged portfolio
+        w.writerow([30, 0, 100, "hexaly", "", ""])     # NOT anchored -> excluded
+
+    def fake_run(n, _i, seeds):
+        if n == 10:
+            # two seeds, per-portfolio finals: lifts (best - median) = 10 and 20.
+            return [types.SimpleNamespace(final_incumbents=[(100, True), (90, True), (80, True)], seed=1),
+                    types.SimpleNamespace(final_incumbents=[(120, True), (100, True), (95, True)], seed=2)]
+        # n == 20: fully converged portfolio -> IQR 0 -> unmeasurable.
+        return [types.SimpleNamespace(final_incumbents=[(90, True), (90, True), (90, True)], seed=1)]
+
+    out = B.calibrate_floor(sizes=[10, 20, 30], run_fn=fake_run,
+                            frozen_path=str(frozen), out_path=str(tmp_path / "floor.csv"))
+    rec10 = out["per_size"][10]
+    # spread([100,90,80,120,100,95]) pooled per instance; lifts median over 2 seeds = 15.
+    assert rec10["status"] == "ok" and rec10["spread_obj"] > 0
+    assert rec10["min_lift"] == pytest.approx(15.0)   # median(10, 20)
+    assert rec10["max_admissible_fraction"] == pytest.approx(15.0 / rec10["spread_obj"])
+    assert out["per_size"][20]["status"] == "unmeasurable"
+    assert 30 not in out["per_size"]                   # un-anchored sizes are excluded
+    assert out["max_admissible_fraction"] == pytest.approx(rec10["max_admissible_fraction"])
+    # artifact round-trips
+    with open(tmp_path / "floor.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert {r["size"] for r in rows} == {"10", "20"}
+    assert [r for r in rows if r["size"] == "20"][0]["status"] == "unmeasurable"

@@ -996,3 +996,55 @@ def test_score_verdict_partial_freeze_stratum_recorded_not_raised():
     assert (3000, 0) not in out["candidate_PI"]          # excluded — no default anchor to compare
     assert (3000, 0) not in out["default_PI"]            # never coerced to a 0 anchor
     assert "overall_pass" in out
+
+
+def test_floor_default_lift_aware_instance_evaluability():
+    # M1 floor calibration (bd 8an.2, NORTHSTAR §8.3): an instance is floor-EVALUABLE iff the
+    # DEFAULT itself passes the floor there (its median per-portfolio lift exceeds the threshold).
+    # Real-Eq.29 calibration showed default diversity emerges with n (n<=40 strata all contain
+    # zero-lift default instances), so under all-instances gating NO positive fraction lets the
+    # neutral reference pass its own gate. Evaluability-by-reference fixes that STRUCTURALLY
+    # (default-vs-default passes at any fraction) while keeping the anti-greedy bite: a collapsed
+    # candidate still fails every instance where the default demonstrated diversity. Evaluability
+    # depends only on the reference data — no candidate gaming surface.
+    spread = {10: 10.0}                                  # threshold = 0.5 * 10 = 5
+    diverse = [(100, True), (90, True), (80, True)]      # lift 10 > 5
+    converged = [(90, True), (90, True), (90, True)]     # lift 0
+    default_lifts = {(10, 0): 0.0, (10, 1): 10.0}        # default converged on 0, diverse on 1
+    cand = {(10, 0): [_result(final_incumbents=list(converged))],
+            (10, 1): [_result(final_incumbents=list(diverse))]}
+    out = _aggregate_floor(cand, spread, fraction=0.5, default_sizes={10},
+                           default_lifts=default_lifts)
+    rec = out["per_size"][10]
+    assert rec["skipped_instances"] == [(10, 0)]         # not penalized where the reference had none
+    assert rec["n_instances_evaluable"] == 1 and rec["n_instances_passing"] == 1
+    assert rec["stratum_pass"] is True and out["overall_pass"] is True
+    # anti-greedy bite kept: a collapsed candidate fails the evaluable instance.
+    greedy = {(10, 0): [_result(final_incumbents=list(converged))],
+              (10, 1): [_result(final_incumbents=list(converged))]}
+    out2 = _aggregate_floor(greedy, spread, fraction=0.5, default_sizes={10},
+                            default_lifts=default_lifts)
+    assert out2["per_size"][10]["stratum_pass"] is False and out2["overall_pass"] is False
+    # NO evaluable instance at all -> recorded stratum skip (not pass, not fail).
+    out3 = _aggregate_floor(greedy, spread, fraction=0.5, default_sizes={10},
+                            default_lifts={(10, 0): 0.0, (10, 1): None})
+    assert out3["per_size"][10]["skipped"] is True and out3["skipped_sizes"] == [10]
+
+
+def test_score_verdict_default_passes_own_floor_structurally():
+    # Neutral-reference sanity (M1 capstone property): default-vs-default passes the §8.3 floor
+    # BY CONSTRUCTION — evaluability is "default passes there", so the default can never fail
+    # its own gate, at any fraction, even with converged instances mixed into the stratum.
+    pi = {0: 0.5, 1: 0.6, 2: 0.7}
+    obj = {0: 50, 1: 40, 2: 30}
+    fincs = {0: [(90, True), (90, True), (90, True)],          # converged instance
+             1: [(100, True), (90, True), (80, True)],         # diverse
+             2: [(120, True), (100, True), (95, True)]}        # diverse
+    baselines = {(10, i): _bl(default_PI=pi[i]) for i in range(3)}
+    runset = {(10, i): _bank(obj[i], list(fincs[i])) for i in range(3)}
+    out = score_verdict(runset, runset, baselines, require_largest_n=False, strict_xcheck=True)
+    rec = out["floor"]["per_size"][10]
+    assert (10, 0) in rec["skipped_instances"]                  # converged -> not evaluable
+    assert rec["stratum_pass"] is True
+    assert out["floor"]["overall_pass"] is True
+    assert out["overall_pass"] is True                          # ties pass gate B; floor structural
