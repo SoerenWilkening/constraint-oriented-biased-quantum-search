@@ -481,7 +481,7 @@ def test_run_default_seed_bank_forces_vectorized_by_default(monkeypatch):
     paths build the SAME QCQP (eq29_loader equivalence tests), so anchors are unchanged."""
     seen = []
     _patch_build(monkeypatch, seen)
-    B.run_default_seed_bank(500, 0, seeds=(0, 1))
+    B.run_default_seed_bank(500, 0, seeds=(1, 2))
     assert seen == [True, True]  # one build per seed, all vectorized
 
 
@@ -489,8 +489,25 @@ def test_run_default_seed_bank_vectorized_override(monkeypatch):
     """vectorized=False keeps the legacy O(n^2) loop build (exact-reproduction escape hatch)."""
     seen = []
     _patch_build(monkeypatch, seen)
-    B.run_default_seed_bank(500, 0, seeds=(0,), vectorized=False)
+    B.run_default_seed_bank(500, 0, seeds=(1,), vectorized=False)
     assert seen == [False]
+
+
+def test_seed_bank_rejects_entropy_seed_zero(monkeypatch):
+    """bd cjz: Model seed 0 means 'auto-generate from entropy' — a non-reproducible trajectory
+    whose result still reports the REQUESTED seed, so matched-seed checks downstream are blind
+    to it. A seed bank exists to be replayed (§13): run_default_seed_bank must fail loud on a
+    0 (or negative) member, and the canonical DEFAULT_SEED_BANK must not contain one."""
+    assert 0 not in B.DEFAULT_SEED_BANK
+    assert all(s >= 1 for s in B.DEFAULT_SEED_BANK)
+    assert len(B.DEFAULT_SEED_BANK) % 2 == 1  # odd: single-value median (see bank docstring)
+    seen = []
+    _patch_build(monkeypatch, seen)
+    with pytest.raises(ValueError, match="entropy"):
+        B.run_default_seed_bank(500, 0, seeds=(0, 1))
+    with pytest.raises(ValueError, match="entropy"):
+        B.run_default_seed_bank(500, 0, seeds=(-3,))
+    assert seen == []  # rejected before any build/solve
 
 
 _HAS_INSTANCES = bool(os.environ.get("CBQS_BENCHMARKS_DIR")) and os.path.isdir(
@@ -504,7 +521,7 @@ def test_real_default_anchors_n10_end_to_end():
     is one of the valid kinds, and any computed default_PI sits in the metric's [-0.5, 1] range.
     Uses the real T(n) budget (M=-1) — n=10 is trivially cheap (NORTHSTAR §1.2: never a capped M)."""
     pytest.importorskip("cbqs")
-    results = B.run_default_seed_bank(10, 0, seeds=(0, 1, 2), M=-1, num_workers=2)
+    results = B.run_default_seed_bank(10, 0, seeds=(1, 2, 3), M=-1, num_workers=2)
     # harness contract: every history is feasible-only and oracle-ascending.
     for r in results:
         oracles = [o for (_v, o) in r.history]

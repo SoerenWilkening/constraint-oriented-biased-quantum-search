@@ -233,7 +233,11 @@ def load_frozen_baselines(path):
 #: "median over a fixed bank of default seeds"). Odd count so the per-instance median is a single
 #: middle value — no even-length averaging that could land the default-PI on the +∞ never-feasible
 #: sentinel. Each seed is one best-of-portfolio default solve.
-DEFAULT_SEED_BANK = (0, 1, 2, 3, 4, 5, 6)
+#: bd cjz: MUST NOT contain 0 — Model seed 0 means "auto-generate from entropy"
+#: (solver_ctx_init_prng), so a 0 member silently makes the bank non-reproducible
+#: (the June-8 freeze carried entropy noise from its seed-0 member). The pre-cjz
+#: bank was (0..6); anchors frozen with it are not one-command replayable (§13).
+DEFAULT_SEED_BANK = (1, 2, 3, 4, 5, 6, 7)
 
 
 def first_feasible_objective(result):
@@ -317,6 +321,15 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
         from eq29_loader import load_eq29, build_model
     except ImportError:  # pragma: no cover - package import
         from benchmarks.eq29_loader import load_eq29, build_model
+    bad = [s for s in seeds if int(s) <= 0]
+    if bad:
+        # bd cjz: Model seed 0 = entropy-seeded (non-reproducible trajectory) and the
+        # result still REPORTS the requested seed, so matched-seed checks can't catch
+        # it downstream. A seed bank exists to be replayed — fail loud (§2.1/§13),
+        # before any solve is wasted.
+        raise ValueError(
+            f"seed bank contains {bad!r}: Model seed 0 means 'auto-generate from "
+            f"entropy', which is non-reproducible — use seeds >= 1 (bd cjz).")
     c1, c2, c3 = load_eq29(n, index, bench_root)
     results = []
     for seed in seeds:
