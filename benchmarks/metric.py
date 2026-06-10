@@ -791,17 +791,27 @@ def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_F
     seeds → the stratum fails: the provable anti-greedy rejection §8.3 demands. A size the default
     covers but the candidate OMITS fails (anti-dodge; mirrors :func:`aggregate_stratified`'s size union).
 
-    RAISES if a gated stratum has feasible candidate workers but no objective-space spread (cannot
-    normalize), or if NO candidate solve in a default-covered stratum emitted ``final_incumbents`` at
-    all (the M0e harness dependency — never a silent pass).
+    RAISES if NO candidate solve in a default-covered stratum emitted ``final_incumbents`` at all
+    (the M0e harness dependency — never a silent pass).
+
+    CONVERGED-DEFAULT SKIP (bd 7zx): a stratum where the DEFAULT has no measurable objective-space
+    diversity (``spreads_obj`` omits the size — converged portfolio, per-instance IQR 0) makes the
+    floor UNEVALUABLE: its threshold is defined relative to the default's spread (§8.3 "fraction of
+    the default schedule's measured spread at the same n"). Such a stratum is recorded as an explicit
+    skip (``stratum_pass`` None, surfaced in ``skipped_sizes``) — never a silent 0-threshold pass
+    (the 8an.2.1 finding-7 hole) and never a raise (which made ANY run-set containing a converged
+    size unscorable, including default-vs-default — the neutral reference must always score).
+    Quality at a skipped size is still gated by the §6.6 PI aggregation. Real-Eq.29 calibration:
+    n=10 defaults converge (floor skipped); n>=20 has measurable spreads (floor evaluable).
 
     candidate_results : {(size,index): list[OptimizeResult-like]} (normalized) ;
     spreads_obj : {size: float} (:func:`default_objective_spreads`) ; default_sizes : iterable[size].
-    Returns {"overall_pass": bool, "per_size": {size: {...}}}.
+    Returns {"overall_pass": bool, "per_size": {size: {...}}, "skipped_sizes": [size]}.
     """
     cand_sizes = {s for (s, _i) in candidate_results}
     all_sizes = sorted(cand_sizes | set(default_sizes))
     per_size = {}
+    skipped_sizes = []
     overall_pass = True
     for size in all_sizes:
         keys = [k for k in candidate_results if k[0] == size]
@@ -824,11 +834,18 @@ def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_F
                 f"M0e harness must emit result.final_incumbents (NORTHSTAR §11); cannot pass silently."
             )
         if spread_obj is None and any_feasible:
-            raise ValueError(
-                f"§8.3 floor: objective-space default spread for n={size} is None (the default produced "
-                f"<2 feasible final incumbents there) but the candidate has feasible workers — cannot "
-                f"normalize the lift; freeze a default spread or fix the run-set (fail loud, §2.1)."
-            )
+            # bd 7zx: the default has no measurable objective-space diversity at this size →
+            # the floor's threshold (fraction · default spread) is undefined. Record an explicit
+            # skip: not failed (default-vs-default must score), not silently passed (no 0-threshold
+            # admitting near-greedy lifts — the 8an.2.1 finding-7 hole). §6.6 still gates this size.
+            per_size[size] = {"n_instances": len(keys), "n_instances_passing": 0,
+                              "instance_pass_fraction": None, "instance_lifts": {},
+                              "per_seed_lift": {}, "threshold": None, "spread_obj": None,
+                              "stratum_pass": None, "skipped": True,
+                              "reason": ("default has no measurable objective-space diversity "
+                                         "(converged portfolio) — floor unevaluable at this size")}
+            skipped_sizes.append(size)
+            continue
         threshold = (fraction * spread_obj) if spread_obj is not None else None
         instance_lifts = {}
         per_seed_lift = {}
@@ -859,7 +876,7 @@ def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_F
                           "spread_obj": spread_obj, "stratum_pass": stratum_pass}
         if not stratum_pass:
             overall_pass = False
-    return {"overall_pass": overall_pass, "per_size": per_size}
+    return {"overall_pass": overall_pass, "per_size": per_size, "skipped_sizes": skipped_sizes}
 
 
 def score_verdict(candidate_results, default_results, baselines, *, k=NOISE_MARGIN_K,

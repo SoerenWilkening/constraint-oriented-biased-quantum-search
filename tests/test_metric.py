@@ -720,10 +720,15 @@ def test_aggregate_floor_absent_candidate_stratum_fails():
     assert out["overall_pass"] is False
 
 
-def test_aggregate_floor_raises_on_none_spread_when_needed():
+def test_aggregate_floor_skips_on_none_spread_when_needed():
+    # bd 7zx: feasible workers but no objective-space default spread → the floor is unevaluable at
+    # that size (threshold is relative to the default spread). Recorded skip, never a raise (would
+    # make default-vs-default unscorable) and never a 0-threshold pass.
     cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])]}
-    with pytest.raises(ValueError):  # feasible workers but no objective spread → cannot normalize
-        _aggregate_floor(cand, {}, fraction=0.5, default_sizes={10})
+    out = _aggregate_floor(cand, {}, fraction=0.5, default_sizes={10})
+    assert out["per_size"][10]["skipped"] is True
+    assert out["per_size"][10]["stratum_pass"] is None
+    assert out["skipped_sizes"] == [10] and out["overall_pass"] is True
 
 
 def test_aggregate_floor_raises_when_no_final_incumbents():
@@ -914,16 +919,46 @@ def test_check_matched_seeds_rejects_duplicate_and_reweighted_banks():
     _check_matched_seeds({(10, 0): [_result(seed=2), _result(seed=0), _result(seed=1)]}, honest)
 
 
-def test_default_objective_spreads_absent_when_iqr_zero_and_floor_cannot_pass():
-    # Finding 7 (the anti-greedy hole): ≥2 IDENTICAL feasible incumbents give IQR 0, which must be
-    # treated as "no measurable diversity" → size ABSENT (not 0.0), so the floor's None-guard fires
-    # rather than a 0.0 threshold admitting any near-greedy candidate lift > 0.
+def test_default_objective_spreads_absent_when_iqr_zero_and_floor_skips_recorded():
+    # Finding 7 (the anti-greedy hole) + bd 7zx: ≥2 IDENTICAL feasible incumbents give IQR 0, which
+    # must be treated as "no measurable diversity" → size ABSENT (not 0.0). The floor at such a size
+    # is UNEVALUABLE (its threshold is relative to the default's spread): it must be recorded as an
+    # explicit skip (stratum_pass None, surfaced in skipped_sizes) — NEVER a silent 0.0-threshold
+    # pass (the original finding-7 hole) and NEVER a raise (which made default-vs-default unscorable
+    # on real Eq.29: n=10 default portfolios converge — pooled per-instance IQR 0 — so ANY run-set
+    # containing n=10 blew up mid-verdict; the neutral reference must always be scoreable).
     converged = {(10, 0): [_result(final_incumbents=[(90, True), (90, True), (90, True)])]}
     spreads = default_objective_spreads(converged)
     assert 10 not in spreads
     near_greedy = {(10, 0): [_result(final_incumbents=[(90.000001, True), (90, True), (90, True)])]}
-    with pytest.raises(ValueError):           # spread absent + feasible workers → fail loud, no silent pass
-        _aggregate_floor(near_greedy, spreads, fraction=0.5, default_sizes={10})
+    out = _aggregate_floor(near_greedy, spreads, fraction=0.5, default_sizes={10})
+    rec = out["per_size"][10]
+    assert rec["skipped"] is True
+    assert rec["stratum_pass"] is None        # not passed — the near-greedy lift was never admitted
+    assert "diversity" in rec["reason"]
+    assert out["skipped_sizes"] == [10]
+    assert out["overall_pass"] is True        # nothing evaluable failed; §6.6 still gates this size
+
+
+def test_score_verdict_scores_converged_default_end_to_end():
+    # bd 7zx sanity property: default-vs-default must ALWAYS be scoreable. A fully-converged default
+    # portfolio (identical finals → no objective-space spread) skips the floor at that size with the
+    # skip recorded, and the verdict completes on the §6.6 gates alone.
+    converged_fincs = [(90, True), (90, True), (90, True)]
+    # distinct frozen PIs per instance (a degenerate all-equal population would correctly trip the
+    # bd 1xa zero-margin guard — a separate, intended failure mode); γ(obj) = (100-obj)/100.
+    pi = {0: 0.5, 1: 0.6, 2: 0.7}
+    obj = {0: 50, 1: 40, 2: 30}
+    baselines = {(10, i): _bl(default_PI=pi[i]) for i in range(3)}
+    runset = {(10, i): _bank(obj[i], list(converged_fincs)) for i in range(3)}
+    out = score_verdict(runset, runset, baselines, require_largest_n=False, strict_xcheck=True)
+    rec = out["floor"]["per_size"][10]
+    assert rec["skipped"] is True and rec["stratum_pass"] is None
+    assert out["floor"]["skipped_sizes"] == [10]
+    assert out["floor"]["overall_pass"] is True
+    # ties everywhere → no wins, no regressions; the verdict is computable and gate B holds.
+    assert out["aggregation"]["per_size"][10]["gate_B_pass"] is True
+    assert out["default_xcheck_failures"] == []
 
 
 def test_score_verdict_xcheck_flags_feasibility_mismatch():
