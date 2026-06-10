@@ -237,17 +237,43 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
 # --------------------------------------------------------------------------- #
 
 def require_verified(results, *, context):
-    """FAIL LOUD if any verify=True result failed post-solve verification (§2.1).
+    """FAIL LOUD if any reported-FEASIBLE result failed post-solve verification (§2.1).
 
     The M2e lesson (bd 8an.3.5): with ``variable_order`` set, the C look-ahead
     keys clause-closure on the NATURAL index while traversal uses var_order, so
     the solver can accept ``eval_constraints``-violating states as "feasible" —
     the run then reports inflated, frontier-beating objectives that the metric
-    happily scores. ``result.verified`` is the independent ground-truth check;
-    a False there means the whole run-set is garbage, never a valid candidate.
+    happily scores. ``result.verified`` is the independent ground-truth check.
+
+    The corruption signature is ``feasible=True ∧ verified=False`` — the solver
+    CLAIMED feasibility that ground truth refutes. ``feasible=False ∧
+    verified=False`` is different (bd 8an.8, order_pii_desc @ 70_0): the run
+    HONESTLY found no feasible point within T(n), ``global_opt`` still holds
+    the all-zeros init residue, and ``verify_solution`` (which checks
+    ``global_opt`` unconditionally) rightly flags it. That is a legitimate,
+    scoreable lever outcome — the §6 item-5 never-feasible sentinel, the §6.6
+    feasibility tier, and the §8.3 tail-collapse −inf all exist to punish it —
+    so it must persist, not crash. A missing ``feasible`` attribute is treated
+    as feasible (conservative: unknown provenance stays fatal).
+
+    The honest case is additionally required to have an EMPTY scored surface:
+    the metric never reads ``result.feasible`` — it scores ``history`` and
+    ``final_incumbents`` — and ``result.feasible`` (from ``global_opt``) is
+    coupled to those surfaces only by an implicit C invariant (every scored
+    entry gates on the same ``cur_sol->feasible`` that wins ``global_opt``).
+    A ``feasible=False`` result whose history is non-empty or whose
+    ``final_incumbents`` carry a feasible entry is an impossible state under
+    correct operation — treat it as corruption and crash, never score it.
     """
+    def _scored_feasible_surface(r):
+        if getattr(r, "history", None):
+            return True
+        return any(bool(ok) for _v, ok in (getattr(r, "final_incumbents", None) or ()))
+
     bad = [(i, getattr(r, "seed", None)) for i, r in enumerate(results)
-           if getattr(r, "verified", None) is False]
+           if getattr(r, "verified", None) is False
+           and (getattr(r, "feasible", True) is not False
+                or _scored_feasible_surface(r))]
     if bad:
         first = results[bad[0][0]]
         raise ValueError(

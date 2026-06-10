@@ -300,6 +300,36 @@ def test_verdict_from_dirs_end_to_end(tmp_path):
     assert any("overall_pass: True" in ln for ln in lines)
 
 
+def test_verdict_scores_never_feasible_candidate_as_regression(tmp_path):
+    # bd 8an.8: a candidate that finds NO feasible point on a default-feasible
+    # instance (order_pii_desc @ 70_0) flows through the verdict as a
+    # feasibility regression + §8.3 tail collapse — it must never raise and
+    # must never pass.
+    cand_dir, def_dir = str(tmp_path / "cand"), str(tmp_path / "def")
+    baselines = {}
+    for i in range(2):
+        key = (10, i)
+        baselines[key] = _bl(default_PI=(0.4, 0.6)[i])
+        _write_bank(def_dir, key, _bank((60, 40)[i], ((100.0, True), (95.0, True))),
+                    "default")
+    # instance 0: candidate fine; instance 1: candidate never feasible
+    _write_bank(cand_dir, (10, 0), _bank(80, ((100.0, True), (90.0, True))),
+                "cand")
+    _write_bank(cand_dir, (10, 1),
+                [_honest_infeasible(seed=s) for s in (1, 2, 3)], "cand")
+    frozen = _baselines_csv(tmp_path, baselines)
+    out = m2.verdict_from_dirs(cand_dir, def_dir, baselines_path=frozen,
+                               require_largest_n=False)
+    assert out["overall_pass"] is False
+    ps = out["aggregation"]["per_size"][10]
+    assert ps["feasibility_regressed"] is True
+    assert out["floor"]["per_size"][10]["stratum_pass"] is False
+    # the summary printer accepts the regression shape
+    lines = []
+    m2.summarize_verdict(out, log=lines.append)
+    assert any("overall_pass: False" in ln for ln in lines)
+
+
 def test_verdict_from_dirs_strict_xcheck_default_on(tmp_path):
     # default side drifts from the frozen PI -> strict xcheck (DEFAULT) raises.
     cand_dir, def_dir = str(tmp_path / "cand"), str(tmp_path / "def")
@@ -354,6 +384,109 @@ def test_run_sweep_rejects_unverified_results(tmp_path, monkeypatch):
         run_sweep("corrupt", {"opt_variable_priorities": [1.0]}, [(10, 0)],
                   out_dir=d, seeds=(1,), log=lambda *a: None)
     assert not os.path.exists(os.path.join(d, "10_0.json"))  # never persisted
+
+
+def _honest_infeasible(seed=1):
+    """A run that HONESTLY found no feasible point within budget (bd 8an.8):
+    feasible=False, empty history, no feasible final incumbent — global_opt
+    holds the all-zeros init residue, which verify_solution rightly flags
+    (verified=False). This is a legitimate, scoreable lever outcome (§6 item 5
+    never-feasible sentinel + §6.6 feasibility tier), NOT the 8an.3.5
+    corruption signature (feasible=True ∧ verified=False)."""
+    r = _result(seed=seed, objective=0.0, feasible=False, history=(),
+                final_incumbents=((0.0, False), (0.0, False)))
+    r.verified = False
+    r.violations = ["Post-solve verification FAILED: solution violates one "
+                    "or more constraints"]
+    return r
+
+
+def test_run_sweep_persists_honest_infeasible_results(tmp_path, monkeypatch):
+    # bd 8an.8 (order_pii_desc @ 70_0): failure-to-find-feasibility must
+    # PERSIST so the metric can score the feasibility regression — only
+    # feasible=True ∧ verified=False is run-set corruption.
+    d = str(tmp_path / "sweep")
+
+    def fake_candidate(n, index, seeds, factory, **kw):
+        return [_honest_infeasible(seed=s) for s in seeds], \
+            {"opt_variable_priorities": [1.0]}
+
+    monkeypatch.setattr(m2, "run_candidate_seed_bank", fake_candidate)
+    out = run_sweep("hostile_order", {"opt_variable_priorities": [1.0]},
+                    [(70, 0)], out_dir=d, seeds=(1,), log=lambda *a: None)
+    assert out["done"] == [(70, 0)]
+    assert os.path.exists(os.path.join(d, "70_0.json"))
+
+
+def test_load_run_set_dir_accepts_honest_infeasible_records(tmp_path):
+    d = str(tmp_path / "rs")
+    save_run_set(d, 70, 0, [_honest_infeasible()], schedule_id="hostile_order")
+    loaded = load_run_set_dir(d)
+    assert (70, 0) in loaded
+    assert loaded[(70, 0)][0].feasible is False
+    assert loaded[(70, 0)][0].verified is False
+
+
+def test_require_verified_rejects_infeasible_with_scored_history(tmp_path):
+    # Adversarial inverse (workflow review of bd 8an.8): feasible=False is only
+    # "honest" with an EMPTY scored surface. The metric scores history /
+    # final_incumbents, NOT result.feasible — a feasible=False+verified=False
+    # record carrying feasible scored entries is impossible under correct
+    # operation (every scored entry gates on the cur_sol->feasible that wins
+    # global_opt) and must stay fatal, or bogus-feasible data slips into the
+    # metric behind an infeasible top-level flag.
+    d = str(tmp_path / "rs")
+    r = _honest_infeasible()
+    r.history = [(90.0, 5)]                       # non-empty scored surface
+    save_run_set(d, 70, 0, [r], schedule_id="corrupt")
+    with pytest.raises(ValueError, match="verification"):
+        load_run_set_dir(d)
+
+
+def test_require_verified_rejects_infeasible_with_feasible_incumbent(tmp_path):
+    d = str(tmp_path / "rs")
+    r = _honest_infeasible()
+    r.final_incumbents = [(0.0, False), (90.0, True)]   # feasible scored entry
+    save_run_set(d, 70, 0, [r], schedule_id="corrupt")
+    with pytest.raises(ValueError, match="verification"):
+        load_run_set_dir(d)
+
+
+def test_run_sweep_mixed_bank_corrupt_result_still_raises(tmp_path, monkeypatch):
+    # The real 70_0 bank is MIXED (5/7 honest-infeasible, 2/7 feasible). The
+    # guard discriminates PER RESULT: one corrupt result hiding in an
+    # otherwise-honest bank must still crash the sweep (bd 8an.3.5), and
+    # nothing may persist.
+    d = str(tmp_path / "sweep")
+
+    def fake_candidate(n, index, seeds, factory, **kw):
+        corrupt = _result(seed=seeds[-1])         # feasible=True default
+        corrupt.verified = False
+        return [_honest_infeasible(seed=s) for s in seeds[:-1]] + [corrupt], {}
+
+    monkeypatch.setattr(m2, "run_candidate_seed_bank", fake_candidate)
+    with pytest.raises(ValueError, match="verification"):
+        run_sweep("mixed_corrupt", {}, [(70, 0)], out_dir=d, seeds=(1, 2, 3),
+                  log=lambda *a: None)
+    assert not os.path.exists(os.path.join(d, "70_0.json"))
+
+
+def test_run_sweep_mixed_bank_honest_and_feasible_persists(tmp_path, monkeypatch):
+    # ...and the mirror: honest-infeasible seeds alongside verified feasible
+    # seeds (the actual 70_0 shape) persist and reload cleanly.
+    d = str(tmp_path / "sweep")
+
+    def fake_candidate(n, index, seeds, factory, **kw):
+        ok = _result(seed=seeds[-1])
+        ok.verified = True
+        return [_honest_infeasible(seed=s) for s in seeds[:-1]] + [ok], {}
+
+    monkeypatch.setattr(m2, "run_candidate_seed_bank", fake_candidate)
+    out = run_sweep("mixed_honest", {}, [(70, 0)], out_dir=d, seeds=(1, 2, 3),
+                    log=lambda *a: None)
+    assert out["done"] == [(70, 0)]
+    loaded = load_run_set_dir(d)
+    assert [r.verified for r in loaded[(70, 0)]] == [False, False, True]
 
 
 def test_record_roundtrip_preserves_verified():

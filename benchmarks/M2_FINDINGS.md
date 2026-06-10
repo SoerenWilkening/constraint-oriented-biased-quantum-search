@@ -4,7 +4,8 @@
 anchored strata n=10–100, 90 instances × 7 matched master seeds, equal `T(n)`
 oracle budget per worker (`M=-1`), exact sampler (`opt_sample_cap=0`), scored by
 the M1 §6/§8 metric against the frozen anchors @ `3c6ba1c`. Frozen tables:
-`decision_touch_default.csv`, `m2d_radius_verdicts.csv`, `m2f_theta_verdicts.csv`.
+`decision_touch_default.csv`, `m2d_radius_verdicts.csv`, `m2e_order_verdicts.csv`,
+`m2f_theta_verdicts.csv`.
 Run-sets regenerable via `python -m benchmarks.m2`; default side strict-xcheck-guarded.)*
 
 ## Exit criteria (§12 M2) — both met
@@ -36,7 +37,8 @@ prior can exploit it.
 |---|---|---|
 | **`opt_switch_oracles`** (exploit→explore switch) | **DOMINANT.** Same radii: switch=0 → W=+55 at n=10/20/50 (+53/+45/+32 elsewhere, median PI 0.123 vs 0.351 at n=100); switch=0.25·M → W=−55 at n=10–50. Earlier explore is better at every size measured; the default 0.1·M is left of optimal. | `m2d_radius_verdicts.csv` (`radius_g2e_early` vs `radius_g2e_late`) |
 | **scalar radius `r` (per phase)** | **Material, size-dependent.** Uniform r=6 → W=+55 at n=10 (the small-n compression regime), mixed→negative at large n. `opt_sat` r=2 harms hard-feasibility instances regardless of everything else (instance 40_6: δPI≈+0.27 in *every* r=2 schedule; byte-identical across switch settings because feasibility arrives after both thresholds). | `m2d_radius_verdicts.csv` |
-| **`variable_order`** | **Was INADMISSIBLE — P1 bug `h8d`, FIXED 2026-06-10.** Apparent §6.6 domination (W=+55 max at n=10–70, zero regressions, median PI *negative* = "beating" classical B_I by up to +83%) was an infeasibility artifact: the look-ahead keyed clause-closure on the *natural* index while traversal used `var_order`, so the solver accepted `eval_constraints`-violating solutions (`verified=False` on every solve). Fix: rank-keyed closure (`variable_rank` inverse permutation) + position-space look-ahead recursion; identity orders keep the pre-fix code path bit-for-bit (capstone strict-xcheck: exact ties vs frozen anchors). Repro now yields `verified=True` with objective exactly B_I at (10,0). `run_sets/order_pii_desc.INVALID` stays quarantined (produced by the buggy closure); the lever needs a **fresh equal-`T(n)` A/B** before M3 searches it. | core-change workflow (h8d); `test_variable_order_feasibility.c` |
+| **`variable_order`** | **Material at small–mid n, with a catastrophic large-n feasibility cliff in BOTH directions** (fresh post-h8d equal-`T(n)` A/B, 2026-06-10 — the prior "domination" was the h8d infeasibility artifact; see below). `asc` (low p_ii first): gate_B passes at n=10–60, W=+54/+55/+54 at n=10/20/30 with *negative* worst regressions (uniform improvement), per-stratum (gate_B ∧ floor) wins at 10/20/30/40/60 — then collapses: never-feasible seeds appear at n≥70 and the n=100 stratum collapses TOTALLY (both anchored instances 7/7 seeds never-feasible → J=∅). `desc` (high p_ii first): weaker small-n wins (gate_B at 20/40/50), cliff starts at n=70 (70_0: 5/7; 80_2/3/9, 90_0/1/2/4/5 up to 7/7 never-feasible). Mechanism (probed, adversarially reviewed): NOT a residual closure bug — desc-order `CSearch_opt` from a feasible incumbent yields verified improvements; the cliff is the all-zeros-start `CSearch_opt_sat` *constructive sampler* dead-ending under hostile orders (`count[0]==0&&count[1]==0` on ~every sample, honest `feasible=False`). M3: order is a real secondary lever but must be searched under the feasibility tier's protection; its cost surface is instance- and size-discontinuous. | `m2e_order_verdicts.csv`; bd 8an.8 |
+| *(`variable_order` history)* | **Pre-fix verdict was INADMISSIBLE — P1 bug `h8d`, FIXED 2026-06-10.** Apparent §6.6 domination (W=+55 max at n=10–70, median PI *negative*) was an infeasibility artifact: look-ahead keyed clause-closure on the *natural* index while traversal used `var_order` → `eval_constraints`-violating solutions accepted (`verified=False` everywhere). Fix: rank-keyed closure + position-space look-ahead recursion; identity bit-for-bit (capstone strict-xcheck exact). The quarantined `order_pii_desc.INVALID` run-set is superseded and deleted (bd 8an.8). | core-change workflow (h8d); `test_variable_order_feasibility.c` |
 | **per-variable θ (sigmoid logit channel)** | **Near-null at \|θ\|≤0.5 on z(p_ii), opt-phase.** Both signs: W ∈ [−10, +10], mostly ties-within-margin. Realized radius ratio vs default 0.97–1.08 (≤8 % drift at n=100) — the M0f decoupling claim holds (no `factor_sum` catastrophe). | `m2f_theta_verdicts.csv` |
 
 **Negative control (§1.3):** uniform r=2 (near-greedy) loses on PI at scale
@@ -84,6 +86,18 @@ searchable); the **primary M3 search space is (per-phase radius r(n),
    5/10 sizes because a *single* instance regresses beyond margin. Working as
    specified (§6.6 worst-regression), but M3's selection should expect
    most-instances-win/few-lose candidates to be common.
+4. **Honest never-feasible runs persist and score** (bd 8an.8): the
+   `require_verified` guard now discriminates per result — fatal only on the
+   corruption signature `feasible=True ∧ verified=False`, or on a
+   `verified=False` record whose *scored surface* (history / feasible
+   `final_incumbents`) carries feasible entries (impossible under correct
+   operation; the metric scores those surfaces, not `result.feasible`).
+   `feasible=False ∧ verified=False` with an empty scored surface is the
+   honest failure-to-find-feasibility shape (`global_opt` = all-zeros init
+   residue, flagged by the unconditional `verify_solution`); it flows to the
+   §6 item-5 +∞ sentinel, §6.6 feasibility tier, and §8.3 −inf tail collapse.
+   M3's loop WILL generate hostile candidates (the order cliff above) — this
+   path is now tested end-to-end (`tests/test_m2.py`).
 
 ## Reproduce
 
