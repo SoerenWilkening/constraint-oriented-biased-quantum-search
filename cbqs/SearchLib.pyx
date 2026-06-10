@@ -494,6 +494,22 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 			"opt_flip_sum":   <unsigned long long> ctx.opt_flip_sum,
 			"opt_flip_sumsq": <unsigned long long> ctx.opt_flip_sumsq,
 			"opt_free_sum":   <unsigned long long> ctx.opt_free_sum,
+			# M2a (bd 8an.3.1): per-phase decision-touch counters. Partition
+			# invariant per phase: free + bothinf + forced == decisions; the
+			# opt phase's free counter is opt_free_sum above (M0g, not
+			# duplicated). Pooled in Model.solve() into
+			# branch_diagnostics["decision_touch"].
+			"sat_decisions":    <unsigned long long> ctx.sat_decisions,
+			"sat_free":         <unsigned long long> ctx.sat_free,
+			"sat_bothinf":      <unsigned long long> ctx.sat_bothinf,
+			"sat_forced":       <unsigned long long> ctx.sat_forced,
+			"optsat_decisions": <unsigned long long> ctx.optsat_decisions,
+			"optsat_free":      <unsigned long long> ctx.optsat_free,
+			"optsat_bothinf":   <unsigned long long> ctx.optsat_bothinf,
+			"optsat_forced":    <unsigned long long> ctx.optsat_forced,
+			"opt_decisions":    <unsigned long long> ctx.opt_decisions,
+			"opt_bothinf":      <unsigned long long> ctx.opt_bothinf,
+			"opt_forced":       <unsigned long long> ctx.opt_forced,
 		}
 		# Index 9 is this worker's own wall-clock telemetry (ctx.runtime, seconds;
 		# bd lif). Read here while ctx is still alive (the finally below frees it).

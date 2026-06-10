@@ -112,6 +112,34 @@ struct solver_ctx {
     uint64_t opt_flip_sumsq;   /* Σ NumChanges² (for the radius variance)       */
     uint64_t opt_free_sum;     /* Σ both-feasible "free" decisions per candidate*/
 
+    /** M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters.
+     *  At every variable decision in CSearch_{sat,opt_sat,opt} the two
+     *  look_ahead_correct calls classify the children; these record, per phase:
+     *    *_decisions  every classified decision (loop iteration reaching the
+     *                 count[0]/count[1] test);
+     *    *_free       both-feasible — BranchingFunction consulted (all phases);
+     *    *_bothinf    both-infeasible — consulted ONLY in opt_sat (sat forces
+     *                 bit=0, opt truncates the candidate);
+     *    *_forced     exactly one side feasible — feasibility-forced, the bias
+     *                 is never consulted.
+     *  Partition invariant: free + bothinf + forced == decisions (per phase).
+     *  The opt phase's free counter is the EXISTING opt_free_sum (M0g) — not
+     *  duplicated here. PURE INSTRUMENTATION like the M0g block above:
+     *  per-worker, race-free, never read inside any decision — the PRNG
+     *  stream, oracle accounting, and branching outcomes are untouched
+     *  (faithfulness §1.1/§1.2). */
+    uint64_t sat_decisions;    /* sat:     all classified decisions             */
+    uint64_t sat_free;         /* sat:     both-feasible (consulted)            */
+    uint64_t sat_bothinf;      /* sat:     both-infeasible (forced to 0)        */
+    uint64_t sat_forced;       /* sat:     single-side forced                   */
+    uint64_t optsat_decisions; /* opt_sat: all classified decisions             */
+    uint64_t optsat_free;      /* opt_sat: both-feasible (consulted)            */
+    uint64_t optsat_bothinf;   /* opt_sat: both-infeasible (ALSO consulted)     */
+    uint64_t optsat_forced;    /* opt_sat: single-side forced                   */
+    uint64_t opt_decisions;    /* opt:     all classified decisions             */
+    uint64_t opt_bothinf;      /* opt:     both-infeasible (candidate truncated)*/
+    uint64_t opt_forced;       /* opt:     single-side forced                   */
+
     /** bd 0o8: per-worker cap on the classical Grover-round sample count
      *  (4j²+1) used by CSearch_{sat,opt_sat,opt}. 0 == unbounded (the exact
      *  O(4j²) rejection sim; legacy behavior). When > 0 a round draws at most

@@ -911,6 +911,31 @@ or {self.runtime}s sampling
 			_r_mean = None
 			_r_var = None
 			_f_n = None
+		# M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch pooling.
+		# For each phase, pool the raw per-worker counters and derive the
+		# touch fraction = consulted / decisions, where "consulted" encodes the
+		# per-phase semantics ONCE (solver.c): both-feasible is consulted in
+		# every phase; both-infeasible is consulted ONLY in opt_sat (sat forces
+		# bit=0, opt truncates the candidate). None (not 0.0) when the phase
+		# never ran — unmeasured, not measured-zero.
+		_dt = {}
+		for _ph, _kd, _kf, _kb, _kx, _binf_consulted in (
+			("sat",     "sat_decisions",    "sat_free",     "sat_bothinf",    "sat_forced",    False),
+			("opt_sat", "optsat_decisions", "optsat_free",  "optsat_bothinf", "optsat_forced", True),
+			("opt",     "opt_decisions",    "opt_free_sum", "opt_bothinf",    "opt_forced",    False),
+		):
+			_dec  = sum(r[8][_kd] for r in res)
+			_free = sum(r[8][_kf] for r in res)
+			_binf = sum(r[8][_kb] for r in res)
+			_forc = sum(r[8][_kx] for r in res)
+			_consulted = _free + (_binf if _binf_consulted else 0)
+			_dt[_ph] = {
+				"decisions": int(_dec),
+				"free": int(_free),
+				"bothinf": int(_binf),
+				"forced": int(_forc),
+				"touch_fraction": (_consulted / _dec) if _dec > 0 else None,
+			}
 		branch_diagnostics = {
 			"n": int(n_bits),
 			"opt_candidates": int(_bd_cand),
@@ -920,6 +945,7 @@ or {self.runtime}s sampling
 			"opt_flip_sum": int(_bd_flip),
 			"opt_flip_sumsq": int(_bd_fsq),
 			"opt_free_sum": int(_bd_free),
+			"decision_touch": _dt,
 			"per_worker": [dict(r[8]) for r in res],
 		}
 

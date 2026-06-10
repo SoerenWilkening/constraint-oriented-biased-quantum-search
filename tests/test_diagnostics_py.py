@@ -332,3 +332,113 @@ class TestHistoryAccumulation:
         _configure_solve(m, track_history=False)
         result = m.solve()
         assert result.history == []
+
+
+class TestDecisionTouch:
+    """M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters.
+
+    branch_diagnostics["decision_touch"] reports, per phase (sat/opt_sat/opt),
+    how many variable decisions the look-ahead classified as both-feasible
+    ("free" -- BranchingFunction consulted), both-infeasible ("bothinf" --
+    consulted ONLY in opt_sat; sat forces bit=0, opt truncates the candidate),
+    or single-side forced ("forced" -- bias never consulted). The exact
+    per-phase taxonomy is pinned RNG-free in test_searchlib.c; these tests pin
+    the Python surface: structure, partition invariant, M0g consistency, phase
+    attribution under OPTIMIZE, and fixed-seed determinism.
+    """
+
+    PHASES = ("sat", "opt_sat", "opt")
+    KEYS = ("decisions", "free", "bothinf", "forced")
+
+    def _solve_touch(self, seed=12345, num_workers=1):
+        m = _build_knapsack_model()
+        _configure_solve(m, num_workers=num_workers)
+        m.seed = seed
+        result = m.solve()
+        assert result.branch_diagnostics is not None
+        return result
+
+    def test_decision_touch_structure(self):
+        """decision_touch has all 3 phases x (4 counters + touch_fraction)."""
+        result = self._solve_touch()
+        dt = result.branch_diagnostics["decision_touch"]
+        assert set(dt.keys()) == set(self.PHASES)
+        for phase in self.PHASES:
+            for key in self.KEYS:
+                assert isinstance(dt[phase][key], int), (phase, key)
+                assert dt[phase][key] >= 0, (phase, key)
+            assert "touch_fraction" in dt[phase], phase
+
+    def test_decision_touch_partition_invariant(self):
+        """free + bothinf + forced == decisions, in every phase."""
+        result = self._solve_touch(num_workers=2)
+        dt = result.branch_diagnostics["decision_touch"]
+        for phase in self.PHASES:
+            d = dt[phase]
+            assert d["free"] + d["bothinf"] + d["forced"] == d["decisions"], phase
+
+    def test_decision_touch_opt_free_matches_m0g(self):
+        """opt's free counter IS the M0g opt_free_sum (no duplicate counter)."""
+        result = self._solve_touch()
+        bd = result.branch_diagnostics
+        assert bd["decision_touch"]["opt"]["free"] == bd["opt_free_sum"]
+
+    def test_decision_touch_sat_unused_under_optimize(self):
+        """OPTIMIZE never runs CSearch_sat: the sat row must be all-zero and
+        its touch_fraction None (not 0.0 -- unmeasured, not measured-zero)."""
+        result = self._solve_touch()
+        sat = result.branch_diagnostics["decision_touch"]["sat"]
+        assert sat["decisions"] == 0
+        assert sat["touch_fraction"] is None
+
+    def test_decision_touch_opt_populated(self):
+        """A feasible knapsack solve reaches the opt phase and classifies at
+        least one decision there; touch_fraction = consulted/decisions in
+        [0, 1]. In opt only both-feasible decisions are consulted."""
+        result = self._solve_touch()
+        opt = result.branch_diagnostics["decision_touch"]["opt"]
+        assert opt["decisions"] > 0
+        tf = opt["touch_fraction"]
+        assert tf is not None and 0.0 <= tf <= 1.0
+        assert tf == pytest.approx(opt["free"] / opt["decisions"])
+
+    def test_decision_touch_opt_sat_fraction_counts_bothinf(self):
+        """opt_sat's consulted set is free UNION bothinf (solver.c:540) -- its
+        touch_fraction must reflect that, not free alone."""
+        result = self._solve_touch()
+        os_ = result.branch_diagnostics["decision_touch"]["opt_sat"]
+        if os_["decisions"] > 0:
+            expect = (os_["free"] + os_["bothinf"]) / os_["decisions"]
+            assert os_["touch_fraction"] == pytest.approx(expect)
+        else:
+            assert os_["touch_fraction"] is None
+
+    def test_decision_touch_pools_per_worker(self):
+        """Pooled counters equal the sum over per_worker entries."""
+        result = self._solve_touch(num_workers=3)
+        bd = result.branch_diagnostics
+        per_worker = bd["per_worker"]
+        assert len(per_worker) == 3
+        for c_key, phase, key in (
+            ("sat_decisions", "sat", "decisions"),
+            ("sat_free", "sat", "free"),
+            ("sat_bothinf", "sat", "bothinf"),
+            ("sat_forced", "sat", "forced"),
+            ("optsat_decisions", "opt_sat", "decisions"),
+            ("optsat_free", "opt_sat", "free"),
+            ("optsat_bothinf", "opt_sat", "bothinf"),
+            ("optsat_forced", "opt_sat", "forced"),
+            ("opt_decisions", "opt", "decisions"),
+            ("opt_free_sum", "opt", "free"),
+            ("opt_bothinf", "opt", "bothinf"),
+            ("opt_forced", "opt", "forced"),
+        ):
+            assert bd["decision_touch"][phase][key] == \
+                sum(w[c_key] for w in per_worker), (phase, key)
+
+    def test_decision_touch_deterministic(self):
+        """Fixed seed + single worker => identical decision_touch (the counters
+        are a pure function of the trajectory; §8 determinism baseline)."""
+        dt1 = self._solve_touch(seed=777).branch_diagnostics["decision_touch"]
+        dt2 = self._solve_touch(seed=777).branch_diagnostics["decision_touch"]
+        assert dt1 == dt2

@@ -381,6 +381,14 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// look ahead to the right side
 			look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
 
+			/* M2a (bd 8an.3.1): classify this decision for the per-phase
+			 * touch fraction — pure counters, no behavior change. The
+			 * both-feasible "free" class accumulates via NumFree (M0g
+			 * opt_free_sum), flushed per candidate below. */
+			ctx->opt_decisions++;
+			if (count[0] == 0 && count[1] == 0)      ctx->opt_bothinf++;
+			else if (count[0] == 0 || count[1] == 0) ctx->opt_forced++;
+
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
@@ -518,6 +526,14 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
             look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
             // look ahead to the right side
             look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+
+			/* M2a (bd 8an.3.1): classify this decision — pure counters, no
+			 * behavior change. NOTE: in opt_sat the both-infeasible class is
+			 * ALSO bias-consulted (the branch below), unlike sat/opt. */
+			ctx->optsat_decisions++;
+			if (count[0] > 0 && count[1] > 0)        ctx->optsat_free++;
+			else if (count[0] == 0 && count[1] == 0) ctx->optsat_bothinf++;
+			else                                     ctx->optsat_forced++;
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -666,6 +682,14 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
 			// look ahead to the right side
 			look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+
+			/* M2a (bd 8an.3.1): classify this decision — pure counters, no
+			 * behavior change. In sat the both-infeasible class is handled as
+			 * forced-to-0 below, but it is counted as its own class. */
+			ctx->sat_decisions++;
+			if (count[0] > 0 && count[1] > 0)        ctx->sat_free++;
+			else if (count[0] == 0 && count[1] == 0) ctx->sat_bothinf++;
+			else                                     ctx->sat_forced++;
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"

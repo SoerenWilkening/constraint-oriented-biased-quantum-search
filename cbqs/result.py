@@ -67,10 +67,15 @@ class OptimizeResult:
         ``radius_mean`` / ``radius_var`` (realized Hamming-radius distribution),
         ``free_fraction`` (``f(n)`` = both-feasible "free" decisions per variable
         per candidate), the raw pooled sums ``opt_flip_sum`` / ``opt_flip_sumsq``
-        / ``opt_free_sum`` (so callers can re-pool across seeds/instances), and
-        ``per_worker`` (the raw per-worker counter dicts). ``None`` when not
-        produced (e.g. the classical ``local_search`` path, which never enters
-        the quantum ``opt`` phase).
+        / ``opt_free_sum`` (so callers can re-pool across seeds/instances),
+        ``decision_touch`` (M2a / bd 8an.3.1: per-phase decision-touch counters
+        ``{sat,opt_sat,opt} -> {decisions, free, bothinf, forced,
+        touch_fraction}`` where ``free + bothinf + forced == decisions``;
+        ``touch_fraction`` = bias-consulted decisions / all decisions, with
+        both-infeasible consulted ONLY in ``opt_sat`` — ``None`` when the phase
+        never ran), and ``per_worker`` (the raw per-worker counter dicts).
+        ``None`` when not produced (e.g. the classical ``local_search`` path,
+        which never enters the quantum ``opt`` phase).
     """
 
     __slots__ = (

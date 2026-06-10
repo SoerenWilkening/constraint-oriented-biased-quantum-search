@@ -24,6 +24,19 @@ cdef extern from "src/solver_ctx.h":
 		unsigned long long opt_flip_sum     # uint64_t - Σ realized Hamming radius
 		unsigned long long opt_flip_sumsq   # uint64_t - Σ (realized radius)²
 		unsigned long long opt_free_sum     # uint64_t - Σ both-feasible free decisions
+		# M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters
+		# (free + bothinf + forced == decisions; opt's free == opt_free_sum above)
+		unsigned long long sat_decisions
+		unsigned long long sat_free
+		unsigned long long sat_bothinf
+		unsigned long long sat_forced
+		unsigned long long optsat_decisions
+		unsigned long long optsat_free
+		unsigned long long optsat_bothinf
+		unsigned long long optsat_forced
+		unsigned long long opt_decisions
+		unsigned long long opt_bothinf
+		unsigned long long opt_forced
 	ctypedef solver_ctx solver_ctx_t
 	const int64_t SOLVER_CTX_CALLBACK_VALUE_UNSET  # bd 4uf sentinel: callback site did not set a per-worker value
 	solver_ctx_t* solver_ctx_create()

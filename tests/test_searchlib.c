@@ -472,6 +472,300 @@ static void test_csearch_opt_diagnostics_exact(void **state) {
     assert_int_equal((int) flip_sumsq, 0);
 }
 
+/* ---------- M2a (bd 8an.3.1): per-phase decision-touch counters ---------- */
+
+/* Contradictory model: {sum x <= 0, sum x >= n (negated-LOWER: factors -1,
+ * rhs 0)}. At depth_look_ahead=0 EVERY variable decision is BOTH-INFEASIBLE:
+ * assignment 1 exceeds the LE potential (0 < 1) and assignment 0 exceeds the
+ * negated-GE potential (0 < 1). The phases handle this case differently
+ * (solver.c): sat forces bit=0, opt_sat CONSULTS BranchingFunction, opt
+ * truncates the candidate (break) -- which is exactly what the M2 taxonomy
+ * must record. No feasible point exists, so violation > 0 for every candidate
+ * and (with the sentinels below) no phase ever accepts: the candidate count is
+ * the exact, RNG-free 4j^2+1. */
+static model_t *build_contradictory_model(int n) {
+    model_t *mod = init_model();
+
+    expression_t *le_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(le_expr, i); }
+    add_sense_to_expression(le_expr, LOWER);
+    add_rhs_to_expression(le_expr, 0);          /* sum x <= 0 */
+    add_expression_to_constraints(mod->con, le_expr);
+
+    expression_t *ge_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(ge_expr, i); }
+    multiply_constant(ge_expr, -1);             /* factors -1 */
+    add_sense_to_expression(ge_expr, LOWER);
+    add_rhs_to_expression(ge_expr, 0);          /* n - n = 0  =>  requires sum x >= n */
+    add_expression_to_constraints(mod->con, ge_expr);
+
+    expression_t *obj_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(obj_expr, i); }
+    add_sense_to_expression(obj_expr, LOWER);
+    add_rhs_to_expression(obj_expr, 0);
+    add_expression_to_constraints(mod->obj, obj_expr);
+
+    preprocessing(n, mod->con);
+    preprocessing(n, mod->obj);
+
+    int *arr = calloc((size_t) n, sizeof(int));
+    mod->initial_state = init_state(0, arr, n);
+    mod->initial_state->tot_profit = INT64_MAX;
+    mod->global_opt = init_state(0, arr, n);
+    mod->global_opt->tot_profit = INT64_MAX;
+    free(arr);
+
+    mod->n = n;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = 1e6;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(le_expr);
+    free_expression(ge_expr);
+    free_expression(obj_expr);
+    return mod;
+}
+
+/* All-forced model: sum x <= 0 with an all-zeros incumbent. Assignment 1 is
+ * always infeasible (count[1]==0), assignment 0 always feasible (count[0]>0):
+ * every decision is single-side FORCED, RNG-free. */
+static model_t *build_allforced_model(int n) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(con_expr, i); }
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, 0);         /* sum x <= 0: only all-zeros feasible */
+    add_expression_to_constraints(mod->con, con_expr);
+
+    expression_t *obj_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(obj_expr, i); }
+    add_sense_to_expression(obj_expr, LOWER);
+    add_rhs_to_expression(obj_expr, 0);
+    add_expression_to_constraints(mod->obj, obj_expr);
+
+    preprocessing(n, mod->con);
+    preprocessing(n, mod->obj);
+
+    int *arr = calloc((size_t) n, sizeof(int));
+    mod->initial_state = init_state(0, arr, n);
+    mod->initial_state->tot_profit = INT64_MAX;
+    mod->global_opt = init_state(0, arr, n);
+    mod->global_opt->tot_profit = INT64_MAX;
+    free(arr);
+
+    mod->n = n;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = 1e6;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_expr);
+    free_expression(obj_expr);
+    return mod;
+}
+
+/* Snapshot of all 12 per-phase decision-touch counters. */
+typedef struct {
+    uint64_t sat_dec, sat_free, sat_binf, sat_forc;
+    uint64_t os_dec, os_free, os_binf, os_forc;
+    uint64_t opt_dec, opt_free, opt_binf, opt_forc;
+} touch_t;
+
+static void read_touch(const solver_ctx_t *ctx, touch_t *t) {
+    t->sat_dec  = ctx->sat_decisions;    t->sat_free = ctx->sat_free;
+    t->sat_binf = ctx->sat_bothinf;      t->sat_forc = ctx->sat_forced;
+    t->os_dec   = ctx->optsat_decisions; t->os_free  = ctx->optsat_free;
+    t->os_binf  = ctx->optsat_bothinf;   t->os_forc  = ctx->optsat_forced;
+    t->opt_dec  = ctx->opt_decisions;    t->opt_free = ctx->opt_free_sum;
+    t->opt_binf = ctx->opt_bothinf;      t->opt_forc = ctx->opt_forced;
+}
+
+/* The class partition must be exhaustive and disjoint in every phase:
+ * free + bothinf + forced == decisions. */
+static void assert_touch_invariant(const touch_t *t) {
+    assert_int_equal((int)(t->sat_free + t->sat_binf + t->sat_forc), (int) t->sat_dec);
+    assert_int_equal((int)(t->os_free  + t->os_binf  + t->os_forc),  (int) t->os_dec);
+    assert_int_equal((int)(t->opt_free + t->opt_binf + t->opt_forc), (int) t->opt_dec);
+}
+
+/* Drive ONE direct CSearch_{sat,opt_sat,opt} call on `mod` with the matching
+ * active_stats and return the touch counters. `which`: 1=sat, 2=opt_sat, 3=opt.
+ * cur_tot_profit is the incumbent sentinel that suppresses (or not) accepts. */
+static void run_one_phase_touch(model_t *mod, int which, int n, int j,
+                                int64_t cur_tot_profit, int feasible,
+                                uint64_t seed, touch_t *t) {
+    int *arr = calloc((size_t) n, sizeof(int));
+    state_t *cur_sol = init_state(0, arr, n);
+    cur_sol->tot_profit = cur_tot_profit;
+    cur_sol->feasible = feasible;
+    free(arr);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = seed;
+    solver_ctx_init_prng(ctx);
+
+    int samples = 0;
+    if (which == 1) {
+        ctx->active_stats = &ctx->branching_stats_sat;
+        (void) CSearch_sat(ctx, cur_sol, j, mod->con, mod->obj, 0, 1, NULL, &samples);
+    } else if (which == 2) {
+        ctx->active_stats = &ctx->branching_stats_opt_sat;
+        (void) CSearch_opt_sat(ctx, cur_sol, j, mod->con, mod->obj, 0, 1, NULL, &samples);
+    } else {
+        ctx->active_stats = &ctx->branching_stats_opt;
+        (void) CSearch_opt(ctx, cur_sol, j, mod->con, mod->obj, 0, 1, NULL, &samples);
+    }
+
+    read_touch(ctx, t);
+    assert_touch_invariant(t);
+
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
+/* EXACT, RNG-free pins on the contradictory model: every decision is
+ * both-infeasible. sat forces bit=0 and runs all n decisions per candidate;
+ * opt_sat consults BranchingFunction on all n; opt truncates the candidate at
+ * the FIRST decision (break) so exactly 1 decision per candidate. No accept
+ * ever fires (no feasible point; sentinels below), so candidates == 4j^2+1.
+ * NOTE: the opt leg drives CSearch_opt directly on an infeasible instance --
+ * a counter unit test of the break-path accounting, not a phase-machine state
+ * (ctg's feasibility gate forbids reaching opt infeasible in production). */
+static void test_decision_touch_bothinf_taxonomy(void **state) {
+    (void)state;
+    const int n = 4, j = 2;
+    const uint64_t cand = (uint64_t)(4 * j * j + 1);   /* 17 */
+    touch_t t;
+
+    /* sat: both-infeasible is feasibility-forced (bit=0), NOT consulted */
+    run_one_phase_touch(build_contradictory_model(n), 1, n, j, INT64_MIN, 0, 0x5A7AULL, &t);
+    assert_int_equal((int) t.sat_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_binf, (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_free, 0);
+    assert_int_equal((int) t.sat_forc, 0);
+    assert_int_equal((int) t.os_dec, 0);     /* other phases untouched */
+    assert_int_equal((int) t.opt_dec, 0);
+
+    /* opt_sat: both-infeasible IS consulted (bias-decided) */
+    run_one_phase_touch(build_contradictory_model(n), 2, n, j, 0, 0, 0x05A7ULL, &t);
+    assert_int_equal((int) t.os_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.os_binf, (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.os_free, 0);
+    assert_int_equal((int) t.os_forc, 0);
+    assert_int_equal((int) t.sat_dec, 0);
+    assert_int_equal((int) t.opt_dec, 0);
+
+    /* opt: both-infeasible truncates the candidate => exactly 1 decision each */
+    run_one_phase_touch(build_contradictory_model(n), 3, n, j, 0, 1, 0x0057ULL, &t);
+    assert_int_equal((int) t.opt_dec,  (int) cand);
+    assert_int_equal((int) t.opt_binf, (int) cand);
+    assert_int_equal((int) t.opt_free, 0);
+    assert_int_equal((int) t.opt_forc, 0);
+    assert_int_equal((int) t.sat_dec, 0);
+    assert_int_equal((int) t.os_dec, 0);
+}
+
+/* EXACT, RNG-free pins on the all-forced model: every decision single-side
+ * forced (count[1]==0, count[0]>0) in all three phases. sat (INT64_MIN
+ * sentinel) and opt (all-zeros candidate == incumbent => no improvement) run
+ * the full 4j^2+1 loop; opt_sat's first candidate is feasible-with-violation-0
+ * and direction==1 ACCEPTS it => exactly 1 candidate, n decisions. */
+static void test_decision_touch_forced_taxonomy(void **state) {
+    (void)state;
+    const int n = 4, j = 2;
+    const uint64_t cand = (uint64_t)(4 * j * j + 1);   /* 17 */
+    touch_t t;
+
+    run_one_phase_touch(build_allforced_model(n), 1, n, j, INT64_MIN, 0, 0xF0C1ULL, &t);
+    assert_int_equal((int) t.sat_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_forc, (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_free, 0);
+    assert_int_equal((int) t.sat_binf, 0);
+
+    run_one_phase_touch(build_allforced_model(n), 2, n, j, INT64_MAX, 0, 0x0FC1ULL, &t);
+    assert_int_equal((int) t.os_dec,  (int) n);        /* accepts candidate 0 */
+    assert_int_equal((int) t.os_forc, (int) n);
+    assert_int_equal((int) t.os_free, 0);
+    assert_int_equal((int) t.os_binf, 0);
+
+    run_one_phase_touch(build_allforced_model(n), 3, n, j, 0, 1, 0x00C1ULL, &t);
+    assert_int_equal((int) t.opt_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.opt_forc, (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.opt_free, 0);
+    assert_int_equal((int) t.opt_binf, 0);
+}
+
+/* EXACT, RNG-free pins on the all-free model (loose constraint): every
+ * decision is both-feasible => consulted in all three phases. sat (INT64_MIN
+ * sentinel: val==-1 never accepted) and opt (all-zeros internal-optimal) run
+ * the full 4j^2+1 loop; opt_sat's first candidate has violation 0 and
+ * direction==1 accepts it => exactly 1 candidate. The opt leg also pins the
+ * new opt_decisions against the EXISTING opt_free_sum (M0g): identical here. */
+static void test_decision_touch_free_taxonomy(void **state) {
+    (void)state;
+    const int n = 4, j = 2;
+    const uint64_t cand = (uint64_t)(4 * j * j + 1);   /* 17 */
+    touch_t t;
+
+    run_one_phase_touch(build_freeall_model(n), 1, n, j, INT64_MIN, 0, 0xFEE1ULL, &t);
+    assert_int_equal((int) t.sat_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_free, (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.sat_binf, 0);
+    assert_int_equal((int) t.sat_forc, 0);
+
+    run_one_phase_touch(build_freeall_model(n), 2, n, j, INT64_MAX, 0, 0x0EE1ULL, &t);
+    assert_int_equal((int) t.os_dec,  (int) n);        /* accepts candidate 0 */
+    assert_int_equal((int) t.os_free, (int) n);
+    assert_int_equal((int) t.os_binf, 0);
+    assert_int_equal((int) t.os_forc, 0);
+
+    run_one_phase_touch(build_freeall_model(n), 3, n, j, 0, 1, 0x00E1ULL, &t);
+    assert_int_equal((int) t.opt_dec,  (int)(cand * (uint64_t) n));
+    assert_int_equal((int) t.opt_free, (int)(cand * (uint64_t) n));   /* == opt_free_sum (M0g) */
+    assert_int_equal((int) t.opt_binf, 0);
+    assert_int_equal((int) t.opt_forc, 0);
+}
+
+/* End-to-end ctg on the infeasible-start covering instance: opt_sat must run
+ * (and record decisions) before the feasibility-gated switch hands over to
+ * opt; sat never runs under OPTIMIZE. The per-phase invariant holds on the
+ * full mixed trajectory (PRNG-driven classes, so inequalities only). */
+static void test_decision_touch_ctg_phases(void **state) {
+    (void)state;
+    model_t *mod = build_covering_5var();
+    mod->M = 2000;
+    mod->opt_switch_oracles = 50;
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, zeros, 5);
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0x7AC3ULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    int feasible = ctg(ctx, mod, cur_sol, NULL, inc);
+    assert_true(feasible);
+
+    touch_t t;
+    read_touch(ctx, &t);
+    assert_touch_invariant(&t);
+    assert_int_equal((int) t.sat_dec, 0);      /* OPTIMIZE never runs CSearch_sat */
+    assert_true(t.os_dec > 0);                 /* infeasible start => opt_sat ran */
+    assert_true(t.opt_dec > 0);                /* switch fired => opt ran */
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 /* Non-zero radius pins (catch flip-sum / sumsq arithmetic). With a near--1 bias
  * (flip prob ~1) most free variables flip, so the realized radius is large but
  * the count is still acceptance-unbiased (no accept => full loop). Inequalities,
@@ -509,6 +803,10 @@ int main(void) {
         cmocka_unit_test(test_opt_switch_feasibility_gate),
         cmocka_unit_test(test_csearch_opt_diagnostics_exact),
         cmocka_unit_test(test_csearch_opt_diagnostics_flips),
+        cmocka_unit_test(test_decision_touch_free_taxonomy),
+        cmocka_unit_test(test_decision_touch_bothinf_taxonomy),
+        cmocka_unit_test(test_decision_touch_forced_taxonomy),
+        cmocka_unit_test(test_decision_touch_ctg_phases),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

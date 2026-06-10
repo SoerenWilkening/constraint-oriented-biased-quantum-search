@@ -103,6 +103,18 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->opt_flip_sum = 0;
     ctx->opt_flip_sumsq = 0;
     ctx->opt_free_sum = 0;
+    /* M2a (bd 8an.3.1): per-phase decision-touch counters (see solver_ctx.h). */
+    ctx->sat_decisions = 0;
+    ctx->sat_free = 0;
+    ctx->sat_bothinf = 0;
+    ctx->sat_forced = 0;
+    ctx->optsat_decisions = 0;
+    ctx->optsat_free = 0;
+    ctx->optsat_bothinf = 0;
+    ctx->optsat_forced = 0;
+    ctx->opt_decisions = 0;
+    ctx->opt_bothinf = 0;
+    ctx->opt_forced = 0;
     ctx->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim) */
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
