@@ -196,12 +196,13 @@ Each entry: **location → why dangerous → how to detect.** These are the land
 - **Param propagation is runtime-only.** `set_predicted_params` (Python, `SearchLib.pyx:533`) only writes
   the `mod._params` dict; live propagation is `_propagate_phase_params` (`SearchLib.pyx:223`) → per-phase
   setters. The C `solver_ctx_set_predicted_params` is **dead** from this path — don't assume it runs.
-- **CI runs only 10 of 21 C tests.** The `ctest -R` filter (test.yml) skips `arena, prng, dyn_expr,
-  variable_ordering, variable_vector, stage_switching, thread_safety, reduce_ops, merge_duplicate_terms,
-  csearch_ordering` — they compile under `-Werror` but **never execute**, so a logic regression there is
-  CI-green. → **Always run the full local suite** (`ctest` with no `-R`) before touching any of those
-  modules. The history-schema and eq29-RHS baselines are likewise only checked locally (the latter needs
-  `CBQS_BENCHMARKS_DIR`). A *skipped* test is "unverified," not "passed."
+- **CI's C-test filter still has holes (verified 2026-06-10).** The `ctest -R` filter (test.yml) now
+  matches **21 of the 22 registered** cmocka targets; the holes are: `test_opt_sample_cap` (registered,
+  compiles under `-Werror`, but **never executes in CI**) and `test_predicted_params.c` (exists in
+  `tests/` but is **not registered in CMakeLists at all** — never even built; it targets the dead C
+  `set_predicted_params` path above). → **Always run the full local suite** (`ctest` with no `-R`)
+  before touching those modules. The history-schema and eq29-RHS baselines are likewise only checked
+  locally (the latter needs `CBQS_BENCHMARKS_DIR`). A *skipped* test is "unverified," not "passed."
 
 ---
 
@@ -255,13 +256,13 @@ pytest tests/ -v --tb=short --ignore=tests/test_stress.py
 pytest tests/test_stress.py -v --timeout=180        # split out (slow)
 ```
 
-**C tests — run the FULL suite locally** (CI only runs 10 of 21; see §5):
+**C tests — run the FULL suite locally** (CI's filter misses `test_opt_sample_cap`, and
+`test_predicted_params.c` is unregistered; see §5):
 ```bash
 cmake -S tests -B build-tests -DWERROR=ON
 cmake --build build-tests -j
-ctest --test-dir build-tests --output-on-failure    # ALL 21 targets — do this before touching any C module
-# CI's narrower filter (do not rely on it as your gate):
-#   ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)"
+ctest --test-dir build-tests --output-on-failure    # ALL targets — do this before touching any C module
+# CI's narrower filter (do not rely on it as your gate) — see test.yml for the current -R regex.
 ```
 
 **Sanitizers — run the matching one before touching its code (see §3 core areas).**
