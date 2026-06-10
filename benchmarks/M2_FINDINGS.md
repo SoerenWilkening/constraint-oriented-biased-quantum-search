@@ -36,12 +36,15 @@ prior can exploit it.
 |---|---|---|
 | **`opt_switch_oracles`** (exploit→explore switch) | **DOMINANT.** Same radii: switch=0 → W=+55 at n=10/20/50 (+53/+45/+32 elsewhere, median PI 0.123 vs 0.351 at n=100); switch=0.25·M → W=−55 at n=10–50. Earlier explore is better at every size measured; the default 0.1·M is left of optimal. | `m2d_radius_verdicts.csv` (`radius_g2e_early` vs `radius_g2e_late`) |
 | **scalar radius `r` (per phase)** | **Material, size-dependent.** Uniform r=6 → W=+55 at n=10 (the small-n compression regime), mixed→negative at large n. `opt_sat` r=2 harms hard-feasibility instances regardless of everything else (instance 40_6: δPI≈+0.27 in *every* r=2 schedule; byte-identical across switch settings because feasibility arrives after both thresholds). | `m2d_radius_verdicts.csv` |
-| **`variable_order`** | **INADMISSIBLE — P1 bug `h8d`.** Apparent §6.6 domination (W=+55 max at n=10–70, zero regressions, median PI *negative* = "beating" classical B_I by up to +83%) is an infeasibility artifact: the look-ahead keys clause-closure on the *natural* index while traversal uses `var_order`, so the solver accepts `eval_constraints`-violating solutions (`verified=False` on every solve). Quarantined: `run_sets/order_pii_desc.INVALID`. Re-measure after `h8d`; blocks M3 from searching this lever. | live repro in `h8d`; quarantine README |
+| **`variable_order`** | **Was INADMISSIBLE — P1 bug `h8d`, FIXED 2026-06-10.** Apparent §6.6 domination (W=+55 max at n=10–70, zero regressions, median PI *negative* = "beating" classical B_I by up to +83%) was an infeasibility artifact: the look-ahead keyed clause-closure on the *natural* index while traversal used `var_order`, so the solver accepted `eval_constraints`-violating solutions (`verified=False` on every solve). Fix: rank-keyed closure (`variable_rank` inverse permutation) + position-space look-ahead recursion; identity orders keep the pre-fix code path bit-for-bit (capstone strict-xcheck: exact ties vs frozen anchors). Repro now yields `verified=True` with objective exactly B_I at (10,0). `run_sets/order_pii_desc.INVALID` stays quarantined (produced by the buggy closure); the lever needs a **fresh equal-`T(n)` A/B** before M3 searches it. | core-change workflow (h8d); `test_variable_order_feasibility.c` |
 | **per-variable θ (sigmoid logit channel)** | **Near-null at \|θ\|≤0.5 on z(p_ii), opt-phase.** Both signs: W ∈ [−10, +10], mostly ties-within-margin. Realized radius ratio vs default 0.97–1.08 (≤8 % drift at n=100) — the M0f decoupling claim holds (no `factor_sum` catastrophe). | `m2f_theta_verdicts.csv` |
 
 **Negative control (§1.3):** uniform r=2 (near-greedy) loses on PI at scale
-(W=−24…−2 at n≥40) *and* trips the §8.3 floor at n=20/50/60 — including
-vetoing its own n=20 PI win. The anti-greedy defense works as designed.
+(W=−24…−2 at n≥40) *and* fails the (amended, see below) §8.3 tail floor at
+n=40/60/70/80/90 — every stratum where its harvested tail genuinely regresses
+(worst-instance regression up to −2.5×spread at n=80). The anti-greedy defense
+works as designed — and the amendment *strengthened* it here: the old spread
+floor had been passing uniform2 at n=40/70/80/90.
 
 ## Per-variable claim: kept, de-prioritized (the §4 decision)
 
@@ -54,12 +57,24 @@ searchable); the **primary M3 search space is (per-phase radius r(n),
 
 ## Gate findings (for M3 design — must resolve before the loop optimizes against the gates)
 
-1. **§8.3 floor vetoes uniformly-better candidates** (bd 8an.3.8, blocks 8an.4):
-   `radius_g2e_early` dominates §6.6 yet fails the floor at *every* stratum —
-   improving every worker collapses the best−median portfolio lift (e.g.
-   (50,0): 26.6k vs default 65.4k). The floor currently reads "uniform
-   improvement" as "greedy collapse". Options under review: tail-quality floor
-   (best-of-P vs default best-of-P), OR-style pass, or keep+document.
+1. **§8.3 floor vetoes uniformly-better candidates** (bd 8an.3.8) — **RESOLVED
+   2026-06-10 by the NORTHSTAR §8.3 amendment (tail-quality floor)**. The M2g
+   design review found the spread floor wrong in *both* directions: it vetoed
+   `radius_g2e_early` at n=20/100 where its final best-of-P did **not** regress
+   (the issue's "uniform improvement read as greedy collapse"), yet **passed**
+   the §1.3 negative control `radius_uniform2` at n=40/70/80/90 where its tail
+   regression reached −2.5×spread — and it was gameable (sandbag one worker →
+   manufactured best−median lift, no §6.6 cost). The dominance-escape variant
+   (option b) was a dead letter: `median_c − best_d < 0` on every evaluable
+   instance in every persisted run-set. Amendment: per instance, seed-matched,
+   fail iff median-over-seeds (`best_c − best_d`) regresses beyond
+   0.25·spread_obj(n) (zero band at default-converged sizes — n=10 becomes
+   evaluable instead of skipped); default-vs-default passes structurally
+   (Δ≡0, no calibration pin needed). Re-emitted verdicts: `g2e_early` floor
+   now passes at 10/20/30/50/70/100 (vetoed only at 40/60/80/90 where its tail
+   genuinely collapses, worst −5.2×spread at 60); per-stratum (gate_B ∧ floor)
+   wins at n=10/20/30/50/100. `floor_calibration.csv` survives as a diversity
+   diagnostic (no longer pins `EXPLORE_FLOOR_FRACTION`).
 2. **Verification is now load-bearing in the harness**: `result.verified` is
    persisted; `require_verified` fails loud in `run_sweep` *and*
    `load_run_set_dir`. This session it caught the `variable_order` corruption

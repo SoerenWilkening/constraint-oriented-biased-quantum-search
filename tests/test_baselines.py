@@ -562,11 +562,12 @@ def test_real_baselines_sane():
 
 
 def test_calibrate_floor_artifact_and_admissible_fraction(tmp_path, monkeypatch):
-    """M1 'floor calibrated' (bd 8an.2): calibrate_floor measures, per size, the default's own
-    per-portfolio lift vs the pooled objective-space spread — via the metric's own producers —
-    and reports max_admissible_fraction = min_lift/spread_obj. EXPLORE_FLOOR_FRACTION must sit
-    strictly below the minimum over measurable sizes, else the DEFAULT fails its own §8.3 floor
-    (the capstone's neutral-reference sanity). Converged sizes are recorded unmeasurable."""
+    """M1 'floor calibrated' (bd 8an.2, amended bd 8an.3.8): calibrate_floor measures, per size,
+    the default's own per-portfolio lift vs the pooled objective-space spread — via the metric's
+    own producers — and reports max_admissible_fraction = min_lift/spread_obj. Under the TAIL
+    floor this no longer pins EXPLORE_FLOOR_FRACTION (default-vs-default passes structurally);
+    the artifact remains the diversity diagnostic that documents the noise landscape the tail
+    floor's band is scaled by. Converged sizes are recorded unmeasurable."""
     frozen = tmp_path / "frozen.csv"
     with open(frozen, "w", newline="") as f:
         w = csv.writer(f)

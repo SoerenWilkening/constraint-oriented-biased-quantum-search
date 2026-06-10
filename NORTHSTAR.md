@@ -86,13 +86,16 @@ Admissible **iff** the QTG can implement the bias within the oracle-cost model, 
 `T(n)` A/B test**. Static per-qubit angles add zero *gate* cost; the `2j+1` oracle charge is
 bias-independent, so biasing only redistributes the budget — the A/B test measures the redistribution.
 
-- **`variable_order` is a priced search lever, not a free relabel.** The feasibility look-ahead keys
-  clause-closure on the *natural* variable index while traversal uses `var_order`, so reordering changes
-  the realized feasible set / forced-vs-free classification / `total_prob`. **Confirmed by the author:
-  variable ordering genuinely affects performance** — so it is a first-class static lever whose gain is
+- **`variable_order` is a priced search lever, not a free relabel.** Reordering changes the realized
+  feasible set / forced-vs-free classification / `total_prob`. **Confirmed by the author: variable
+  ordering genuinely affects performance** — so it is a first-class static lever whose gain is
   *priced by the equal-`T(n)` A/B test* (never assumed neutral). The QTG prepares qubits in the chosen
-  order at the same per-round oracle cost; (optional, later) making the look-ahead *prefix-consistent*
-  with `var_order` would give cleaner permutation semantics.
+  order at the same per-round oracle cost. *(v3 called look-ahead prefix-consistency with `var_order`
+  "optional, later" — M2 falsified that: the natural-index clause-closure ACCEPTED infeasible solutions
+  under any non-identity order (P1 bd h8d, +83% fake objectives, `verified=False`). Fixed 2026-06-10:
+  closure is rank-keyed to the traversal (`variable_rank`), look-ahead recursion runs in position space,
+  identity orders keep the pre-fix path bit-for-bit. Prefix-consistency is a PREREQUISITE for this
+  lever, not a refinement.)*
 - **Feature rule (Decision C):** Phase-1 angle-setting features = exactly **{`p_ii`, objective &
   constraint row-sums, raw interaction-graph degree, nnz counts}** — each a single O(nnz) pass.
   **Banned in Phase 1:** LP/SDP/optimization-derived features *and* any iterative/spectral graph
@@ -146,12 +149,23 @@ best-of-portfolio running-max trajectory.* Per instance `I`:
 2. **Bounded decisions (M1/M2 deliverable):** the sigmoid reparameterization (§4) keeps `value ∈ (ε,1−ε)`
    in the exploratory stage by construction — clamp enforced and unit-tested in `BranchingFunction`. (v2
    claimed this was already enforced; it is not — it is a deliverable.)
-3. **Late-stage exploration floor (hard gate, relative to baseline):** in the *exploratory* stage the
-   portfolio must retain real **outcome** diversity — `best-of-P` must exceed `median-of-P` by a fraction
-   of the **default** schedule's measured spread at the same `n`. **Requires per-worker final incumbents
-   (M0 deliverable; only global-best is logged today) and decorrelated workers (M0 seed fix).** Gating on
-   outcome lift (not per-decision entropy) closes the loophole that a greedy-outcome rule with noisy
-   decisions could pass. The early greedy stage is exempt.
+3. **Tail-quality floor (hard gate, relative to baseline — AMENDED M2g, bd 8an.3.8):** the candidate's
+   harvested tail must not regress: per instance, **seed-matched**, the candidate's final `best-of-P` may
+   not fall below the **default's** final `best-of-P` by more than a noise band (a fraction of the
+   default's measured objective spread at the same `n` — the same margin construction as §6.6's gate B).
+   A stratum passes only if every evaluable instance does; a default-converged size uses a zero band
+   (sharp reference). This gates **directly on the quantity §1.3/§6 score** — the best-of-portfolio
+   restart tail — so it cannot be satisfied by manufactured within-portfolio spread (sandbagging one
+   worker) nor violated by a schedule that uniformly lifts every worker without losing the tail.
+   *(History: v1–v3 specified a within-portfolio diversity proxy — `best-of-P − median-of-P` vs a
+   fraction of the default spread. M2 falsified it in both directions on real Eq.29 data: it vetoed
+   `radius_g2e_early` at strata where its final tail did not regress, and it PASSED the §1.3 negative
+   control `radius_uniform2` at n=40–90 where its worst-instance tail regression reached 2.5× the
+   default spread. The diversity measurement survives as the `calibrate-floor` diagnostic.)*
+   **Requires per-worker final incumbents (M0 deliverable) and decorrelated workers (M0 seed fix).**
+   Gating on the outcome tail (not per-decision entropy) closes the loophole that a greedy-outcome rule
+   with noisy decisions could pass. Default-vs-default passes structurally (Δ ≡ 0). The early greedy
+   stage is exempt (final incumbents only).
 
 ## 9. Generalization contract
 
@@ -179,7 +193,7 @@ best-of-portfolio running-max trajectory.* Per instance `I`:
   fraction in [0,α] of `T(n)`). LLM mutates from high-scoring exemplars + observed anytime curves; the
   evaluator scores via §6; the population preserves diversity.
 - **Candidate gate (pre-scoring):** static-angle realizable · A/B-priced (no free-relabel claims) ·
-  scale-invariance end-to-end test passes · `value` clamp holds · late-stage exploration floor · feature
+  scale-invariance end-to-end test passes · `value` clamp holds · tail-quality floor (§8.3) · feature
   allow-list (§5) · (Phase-3 only) compiles + prob∈[0,1] + fast.
 - **No per-candidate recompilation:** the schedule/`variable_order`/per-variable-logit are runtime data
   (`set_predicted_params`/`_propagate_phase_params`); the one-time C edits (sigmoid+clamp §4, switch hook
@@ -265,8 +279,9 @@ best-of-portfolio running-max trajectory.* Per instance `I`:
   (gurobi/hexaly/simanneal/iqs across n=10–3000); M0b imports them — no regeneration, no Hexaly license.
   `L_I`/default-`PI` come from our own CBQS-default runs under the new oracle-indexed harness.
 - **`variable_order`** — confirmed by the author as a real performance lever; treated as a priced
-  (equal-`T(n)` A/B) static lever (§5). Optional later: make the look-ahead prefix-consistent with the
-  order for cleaner permutation semantics.
+  (equal-`T(n)` A/B) static lever (§5). Look-ahead prefix-consistency with the order: DONE (bd h8d,
+  2026-06-10 — it was a prerequisite, not a nicety; see §5). Pending: a fresh equal-`T(n)` A/B run of
+  the order schedules before M3 includes the lever.
 - Phase-2 QTG cost model for conditional rotations (§7).
 - Compute budget for the agent loop — set from M0's measured per-solve cost (inner loop small/mid n;
   large n only at the validation gate and the M4 test-once).

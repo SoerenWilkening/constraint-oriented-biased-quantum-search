@@ -29,6 +29,7 @@ from benchmarks.metric import (
     instance_feasible,
     score_instance,
     exploration_floor,
+    tail_floor_delta,
     spread,
     feasibility_dominates,
     aggregate_stratified,
@@ -658,90 +659,182 @@ def test_check_matched_seeds_falls_back_to_size_when_no_seed():
         _check_matched_seeds(cand, {(10, 0): [_result() for _ in range(7)]})
 
 
-# --- two-level exploration floor ------------------------------------------- #
+# --- two-level TAIL-QUALITY floor (§8 item 3, amended bd 8an.3.8) ----------- #
+# The floor compares the candidate's harvested best-of-P against the seed-matched
+# default's best-of-P; the old within-portfolio best−median spread proxy was wrong
+# in both directions on real Eq.29 data (vetoed tail-preserving dominant candidates,
+# passed the tail-collapsed §1.3 negative control) and gameable by sandbagging.
 
-def test_aggregate_floor_passes_diverse_and_is_median_over_seeds():
-    # spread_obj 10, fraction 0.5 → threshold 5. Per-seed lifts 10 and 12 → median 11 > 5 → pass.
-    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)]),
-                      _result(final_incumbents=[(100, True), (88, True), (76, True)])]}
-    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, floor_instance_fraction=1.0, default_sizes={10})
-    assert out["per_size"][10]["per_seed_lift"][(10, 0)] == pytest.approx([10.0, 12.0])
-    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(11.0)
+def test_tail_floor_delta_reference_semantics():
+    # float when both sides have a feasible final; -inf when only the candidate has none
+    # (total tail collapse, counted); None when the DEFAULT has none (no reference, skipped).
+    assert tail_floor_delta([(105, True)], [(100, True), (90, True)]) == pytest.approx(5.0)
+    assert tail_floor_delta([(50, False)], [(100, True)]) == float("-inf")
+    assert tail_floor_delta([(105, True)], [(0, False)]) is None
+
+
+def test_aggregate_floor_uniform_dominant_candidate_passes():
+    # The 8an.3.8 motivating case: every candidate worker improves — ZERO internal spread — and
+    # the tail does not regress → PASS. The old spread floor read exactly this as greedy collapse
+    # (radius_g2e_early: §6.6 W=+55 wins vetoed at every evaluable stratum).
+    cand = {(10, 0): [_result(final_incumbents=[(105, True)] * 3, seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert rec["instance_deltas"][(10, 0)] == pytest.approx(5.0)
+    assert rec["stratum_pass"] is True and out["overall_pass"] is True
+
+
+def test_aggregate_floor_tail_collapse_fails_despite_spread():
+    # The gameability fix: a candidate with a BIG internal spread (best−median lift 40, which the
+    # old floor rewarded) whose harvested tail regressed beyond the noise band FAILS.
+    cand = {(10, 0): [_result(final_incumbents=[(80, True), (40, True), (20, True)], seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (95, True), (90, True)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert rec["instance_deltas"][(10, 0)] == pytest.approx(-20.0)   # beyond band 2.5
+    assert rec["stratum_pass"] is False and out["overall_pass"] is False
+
+
+def test_aggregate_floor_noise_band_tolerates_small_regression():
+    # band = 0.25 · spread_obj = 2.5 (mirrors §6.6 gate-B margin semantics): a −2 regression is
+    # within noise → pass; −3 exceeds the band → veto.
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (90, True)], seed=0)]}
+    near = {(10, 0): [_result(final_incumbents=[(98, True), (98, True)], seed=0)]}
+    assert _aggregate_floor(near, deflt, {10: 10.0}, fraction=0.25,
+                            default_sizes={10})["overall_pass"] is True
+    beyond = {(10, 0): [_result(final_incumbents=[(97, True), (97, True)], seed=0)]}
+    assert _aggregate_floor(beyond, deflt, {10: 10.0}, fraction=0.25,
+                            default_sizes={10})["overall_pass"] is False
+
+
+def test_aggregate_floor_median_over_seeds_not_worst_seed():
+    # Per-seed deltas {−20, +1, +2} → MEDIAN +1 → pass: one bad seed cannot veto (stable estimator
+    # over the small bank, same rule as the old LEVEL-2a median).
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (90, True)], seed=s) for s in (0, 1, 2)]}
+    cand = {(10, 0): [_result(final_incumbents=[(80, True)], seed=0),     # Δ −20
+                      _result(final_incumbents=[(101, True)], seed=1),    # Δ +1
+                      _result(final_incumbents=[(102, True)], seed=2)]}   # Δ +2
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert rec["per_seed_delta"][(10, 0)] == pytest.approx([-20.0, 1.0, 2.0])
+    assert rec["instance_deltas"][(10, 0)] == pytest.approx(1.0)
     assert out["overall_pass"] is True
 
 
-def test_aggregate_floor_greedy_collapse_fails():
-    # Low-variance greedy portfolio: best ≈ median ⇒ lift 0 < threshold on every seed ⇒ FAIL.
-    flat = _result(final_incumbents=[(90, True), (90, True), (90, True)])
-    cand = {(10, 0): [flat, flat]}
-    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
-    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(0.0)
+def test_aggregate_floor_seed_matched_not_pooled():
+    # Deltas are per MATCHED seed, never pooled-best vs pooled-best: candidate {s0:100, s1:70} vs
+    # default {s0:90, s1:95} gives matched deltas {+10, −25} → median −7.5 → FAIL at band 2.5,
+    # while pooling (best 100 vs best 95 → +5) would have passed. Anti-conflation.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True)], seed=0),
+                      _result(final_incumbents=[(70, True)], seed=1)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(90, True)], seed=0),
+                       _result(final_incumbents=[(95, True)], seed=1)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert sorted(rec["per_seed_delta"][(10, 0)]) == pytest.approx([-25.0, 10.0])
+    assert rec["instance_deltas"][(10, 0)] == pytest.approx(-7.5)
     assert out["overall_pass"] is False
-
-
-def test_aggregate_floor_no_pooling_across_seeds():
-    # Each seed's portfolio is internally flat (lift 0), but the POOLED population [80×3,120×3] would
-    # show a big best-vs-median lift. Judged per-solve, the floor correctly FAILS (anti-conflation).
-    cand = {(10, 0): [_result(final_incumbents=[(80, True), (80, True), (80, True)]),
-                      _result(final_incumbents=[(120, True), (120, True), (120, True)])]}
-    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
-    assert out["per_size"][10]["per_seed_lift"][(10, 0)] == pytest.approx([0.0, 0.0])
-    assert out["overall_pass"] is False
-
-
-def test_aggregate_floor_median_not_pass_fraction():
-    # Per-seed lifts {12, 1}: a per-solve pass-fraction would be 1/2 (coin-flip at FLOOR 0.5), but the
-    # MEDIAN lift 6.5 > 5 passes deterministically — pins the median-over-seeds rule.
-    cand = {(10, 0): [_result(final_incumbents=[(100, True), (88, True), (76, True)]),   # lift 12
-                      _result(final_incumbents=[(91, True), (90, True), (89, True)])]}    # lift 1
-    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
-    assert out["per_size"][10]["instance_lifts"][(10, 0)] == pytest.approx(6.5)
-    assert out["overall_pass"] is True
 
 
 def test_aggregate_floor_instance_fraction_knob():
-    # 3 instances, 2 passing (lifts 10, 8, 2 at threshold 5) → fraction 2/3.
-    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])],   # lift 10
-            (10, 1): [_result(final_incumbents=[(100, True), (92, True), (84, True)])],   # lift 8
-            (10, 2): [_result(final_incumbents=[(92, True), (90, True), (88, True)])]}    # lift 2
+    # 3 instances at band 2.5: deltas {0, +5, −10} → 2 of 3 pass → fraction 2/3.
+    deflt = {(10, i): [_result(final_incumbents=[(100, True), (90, True)], seed=0)] for i in range(3)}
+    cand = {(10, 0): [_result(final_incumbents=[(100, True)], seed=0)],   # Δ 0    pass
+            (10, 1): [_result(final_incumbents=[(105, True)], seed=0)],   # Δ +5   pass
+            (10, 2): [_result(final_incumbents=[(90, True)], seed=0)]}    # Δ −10  fail
     so = {10: 10.0}
-    out6 = _aggregate_floor(cand, so, fraction=0.5, floor_instance_fraction=0.6, default_sizes={10})
+    out6 = _aggregate_floor(cand, deflt, so, fraction=0.25, floor_instance_fraction=0.6,
+                            default_sizes={10})
     assert out6["per_size"][10]["instance_pass_fraction"] == pytest.approx(2 / 3)
     assert out6["overall_pass"] is True
-    out1 = _aggregate_floor(cand, so, fraction=0.5, floor_instance_fraction=1.0, default_sizes={10})
+    out1 = _aggregate_floor(cand, deflt, so, fraction=0.25, floor_instance_fraction=1.0,
+                            default_sizes={10})
     assert out1["overall_pass"] is False
 
 
 def test_aggregate_floor_absent_candidate_stratum_fails():
     # Default covers n=500, candidate omits it → anti-dodge stratum fail.
-    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])]}
-    out = _aggregate_floor(cand, {10: 10.0, 500: 5.0}, fraction=0.5, default_sizes={10, 500})
+    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)], seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)], seed=0)],
+             (500, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0, 500: 5.0}, fraction=0.25,
+                           default_sizes={10, 500})
     assert out["per_size"][500]["stratum_pass"] is False
     assert out["overall_pass"] is False
 
 
-def test_aggregate_floor_skips_on_none_spread_when_needed():
-    # bd 7zx: feasible workers but no objective-space default spread → the floor is unevaluable at
-    # that size (threshold is relative to the default spread). Recorded skip, never a raise (would
-    # make default-vs-default unscorable) and never a 0-threshold pass.
-    cand = {(10, 0): [_result(final_incumbents=[(100, True), (90, True), (80, True)])]}
-    out = _aggregate_floor(cand, {}, fraction=0.5, default_sizes={10})
-    assert out["per_size"][10]["skipped"] is True
-    assert out["per_size"][10]["stratum_pass"] is None
+def test_aggregate_floor_converged_default_zero_band():
+    # A size the default portfolio CONVERGES on (spreads_obj omits it) uses a ZERO band: the
+    # reference is sharp, so matching it passes and ANY beyond-REL_TOL regression fails. This
+    # REPLACES the old bd 7zx stratum skip — the tail floor is evaluable against a converged
+    # reference (the old spread floor's threshold was undefined there).
+    deflt = {(10, 0): [_result(final_incumbents=[(90, True)] * 3, seed=0)]}
+    same = {(10, 0): [_result(final_incumbents=[(90, True)] * 3, seed=0)]}
+    out = _aggregate_floor(same, deflt, {}, fraction=0.25, default_sizes={10})
+    assert out["per_size"][10]["band"] == 0.0
+    assert out["per_size"][10]["stratum_pass"] is True and out["overall_pass"] is True
+    assert out["skipped_sizes"] == []
+    improver = {(10, 0): [_result(final_incumbents=[(90.000001, True)] * 3, seed=0)]}
+    assert _aggregate_floor(improver, deflt, {}, fraction=0.25,
+                            default_sizes={10})["overall_pass"] is True
+    regress = {(10, 0): [_result(final_incumbents=[(89, True)] * 3, seed=0)]}
+    assert _aggregate_floor(regress, deflt, {}, fraction=0.25,
+                            default_sizes={10})["overall_pass"] is False
+
+
+def test_aggregate_floor_default_vs_default_structural_pass():
+    # Neutral-reference sanity: default-vs-default gives Δ ≡ 0 on every seed → passes at ANY
+    # fraction (including 0) with no calibration machinery — converged and diverse instances alike.
+    bank = {(10, 0): [_result(final_incumbents=[(90, True)] * 3, seed=s) for s in (0, 1)],
+            (10, 1): [_result(final_incumbents=[(100, True), (90, True), (80, True)], seed=s)
+                      for s in (0, 1)]}
+    for fraction in (0.0, 0.25, 0.5):
+        out = _aggregate_floor(bank, bank, {10: 10.0}, fraction=fraction, default_sizes={10})
+        assert out["overall_pass"] is True
+        assert out["per_size"][10]["n_instances_passing"] == 2
+
+
+def test_aggregate_floor_no_default_reference_instance_skipped():
+    # Default never feasible on the instance → no tail reference → instance SKIPPED (feasibility
+    # quality is the §6 item 5 tier's job); a stratum with NO evaluable instance is an explicit
+    # recorded skip — never a silent pass, never a raise.
+    cand = {(10, 0): [_result(final_incumbents=[(90, True)], seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(0, False)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert rec["skipped"] is True and rec["stratum_pass"] is None
+    assert rec["skipped_instances"] == [(10, 0)]
     assert out["skipped_sizes"] == [10] and out["overall_pass"] is True
 
 
+def test_aggregate_floor_instance_missing_from_default_skipped():
+    # A candidate-only instance has no reference bank → skipped (mirrors the §6.6 no-anchor skip);
+    # the instances the default does cover are still gated.
+    cand = {(10, 0): [_result(final_incumbents=[(100, True)], seed=0)],
+            (10, 1): [_result(final_incumbents=[(100, True)], seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(100, True), (90, True)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    rec = out["per_size"][10]
+    assert (10, 1) in rec["skipped_instances"]
+    assert rec["n_instances_evaluable"] == 1
+    assert rec["stratum_pass"] is True and out["overall_pass"] is True
+
+
 def test_aggregate_floor_raises_when_no_final_incumbents():
-    cand = {(10, 0): [_result(final_incumbents=[])]}  # M0e harness produced nothing
+    cand = {(10, 0): [_result(final_incumbents=[], seed=0)]}  # M0e harness produced nothing
+    deflt = {(10, 0): [_result(final_incumbents=[(90, True)], seed=0)]}
     with pytest.raises(ValueError):
-        _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
+        _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
 
 
 def test_aggregate_floor_zero_feasible_solve_is_fail():
-    # final_incumbents produced but all infeasible → lift None → instance fails (NOT a raise).
-    cand = {(10, 0): [_result(final_incumbents=[(50, False), (60, False)])]}
-    out = _aggregate_floor(cand, {10: 10.0}, fraction=0.5, default_sizes={10})
-    assert out["per_size"][10]["instance_lifts"][(10, 0)] is None
+    # Candidate finals produced but all infeasible where the default HAS a feasible tail →
+    # Δ = −inf (total tail collapse) → instance fails (NOT a raise, NOT a skip).
+    cand = {(10, 0): [_result(final_incumbents=[(50, False), (60, False)], seed=0)]}
+    deflt = {(10, 0): [_result(final_incumbents=[(90, True)], seed=0)]}
+    out = _aggregate_floor(cand, deflt, {10: 10.0}, fraction=0.25, default_sizes={10})
+    assert out["per_size"][10]["instance_deltas"][(10, 0)] == float("-inf")
     assert out["overall_pass"] is False
 
 
@@ -776,12 +869,13 @@ def test_score_verdict_pass_small_n():
 
 
 def test_score_verdict_floor_vetoes_pi_winner():
-    # Same §6.6 winner, but greedy-flat candidate portfolios → §8.3 floor vetoes (AND, never revive).
+    # Same §6.6 winner, but the candidate's harvested tail regresses beyond the noise band
+    # (best 90 vs default best 100, band 0.25·5) → §8.3 floor vetoes (AND, never revive).
     baselines, cand, deflt = _pass_setup()
-    flat = [(90, True), (90, True), (90, True)]           # lift 0
+    collapsed = [(90, True), (90, True), (90, True)]      # best-of-P 90 < default best-of-P 100
     for key in cand:
         cand[key] = _bank({(10, 0): 80, (10, 1): 70, (10, 2): 60,
-                           (20, 0): 80, (20, 1): 70, (20, 2): 60}[key], flat)
+                           (20, 0): 80, (20, 1): 70, (20, 2): 60}[key], collapsed)
     out = score_verdict(cand, deflt, baselines, require_largest_n=False)
     assert out["aggregation"]["overall_pass"] is True
     assert out["floor"]["overall_pass"] is False
@@ -919,31 +1013,30 @@ def test_check_matched_seeds_rejects_duplicate_and_reweighted_banks():
     _check_matched_seeds({(10, 0): [_result(seed=2), _result(seed=0), _result(seed=1)]}, honest)
 
 
-def test_default_objective_spreads_absent_when_iqr_zero_and_floor_skips_recorded():
-    # Finding 7 (the anti-greedy hole) + bd 7zx: ≥2 IDENTICAL feasible incumbents give IQR 0, which
-    # must be treated as "no measurable diversity" → size ABSENT (not 0.0). The floor at such a size
-    # is UNEVALUABLE (its threshold is relative to the default's spread): it must be recorded as an
-    # explicit skip (stratum_pass None, surfaced in skipped_sizes) — NEVER a silent 0.0-threshold
-    # pass (the original finding-7 hole) and NEVER a raise (which made default-vs-default unscorable
-    # on real Eq.29: n=10 default portfolios converge — pooled per-instance IQR 0 — so ANY run-set
-    # containing n=10 blew up mid-verdict; the neutral reference must always be scoreable).
-    converged = {(10, 0): [_result(final_incumbents=[(90, True), (90, True), (90, True)])]}
+def test_default_objective_spreads_absent_when_iqr_zero_and_floor_zero_band():
+    # Finding 7 + bd 7zx (amended bd 8an.3.8): ≥2 IDENTICAL feasible incumbents give IQR 0, which
+    # must be treated as "no measurable diversity" → size ABSENT from spreads (not 0.0). Under the
+    # TAIL floor such a size is now EVALUABLE with a ZERO noise band (the converged reference is
+    # sharp): matching or improving the default's tail passes, any beyond-REL_TOL regression fails
+    # — never a silent pass, never a raise (default-vs-default stays scorable end-to-end).
+    converged = {(10, 0): [_result(final_incumbents=[(90, True), (90, True), (90, True)], seed=0)]}
     spreads = default_objective_spreads(converged)
     assert 10 not in spreads
-    near_greedy = {(10, 0): [_result(final_incumbents=[(90.000001, True), (90, True), (90, True)])]}
-    out = _aggregate_floor(near_greedy, spreads, fraction=0.5, default_sizes={10})
+    improver = {(10, 0): [_result(final_incumbents=[(90.000001, True), (90, True), (90, True)], seed=0)]}
+    out = _aggregate_floor(improver, converged, spreads, fraction=0.5, default_sizes={10})
     rec = out["per_size"][10]
-    assert rec["skipped"] is True
-    assert rec["stratum_pass"] is None        # not passed — the near-greedy lift was never admitted
-    assert "diversity" in rec["reason"]
-    assert out["skipped_sizes"] == [10]
-    assert out["overall_pass"] is True        # nothing evaluable failed; §6.6 still gates this size
+    assert rec["band"] == 0.0
+    assert rec["stratum_pass"] is True        # tail matched/improved against the sharp reference
+    assert out["skipped_sizes"] == []
+    regressor = {(10, 0): [_result(final_incumbents=[(89, True), (89, True), (89, True)], seed=0)]}
+    out2 = _aggregate_floor(regressor, converged, spreads, fraction=0.5, default_sizes={10})
+    assert out2["per_size"][10]["stratum_pass"] is False and out2["overall_pass"] is False
 
 
 def test_score_verdict_scores_converged_default_end_to_end():
-    # bd 7zx sanity property: default-vs-default must ALWAYS be scoreable. A fully-converged default
-    # portfolio (identical finals → no objective-space spread) skips the floor at that size with the
-    # skip recorded, and the verdict completes on the §6.6 gates alone.
+    # bd 7zx sanity property (amended bd 8an.3.8): default-vs-default must ALWAYS be scoreable.
+    # A fully-converged default portfolio (identical finals → no objective-space spread) is now
+    # EVALUABLE under the tail floor with a zero band, and Δ ≡ 0 passes it structurally.
     converged_fincs = [(90, True), (90, True), (90, True)]
     # distinct frozen PIs per instance (a degenerate all-equal population would correctly trip the
     # bd 1xa zero-margin guard — a separate, intended failure mode); γ(obj) = (100-obj)/100.
@@ -953,8 +1046,8 @@ def test_score_verdict_scores_converged_default_end_to_end():
     runset = {(10, i): _bank(obj[i], list(converged_fincs)) for i in range(3)}
     out = score_verdict(runset, runset, baselines, require_largest_n=False, strict_xcheck=True)
     rec = out["floor"]["per_size"][10]
-    assert rec["skipped"] is True and rec["stratum_pass"] is None
-    assert out["floor"]["skipped_sizes"] == [10]
+    assert rec["band"] == 0.0 and rec["stratum_pass"] is True
+    assert out["floor"]["skipped_sizes"] == []
     assert out["floor"]["overall_pass"] is True
     # ties everywhere → no wins, no regressions; the verdict is computable and gate B holds.
     assert out["aggregation"]["per_size"][10]["gate_B_pass"] is True
@@ -998,43 +1091,33 @@ def test_score_verdict_partial_freeze_stratum_recorded_not_raised():
     assert "overall_pass" in out
 
 
-def test_floor_default_lift_aware_instance_evaluability():
-    # M1 floor calibration (bd 8an.2, NORTHSTAR §8.3): an instance is floor-EVALUABLE iff the
-    # DEFAULT itself passes the floor there (its median per-portfolio lift exceeds the threshold).
-    # Real-Eq.29 calibration showed default diversity emerges with n (n<=40 strata all contain
-    # zero-lift default instances), so under all-instances gating NO positive fraction lets the
-    # neutral reference pass its own gate. Evaluability-by-reference fixes that STRUCTURALLY
-    # (default-vs-default passes at any fraction) while keeping the anti-greedy bite: a collapsed
-    # candidate still fails every instance where the default demonstrated diversity. Evaluability
-    # depends only on the reference data — no candidate gaming surface.
-    spread = {10: 10.0}                                  # threshold = 0.5 * 10 = 5
-    diverse = [(100, True), (90, True), (80, True)]      # lift 10 > 5
-    converged = [(90, True), (90, True), (90, True)]     # lift 0
-    default_lifts = {(10, 0): 0.0, (10, 1): 10.0}        # default converged on 0, diverse on 1
-    cand = {(10, 0): [_result(final_incumbents=list(converged))],
-            (10, 1): [_result(final_incumbents=list(diverse))]}
-    out = _aggregate_floor(cand, spread, fraction=0.5, default_sizes={10},
-                           default_lifts=default_lifts)
+def test_floor_mixed_dominance_per_instance_tail_gating():
+    # The tail floor gates EVERY instance with a feasible default reference — no
+    # evaluability-by-reference carve-out needed (that M1 rule existed because the old spread
+    # threshold was undefined where the default showed no lift; the tail reference best-of-P is
+    # always defined when the default is feasible). A candidate may dominate one instance and
+    # collapse another in the same stratum: the collapsed one fails the stratum at fraction 1.0.
+    spread = {10: 10.0}                                       # band = 0.25 · 10 = 2.5
+    deflt = {(10, 0): [_result(final_incumbents=[(90, True), (90, True)], seed=0)],      # converged ref
+             (10, 1): [_result(final_incumbents=[(100, True), (80, True)], seed=0)]}     # diverse ref
+    dominant = {(10, 0): [_result(final_incumbents=[(95, True), (95, True)], seed=0)],   # Δ +5
+                (10, 1): [_result(final_incumbents=[(101, True), (101, True)], seed=0)]} # Δ +1
+    out = _aggregate_floor(dominant, deflt, spread, fraction=0.25, default_sizes={10})
     rec = out["per_size"][10]
-    assert rec["skipped_instances"] == [(10, 0)]         # not penalized where the reference had none
-    assert rec["n_instances_evaluable"] == 1 and rec["n_instances_passing"] == 1
+    assert rec["n_instances_evaluable"] == 2 and rec["n_instances_passing"] == 2
     assert rec["stratum_pass"] is True and out["overall_pass"] is True
-    # anti-greedy bite kept: a collapsed candidate fails the evaluable instance.
-    greedy = {(10, 0): [_result(final_incumbents=list(converged))],
-              (10, 1): [_result(final_incumbents=list(converged))]}
-    out2 = _aggregate_floor(greedy, spread, fraction=0.5, default_sizes={10},
-                            default_lifts=default_lifts)
+    mixed = {(10, 0): [_result(final_incumbents=[(95, True), (95, True)], seed=0)],      # Δ +5
+             (10, 1): [_result(final_incumbents=[(80, True), (80, True)], seed=0)]}      # Δ −20
+    out2 = _aggregate_floor(mixed, deflt, spread, fraction=0.25, default_sizes={10})
+    assert out2["per_size"][10]["n_instances_passing"] == 1
     assert out2["per_size"][10]["stratum_pass"] is False and out2["overall_pass"] is False
-    # NO evaluable instance at all -> recorded stratum skip (not pass, not fail).
-    out3 = _aggregate_floor(greedy, spread, fraction=0.5, default_sizes={10},
-                            default_lifts={(10, 0): 0.0, (10, 1): None})
-    assert out3["per_size"][10]["skipped"] is True and out3["skipped_sizes"] == [10]
 
 
 def test_score_verdict_default_passes_own_floor_structurally():
-    # Neutral-reference sanity (M1 capstone property): default-vs-default passes the §8.3 floor
-    # BY CONSTRUCTION — evaluability is "default passes there", so the default can never fail
-    # its own gate, at any fraction, even with converged instances mixed into the stratum.
+    # Neutral-reference sanity (M1 capstone property, preserved by the bd 8an.3.8 amendment):
+    # default-vs-default passes the §8.3 floor BY CONSTRUCTION — every per-seed tail delta is
+    # identically 0, which no fraction ≥ 0 can read as a regression — even with converged
+    # instances mixed into the stratum.
     pi = {0: 0.5, 1: 0.6, 2: 0.7}
     obj = {0: 50, 1: 40, 2: 30}
     fincs = {0: [(90, True), (90, True), (90, True)],          # converged instance
@@ -1044,7 +1127,8 @@ def test_score_verdict_default_passes_own_floor_structurally():
     runset = {(10, i): _bank(obj[i], list(fincs[i])) for i in range(3)}
     out = score_verdict(runset, runset, baselines, require_largest_n=False, strict_xcheck=True)
     rec = out["floor"]["per_size"][10]
-    assert (10, 0) in rec["skipped_instances"]                  # converged -> not evaluable
+    assert rec["n_instances_evaluable"] == 3 and rec["n_instances_passing"] == 3
+    assert all(d == 0.0 for d in rec["instance_deltas"].values())
     assert rec["stratum_pass"] is True
     assert out["floor"]["overall_pass"] is True
     assert out["overall_pass"] is True                          # ties pass gate B; floor structural

@@ -55,14 +55,17 @@ GAMMA_MAX = 0.5
 #: negligible vs any genuine B_I − L_I (asserted in tests; CLAUDE.md §1.5 anti-silent-rescale).
 PI_EPS = 1e-9
 
-#: §8.3 floor threshold = EXPLORE_FLOOR_FRACTION · per-n default objective-space spread. CALIBRATED
-#: (M1, bd 8an.2; artifact benchmarks/floor_calibration.csv from `calibrate-floor` over real Eq.29
-#: n=10..100): default median lift/spread is ~0.7-3.7 for n>=50, so 0.25 keeps the bulk of
-#: instances floor-evaluable at scale while demanding a quarter of the default's measured spread.
-#: The neutral-reference sanity (default passes its own floor) does NOT depend on this value — an
-#: instance is only evaluable where the DEFAULT itself clears the threshold (structural, see
-#: :func:`_aggregate_floor`) — so this constant tunes bite vs. evaluable coverage only.
-#: (Was 0.5 pre-calibration, which the real data did not support below n=50.)
+#: §8.3 floor NOISE BAND = EXPLORE_FLOOR_FRACTION · per-n default objective-space spread.
+#: AMENDED (M2g, bd 8an.3.8): the floor is now TAIL-QUALITY — per instance, seed-matched, the
+#: candidate's final best-of-P may not regress vs the DEFAULT's final best-of-P by more than this
+#: band (mirrors the §6.6 gate-B margin semantics, in objective space). The old spread-based
+#: best−median lift floor read "every worker improved" as greedy collapse (vetoing dominant
+#: candidates) while PASSING the §1.3 negative control radius_uniform2 at n=40..90 where its
+#: final tail regressed up to 2.5× the default spread — and was gameable by sandbagging one
+#: worker. The neutral-reference sanity (default passes its own floor) is STRUCTURAL under the
+#: tail definition (Δ ≡ 0 at any fraction), so this constant tunes noise tolerance only.
+#: 0.25 retained from the M1 calibration scale (benchmarks/floor_calibration.csv documents the
+#: default's lift/spread landscape; it no longer pins admissibility).
 EXPLORE_FLOOR_FRACTION = 0.25
 
 #: §6 item 6 noise margin: a "win" requires beating default PI by more than NOISE_MARGIN_K times
@@ -82,11 +85,12 @@ LARGEST_N = 3000
 #: so "|δ| <= m → tie" (NORTHSTAR §6 item 6) is honored exactly. Negligible vs real Eq.29 deltas.
 REL_TOL = 1e-9
 
-#: §8 item 3 end-to-end floor (bd 8an.2.1): per stratum, the FRACTION of instances whose
-#: median-over-seed best-of-P − median-of-P lift must clear the floor for the stratum to pass.
-#: NORTHSTAR leaves it unpinned (calibrated in M1, like EXPLORE_FLOOR_FRACTION / NOISE_MARGIN_K).
-#: Default 1.0 = the conservative anti-greedy reading (every scored instance must show diversity);
-#: surfaced as a ``score_verdict`` kwarg so the M1 sweep can relax it once the spread is characterized.
+#: §8 item 3 end-to-end floor (bd 8an.2.1, amended bd 8an.3.8): per stratum, the FRACTION of
+#: evaluable instances whose median-over-seed tail delta (candidate best-of-P − default best-of-P)
+#: must stay within the noise band for the stratum to pass. NORTHSTAR leaves it unpinned
+#: (calibrated in M1, like EXPLORE_FLOOR_FRACTION / NOISE_MARGIN_K). Default 1.0 = the
+#: conservative reading (no scored instance may regress its harvested tail beyond noise);
+#: surfaced as a ``score_verdict`` kwarg so the M-level sweeps can relax it deliberately.
 FLOOR_INSTANCE_FRACTION = 1.0
 
 #: Relative tolerance for the ``score_verdict`` cross-check of the supplied default run-set's
@@ -306,12 +310,16 @@ def score_instance(result, n, B_I, L_I, *, T_I=None):
 # --------------------------------------------------------------------------- #
 
 def exploration_floor(final_incumbents, spread_default, fraction=EXPLORE_FLOOR_FRACTION):
-    """§8 item 3 hard gate: best-of-P must exceed median-of-P by a fraction of the default spread.
+    """Per-portfolio DIVERSITY DIAGNOSTIC: best-of-P − median-of-P vs a fraction of the default spread.
 
-    PASS iff ``best_of_P − median_of_P > fraction · spread_default`` over the candidate's FEASIBLE
-    per-worker final incumbents (objective space, MAXIMIZE so higher = better). Gates on OUTCOME
-    lift, not per-decision entropy; the early greedy stage is exempt automatically (these are
-    *final* incumbents). Feasibility tier (§6 item 5) handles the all-infeasible case first.
+    AMENDED (bd 8an.3.8): this spread-lift quantity is NO LONGER the §8 item 3 verdict gate — the
+    verdict floor is the seed-matched TAIL-QUALITY comparison (:func:`tail_floor_delta` aggregated
+    by :func:`_aggregate_floor`). Retained as the diversity diagnostic behind ``calibrate-floor``
+    (benchmarks/floor_calibration.csv): the lift documents how much within-portfolio outcome
+    diversity the default exhibits per n, which sets the scale of the tail floor's noise band.
+
+    PASS iff ``best_of_P − median_of_P > fraction · spread_default`` over the FEASIBLE per-worker
+    final incumbents (objective space, MAXIMIZE so higher = better).
 
     final_incumbents : list[(value:float, feasible:bool)]  (result.final_incumbents)
     spread_default   : float  (default schedule's per-n spread; :func:`spread`)
@@ -330,6 +338,32 @@ def exploration_floor(final_incumbents, spread_default, fraction=EXPLORE_FLOOR_F
     lift = best - med
     return {"pass": lift > threshold, "best_of_P": best, "median_of_P": med,
             "lift": lift, "threshold": threshold, "n_feasible": len(feas)}
+
+
+def tail_floor_delta(candidate_incumbents, default_incumbents):
+    """§8 item 3 (amended, bd 8an.3.8) per-solve TAIL delta: candidate best-of-P − default best-of-P.
+
+    Computed over the FEASIBLE per-worker final incumbents of one seed-matched solve pair
+    (objective space, MAXIMIZE so higher = better). This is the quantity §1.3 actually protects —
+    the harvested restart tail — measured directly instead of via the (gameable, both-ways-wrong)
+    best−median spread proxy: a candidate that uniformly lifts every worker keeps Δ ≥ 0 and
+    passes; a candidate whose portfolio retains spread but loses the tail goes Δ < 0 and fails.
+
+    Returns:
+      float  — best_c − best_d when both sides have a feasible final;
+      -inf   — the default has a feasible final but the candidate has NONE (total tail collapse;
+               the feasibility tier §6 item 5 also fires, but the floor must not read this as
+               "no data");
+      None   — the DEFAULT side has no feasible final: no reference to compare against (the
+               caller skips this seed; instance-level feasibility quality is the §6 tier's job).
+    """
+    feas_d = [float(v) for (v, ok) in default_incumbents if ok]
+    if not feas_d:
+        return None
+    feas_c = [float(v) for (v, ok) in candidate_incumbents if ok]
+    if not feas_c:
+        return float("-inf")
+    return max(feas_c) - max(feas_d)
 
 
 def spread(values, stat=SPREAD_STAT):
@@ -778,11 +812,12 @@ def _check_matched_seeds(candidate_results, default_results):
 
 
 def _instance_median_lift(seed_results):
-    """Median over a seed bank of the per-portfolio §8.3 lift (best − median of FEASIBLE finals).
+    """Median over a seed bank of the per-portfolio spread lift (best − median of FEASIBLE finals).
 
-    The same quantity :func:`exploration_floor` computes per solve, collapsed with the LEVEL-2a
-    median (bd 8an.2.1). Used to derive the DEFAULT's per-instance reference lifts for the floor's
-    evaluability rule (see :func:`_aggregate_floor`). ``None`` when no seed had a feasible final.
+    The same quantity :func:`exploration_floor` computes per solve, collapsed with a per-instance
+    median (bd 8an.2.1). AMENDED (bd 8an.3.8): no longer part of the verdict floor — retained as
+    the diversity diagnostic behind ``calibrate-floor`` (benchmarks/floor_calibration.csv).
+    ``None`` when no seed had a feasible final.
     """
     lifts = []
     for r in seed_results:
@@ -792,55 +827,69 @@ def _instance_median_lift(seed_results):
     return float(statistics.median(lifts)) if lifts else None
 
 
-def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_FRACTION,
-                     floor_instance_fraction=FLOOR_INSTANCE_FRACTION, default_sizes=(),
-                     default_lifts=None):
-    """§8 item 3 late-stage exploration floor, aggregated over a matched seed bank (bd 8an.2.1, Q3).
+def _pair_by_seed(cand_seed_results, def_seed_results):
+    """Pair one instance's candidate/default seed banks for the §8.3 tail comparison.
 
-    Two-level, anti-conflation, low-variance-stable:
-      LEVEL 1 — per (instance, seed), judged on ITS OWN P workers: ``lift_{i,s} = best_of_P −
-        median_of_P`` over that one portfolio's feasible final incumbents (:func:`exploration_floor`).
-        NEVER pool workers across seeds — that conflates seed variance with worker variance and would
-        manufacture a lift no single portfolio had.
-      LEVEL 2a — collapse seeds per instance with the MEDIAN of the per-solve lift (a stable estimator
-        over the small bank — NOT a per-solve pass-fraction vote, which would coin-flip at the boundary
-        over ~7 seeds). ``instance_pass`` iff that median lift exceeds ``fraction · spread_obj[n]``
-        (REL_TOL-snapped via :func:`_exceeds`). An instance with no feasible worker in ANY seed → no
-        lift → fails.
-      LEVEL 2b — per stratum: pass iff the FRACTION of instances passing ≥ ``floor_instance_fraction``
-        (one easy instance cannot mask a collapsed one).
-    A low-variance greedy portfolio has ``best ≈ median`` on every solve → lift ≈ 0 < threshold across
-    seeds → the stratum fails: the provable anti-greedy rejection §8.3 demands. A size the default
-    covers but the candidate OMITS fails (anti-dodge; mirrors :func:`aggregate_stratified`'s size union).
+    Matched by ``result.seed`` when every result on both sides carries one (the production path —
+    ``_check_matched_seeds`` has already enforced equal multisets); positional otherwise (unit-test
+    stubs). Returns list[(cand_result, def_result|None)] — None when the default bank has no
+    counterpart for that seed (the pair is then unevaluable and the caller records a None delta).
+    """
+    cand = list(cand_seed_results)
+    deflt = list(def_seed_results)
+    if (all(getattr(r, "seed", None) is not None for r in cand)
+            and all(getattr(r, "seed", None) is not None for r in deflt)):
+        by_seed = {r.seed: r for r in deflt}
+        return [(rc, by_seed.get(rc.seed)) for rc in cand]
+    return [(rc, deflt[i] if i < len(deflt) else None) for i, rc in enumerate(cand)]
+
+
+def _aggregate_floor(candidate_results, default_results, spreads_obj, *,
+                     fraction=EXPLORE_FLOOR_FRACTION,
+                     floor_instance_fraction=FLOOR_INSTANCE_FRACTION, default_sizes=()):
+    """§8 item 3 TAIL-QUALITY floor, aggregated over a matched seed bank (amended bd 8an.3.8).
+
+    The floor protects what §1.3 actually scores — the harvested best-of-portfolio tail — by
+    comparing it DIRECTLY against the seed-matched default instead of via the old within-portfolio
+    best−median spread proxy. The M2 data showed the spread proxy was wrong in both directions
+    (vetoed radius_g2e_early at strata where its final tail did NOT regress; PASSED the §1.3
+    negative control radius_uniform2 at n=40..90 where its worst-instance tail regression reached
+    2.5× the default spread) and gameable (sandbagging one worker manufactures lift without
+    touching best-of-P PI).
+
+    Two-level, anti-conflation, noise-tolerant:
+      LEVEL 1 — per (instance, seed), seed-matched: ``Δ_{i,s} = best_of_P(candidate) −
+        best_of_P(default)`` over each portfolio's feasible final incumbents
+        (:func:`tail_floor_delta`). NEVER pool workers across seeds. A seed where the DEFAULT has
+        no feasible final yields no reference (Δ None, excluded); a seed where only the CANDIDATE
+        has none is a total tail collapse (Δ −inf, counted).
+      LEVEL 2a — collapse seeds per instance with the MEDIAN Δ (stable over the small bank).
+        ``instance_pass`` iff the median regression does NOT exceed the noise band:
+        ``not _exceeds(−Δ_med, fraction · spread_obj[n])`` — mirroring the §6.6 gate-B margin
+        semantics in objective space. A size the default portfolio CONVERGES on (``spreads_obj``
+        omits it — per-instance IQR 0) uses a ZERO band: the reference is sharp, so any
+        beyond-REL_TOL regression fails (this replaces the bd 7zx stratum skip — the tail floor
+        is evaluable against a converged reference; the old spread floor was not).
+        An instance with no Δ reference in ANY seed (default never feasible there) is SKIPPED —
+        feasibility quality is the §6 item 5 tier's job. An instance the default run-set does not
+        cover at all is likewise skipped (no reference; mirrors the §6.6 no-anchor skip).
+      LEVEL 2b — per stratum: pass iff the FRACTION of evaluable instances passing ≥
+        ``floor_instance_fraction`` (one easy instance cannot mask a collapsed one). A stratum
+        with NO evaluable instance is recorded as an explicit skip (``stratum_pass`` None) —
+        never a silent pass. A size the default covers but the candidate OMITS fails (anti-dodge;
+        mirrors :func:`aggregate_stratified`'s size union).
+
+    NEUTRAL-REFERENCE SANITY (structural): default-vs-default gives Δ ≡ 0 on every seed → the
+    floor passes at ANY fraction ≥ 0 with no calibration machinery (the M1 evaluability-by-
+    reference rule and the floor_calibration admissibility pin are obsolete for gating; the
+    calibration artifact remains a diversity diagnostic).
 
     RAISES if NO candidate solve in a default-covered stratum emitted ``final_incumbents`` at all
     (the M0e harness dependency — never a silent pass).
 
-    CONVERGED-DEFAULT SKIP (bd 7zx): a stratum where the DEFAULT has no measurable objective-space
-    diversity (``spreads_obj`` omits the size — converged portfolio, per-instance IQR 0) makes the
-    floor UNEVALUABLE: its threshold is defined relative to the default's spread (§8.3 "fraction of
-    the default schedule's measured spread at the same n"). Such a stratum is recorded as an explicit
-    skip (``stratum_pass`` None, surfaced in ``skipped_sizes``) — never a silent 0-threshold pass
-    (the 8an.2.1 finding-7 hole) and never a raise (which made ANY run-set containing a converged
-    size unscorable, including default-vs-default — the neutral reference must always score).
-    Quality at a skipped size is still gated by the §6.6 PI aggregation.
-
-    DEFAULT-LIFT EVALUABILITY (M1 calibration, bd 8an.2): when ``default_lifts`` is supplied
-    ({key: median per-portfolio lift of the DEFAULT, or None}), an instance is floor-evaluable
-    ONLY where the default itself clears the threshold — real-Eq.29 calibration
-    (benchmarks/floor_calibration.csv) shows default diversity emerges with n (every n<=40 stratum
-    contains zero-lift default instances), so gating ALL instances would make the NEUTRAL REFERENCE
-    fail its own floor at any positive fraction. Evaluability-by-reference restores the sanity
-    property structurally (default-vs-default passes at any fraction), keeps the anti-greedy bite
-    (a collapsed candidate still fails every instance where the default demonstrated diversity),
-    and offers no gaming surface (it depends only on the reference data). Skipped instances are
-    recorded in ``skipped_instances``; ``floor_instance_fraction`` applies over evaluable instances;
-    a stratum with NO evaluable instance is recorded as a stratum skip. ``default_lifts=None``
-    keeps the legacy all-instances gating (unit-test surface).
-
     candidate_results : {(size,index): list[OptimizeResult-like]} (normalized) ;
-    spreads_obj : {size: float} (:func:`default_objective_spreads`) ; default_sizes : iterable[size] ;
-    default_lifts : {key: float|None} | None (:func:`_instance_median_lift` over the default run-set).
+    default_results   : {(size,index): list[OptimizeResult-like]} (normalized, the reference) ;
+    spreads_obj : {size: float} (:func:`default_objective_spreads`) ; default_sizes : iterable[size].
     Returns {"overall_pass": bool, "per_size": {size: {...}}, "skipped_sizes": [size]}.
     """
     cand_sizes = {s for (s, _i) in candidate_results}
@@ -854,82 +903,68 @@ def _aggregate_floor(candidate_results, spreads_obj, *, fraction=EXPLORE_FLOOR_F
         if not keys:
             # default covers this stratum, candidate omits it entirely → fail (anti-dodge).
             per_size[size] = {"n_instances": 0, "n_instances_passing": 0, "instance_pass_fraction": 0.0,
-                              "instance_lifts": {}, "per_seed_lift": {}, "threshold": None,
+                              "instance_deltas": {}, "per_seed_delta": {}, "band": None,
                               "spread_obj": spread_obj, "stratum_pass": False,
                               "reason": "candidate omits a default-covered stratum"}
             overall_pass = False
             continue
         any_produced = any((getattr(r, "final_incumbents", None) or [])
                            for k in keys for r in candidate_results[k])
-        any_feasible = any(ok for k in keys for r in candidate_results[k]
-                           for (_v, ok) in (getattr(r, "final_incumbents", None) or []))
         if not any_produced:
             raise ValueError(
                 f"§8.3 floor: no per-worker final_incumbents for any candidate solve at n={size} — the "
                 f"M0e harness must emit result.final_incumbents (NORTHSTAR §11); cannot pass silently."
             )
-        if spread_obj is None and any_feasible:
-            # bd 7zx: the default has no measurable objective-space diversity at this size →
-            # the floor's threshold (fraction · default spread) is undefined. Record an explicit
-            # skip: not failed (default-vs-default must score), not silently passed (no 0-threshold
-            # admitting near-greedy lifts — the 8an.2.1 finding-7 hole). §6.6 still gates this size.
-            per_size[size] = {"n_instances": len(keys), "n_instances_passing": 0,
-                              "instance_pass_fraction": None, "instance_lifts": {},
-                              "per_seed_lift": {}, "threshold": None, "spread_obj": None,
-                              "stratum_pass": None, "skipped": True,
-                              "reason": ("default has no measurable objective-space diversity "
-                                         "(converged portfolio) — floor unevaluable at this size")}
-            skipped_sizes.append(size)
-            continue
-        threshold = (fraction * spread_obj) if spread_obj is not None else None
-        instance_lifts = {}
-        per_seed_lift = {}
+        # Converged-default stratum: sharp reference → zero noise band (see docstring).
+        band = (fraction * spread_obj) if spread_obj is not None else 0.0
+        instance_deltas = {}
+        per_seed_delta = {}
         skipped_instances = []
         n_pass = 0
         n_evaluable = 0
         for k in keys:
-            if default_lifts is not None:
-                ref = default_lifts.get(k)
-                # evaluable ONLY where the default itself clears the threshold (see docstring).
-                if ref is None or not _exceeds(ref, threshold):
-                    skipped_instances.append(k)
+            def_bank = default_results.get(k)
+            if not def_bank:
+                # no default reference run for this instance — nothing to regress against.
+                skipped_instances.append(k)
+                continue
+            deltas = []
+            for rc, rd in _pair_by_seed(candidate_results[k], def_bank):
+                if rd is None:
+                    deltas.append(None)
                     continue
+                deltas.append(tail_floor_delta(
+                    getattr(rc, "final_incumbents", None) or [],
+                    getattr(rd, "final_incumbents", None) or []))
+            per_seed_delta[k] = deltas
+            present = [d for d in deltas if d is not None]
+            if not present:
+                # default never feasible on this instance → no tail reference (feasibility
+                # quality is the §6 item 5 tier's job, not the floor's).
+                skipped_instances.append(k)
+                continue
             n_evaluable += 1
-            seed_lifts = []
-            for r in candidate_results[k]:
-                fi = getattr(r, "final_incumbents", None) or []
-                if spread_obj is None:
-                    seed_lifts.append(None)  # all-infeasible stratum, no normalizer needed
-                else:
-                    seed_lifts.append(exploration_floor(fi, spread_obj, fraction)["lift"])
-            per_seed_lift[k] = seed_lifts
-            present = [lift for lift in seed_lifts if lift is not None]
-            if present:
-                il = float(statistics.median(present))
-                instance_lifts[k] = il
-                if _exceeds(il, threshold):
-                    n_pass += 1
-            else:
-                instance_lifts[k] = None
+            dmed = float(statistics.median(present))
+            instance_deltas[k] = dmed
+            if not _exceeds(-dmed, band):
+                n_pass += 1
         n_inst = len(keys)
-        if default_lifts is not None and n_evaluable == 0:
-            # the default demonstrated no above-threshold diversity on ANY instance here →
-            # the floor has no reference to gate against (bd 8an.2 calibration; cf. bd 7zx).
+        if n_evaluable == 0:
             per_size[size] = {"n_instances": n_inst, "n_instances_evaluable": 0,
                               "n_instances_passing": 0, "instance_pass_fraction": None,
-                              "instance_lifts": {}, "per_seed_lift": {}, "threshold": threshold,
-                              "spread_obj": spread_obj, "stratum_pass": None, "skipped": True,
-                              "skipped_instances": skipped_instances,
-                              "reason": ("default shows no floor-evaluable diversity at this size "
-                                         "(all instances at/below threshold) — floor unevaluable")}
+                              "instance_deltas": {}, "per_seed_delta": per_seed_delta,
+                              "band": band, "spread_obj": spread_obj, "stratum_pass": None,
+                              "skipped": True, "skipped_instances": skipped_instances,
+                              "reason": ("no instance with a feasible default tail reference at "
+                                         "this size — floor unevaluable")}
             skipped_sizes.append(size)
             continue
         frac_pass = n_pass / n_evaluable
         stratum_pass = frac_pass >= floor_instance_fraction
         per_size[size] = {"n_instances": n_inst, "n_instances_evaluable": n_evaluable,
                           "n_instances_passing": n_pass,
-                          "instance_pass_fraction": frac_pass, "instance_lifts": instance_lifts,
-                          "per_seed_lift": per_seed_lift, "threshold": threshold,
+                          "instance_pass_fraction": frac_pass, "instance_deltas": instance_deltas,
+                          "per_seed_delta": per_seed_delta, "band": band,
                           "spread_obj": spread_obj, "stratum_pass": stratum_pass,
                           "skipped_instances": skipped_instances}
         if not stratum_pass:
@@ -946,10 +981,12 @@ def score_verdict(candidate_results, default_results, baselines, *, k=NOISE_MARG
       candidate PI  : matched-seed MEDIAN over the seed bank, vs frozen B_I/L_I (:func:`_reduce_seed_bank_pi`);
       default PI    : the FROZEN ``default_PI`` column is AUTHORITATIVE for the gate (§6.1 froze it);
       §6.6 (L2)     : :func:`aggregate_stratified` over PI deltas, margin = ``k · default_pi_spreads`` (PI space);
-      §8.3 (L3)     : :func:`_aggregate_floor` over the objective-space :func:`default_objective_spreads`;
+      §8.3 (L3)     : :func:`_aggregate_floor` — the TAIL-QUALITY floor (amended bd 8an.3.8):
+                      candidate best-of-P vs seed-matched default best-of-P, noise band
+                      ``fraction ·`` :func:`default_objective_spreads` (objective space);
     and ANDs the two into one ``overall_pass`` (lexicographic: feasibility tier — folded inside
     :func:`aggregate_stratified` — ⊳ §6.6 PI ⊳ §8.3 floor; the floor can veto but never revive a §6.6
-    failure). The supplied default run-set is needed regardless (the objective spread reads its
+    failure). The supplied default run-set is needed regardless (the floor compares against its
     ``final_incumbents``, which are not frozen); it is ALSO re-scored and cross-checked against the
     frozen ``default_PI`` (recorded in ``default_xcheck_failures``; a breach raises iff ``strict_xcheck``).
 
@@ -957,9 +994,8 @@ def score_verdict(candidate_results, default_results, baselines, *, k=NOISE_MARG
     largest-``n`` gate when ``require_largest_n`` (today the frozen table's n=3000 ``default_PI`` is
     empty — pending bd 0o8 — so a TRUE end-to-end verdict needs the large-``n`` freeze; pass
     ``require_largest_n=False`` for an inspectable partial verdict during development); a §8.3 stratum
-    with no ``final_incumbents`` anywhere; a missing objective spread for a stratum with feasible
-    candidate workers. NEVER coerces a None/non-finite anchor to 0 (recorded in ``default_pi_missing``
-    / the candidate ``skipped_no_anchor`` channel).
+    with no ``final_incumbents`` anywhere. NEVER coerces a None/non-finite anchor to 0 (recorded in
+    ``default_pi_missing`` / the candidate ``skipped_no_anchor`` channel).
 
     candidate_results, default_results : {(size,index): OptimizeResult-like | list[...]} (matched bank) ;
     baselines : :func:`benchmarks.baselines.load_frozen_baselines` table.
@@ -1075,13 +1111,11 @@ def score_verdict(candidate_results, default_results, baselines, *, k=NOISE_MARG
         )
 
     aggregation = aggregate_stratified(candidate_PI, default_PI, spreads_PI, k=k, largest_n=largest_n)
-    # §8.3 evaluability-by-reference (bd 8an.2 calibration): the floor gates a candidate only on
-    # instances where the DEFAULT itself clears the threshold — see _aggregate_floor's docstring.
-    default_floor_lifts = {key: _instance_median_lift(default[key]) for key in default}
-    floor = _aggregate_floor(candidate, spreads_obj, fraction=fraction,
+    # §8.3 tail-quality floor (amended bd 8an.3.8): candidate best-of-P vs the seed-matched
+    # default best-of-P, noise band = fraction · spread_obj — see _aggregate_floor's docstring.
+    floor = _aggregate_floor(candidate, default, spreads_obj, fraction=fraction,
                              floor_instance_fraction=floor_instance_fraction,
-                             default_sizes={s for (s, _i) in default},
-                             default_lifts=default_floor_lifts)
+                             default_sizes={s for (s, _i) in default})
 
     overall_pass = aggregation["overall_pass"] and floor["overall_pass"]
 

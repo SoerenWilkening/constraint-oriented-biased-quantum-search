@@ -559,25 +559,25 @@ FLOOR_CALIBRATION_CSV = os.path.join(os.path.dirname(__file__), "floor_calibrati
 
 def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
                     num_workers=None, run_fn=None, vectorized=True, out_path=None, log=None):
-    """Measure the §8.3 floor's real-data operating point per size (M1 "floor calibrated").
+    """Measure the default's portfolio-diversity landscape per size (M1 "floor calibrated").
 
-    The floor gates a candidate's per-portfolio lift (best_of_P − median_of_P) against
-    ``fraction · spread_obj[n]`` — but the two quantities live on different estimators (per-portfolio
-    lift vs. pooled per-instance IQR), so ``EXPLORE_FLOOR_FRACTION`` cannot be chosen a priori: too
-    high and the DEFAULT fails its own floor (the capstone's neutral-reference sanity — a candidate
-    identical to the default must tie, not fail), too low and the anti-greedy gate loses bite.
+    AMENDED (bd 8an.3.8): the §8.3 verdict floor is now TAIL-QUALITY (candidate best-of-P vs the
+    seed-matched default best-of-P, noise band ``fraction · spread_obj[n]``) under which the
+    default passes its own floor STRUCTURALLY (Δ ≡ 0) at any fraction — so this calibration no
+    longer pins admissibility. It is retained as the diversity DIAGNOSTIC behind the artifact:
+    per size, the default's per-portfolio lift (best_of_P − median_of_P, the old floor quantity)
+    and objective-space spread document the noise landscape the tail floor's band is scaled by.
 
     Per size: run the CBQS-default seed bank over the frozen-anchored instances, then reuse the
-    metric's own producers — ``default_objective_spreads`` for ``spread_obj`` and ``_aggregate_floor``
-    (at ``fraction=0``) for the per-instance MEDIAN per-portfolio lifts — as the single source of
-    truth (no re-implementation of LEVEL 1/2a). Report per size::
+    metric's own producers — ``default_objective_spreads`` for ``spread_obj`` and
+    ``_instance_median_lift`` for the per-instance MEDIAN per-portfolio lifts — as the single
+    source of truth. Report per size::
 
         max_admissible_fraction = min_instance_lift / spread_obj
 
-    Any ``EXPLORE_FLOOR_FRACTION`` strictly below the MINIMUM of that over measurable sizes keeps
-    the default passing its own floor everywhere it is evaluable (FLOOR_INSTANCE_FRACTION = 1.0).
-    Sizes the default converges on (no measurable spread — bd 7zx) are recorded ``unmeasurable``;
-    the floor skips them by design. Writes the artifact CSV (default
+    (the OLD spread-floor admissibility bound — kept as a historical/diagnostic column; the
+    tail floor does not consume it). Sizes the default converges on (no measurable spread) are
+    recorded ``unmeasurable``. Writes the artifact CSV (default
     ``benchmarks/floor_calibration.csv``) for §13 one-command replay.
 
     ``run_fn(n, index, seeds) -> list[OptimizeResult]`` is injectable (tests).
@@ -585,9 +585,9 @@ def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
     """
     _log = log or (lambda *_a, **_k: None)
     try:
-        from metric import default_objective_spreads, _aggregate_floor
+        from metric import default_objective_spreads, _instance_median_lift
     except ImportError:  # pragma: no cover - package import
-        from benchmarks.metric import default_objective_spreads, _aggregate_floor
+        from benchmarks.metric import default_objective_spreads, _instance_median_lift
     frozen_path = frozen_path or os.path.join(os.path.dirname(__file__), "baselines_frozen.csv")
     out_path = out_path or FLOOR_CALIBRATION_CSV
     table = load_frozen_baselines(frozen_path)
@@ -608,17 +608,16 @@ def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
             runs[key] = run_fn(key[0], key[1], seeds)
         wall = time.perf_counter() - t0
         spreads = default_objective_spreads(runs)
-        floor = _aggregate_floor(runs, spreads, fraction=0.0, default_sizes={n})
-        rec = floor["per_size"][n]
-        if rec.get("skipped"):
+        spread_obj = spreads.get(n)
+        if spread_obj is None:
             per_size[n] = {"n_instances": len(keys), "spread_obj": None, "min_lift": None,
                            "median_lift": None, "max_admissible_fraction": None,
                            "status": "unmeasurable", "wall_s": wall}
             _log(f"n={n}: UNMEASURABLE (default converged — no objective-space spread) "
                  f"[{len(keys)} instances, {wall:.0f}s]")
             continue
-        lifts = [v for v in rec["instance_lifts"].values() if v is not None]
-        spread_obj = rec["spread_obj"]
+        instance_lifts = {key: _instance_median_lift(runs[key]) for key in keys}
+        lifts = [v for v in instance_lifts.values() if v is not None]
         min_lift = min(lifts) if lifts else None
         med_lift = float(statistics.median(lifts)) if lifts else None
         max_frac = (min_lift / spread_obj) if (min_lift is not None and spread_obj) else None
