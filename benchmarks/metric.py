@@ -427,13 +427,26 @@ def default_pi_spreads(default_PI, stat=SPREAD_STAT):
     §6.6 says "reuse the §8.3 spread" but the two live in different units; both producers land with
     the CBQS-default seed-bank runs (bd 8an.1.16). See the bd note on 8an.2.
 
-    default_PI : {(size,index): float|inf} ; stat : "IQR" | "std"  ->  {size: float}.
+    DEGENERATE STRATA ARE OMITTED (bd 1xa, mirroring :func:`default_objective_spreads`): a size
+    whose finite-PI population has < 2 points (``spread()``'s own ``0.0`` sentinel) or is all-equal
+    (a degenerate spread of exactly 0) has NO measurable noise margin — it is ABSENT from the
+    returned dict (NOT 0.0), so :func:`aggregate_stratified`'s spread guard fires fail-loud instead
+    of a zero margin silently degrading the §6.6 strict gate to "any ε improvement" and evaporating
+    the REL_TOL deadband. Cannot occur on the real frozen tables (≥ 9 distinct instances per
+    stratum → spread > 0); this is degenerate-input hardening (CLAUDE.md §2.1).
+
+    default_PI : {(size,index): float|inf} ; stat : "IQR" | "std"  ->  {size: float > 0}.
     """
     by_size = {}
     for (size, _index), pi in default_PI.items():
         if math.isfinite(pi):
             by_size.setdefault(size, []).append(pi)
-    return {size: spread(vals, stat=stat) for size, vals in by_size.items()}
+    out = {}
+    for size, vals in by_size.items():
+        s = spread(vals, stat=stat)
+        if s > 0:  # unmeasurable/degenerate margin → omit (fail-loud downstream), never 0.0
+            out[size] = s
+    return out
 
 
 def aggregate_stratified(candidate_PI, default_PI, spreads_PI, *,
@@ -458,14 +471,23 @@ def aggregate_stratified(candidate_PI, default_PI, spreads_PI, *,
 
     candidate_PI, default_PI : {(size,index): float|inf} (matched-seed) ; spreads_PI : {size: float}.
     Returns {"per_size": {size: {...}}, "overall_pass": bool}.
-    Raises ValueError if a needed per-n spread is None/non-finite (must not silently pass the gate).
+    Raises ValueError if a needed per-n spread is None/non-finite OR <= 0 (bd 1xa: a zero spread
+    yields margin m=0, degrading the §6.6 largest-n STRICT gate to "any ε>0" and evaporating the
+    REL_TOL deadband — _exceeds(x, 0.0) is True for any x>0 — so an FP residual ~1e-13 would fail
+    gate B / count as a win; a zero-margin stratum is unevaluable, not silently permissive).
     """
     sizes = sorted({s for (s, _i) in candidate_PI} | {s for (s, _i) in default_PI})
     per_size = {}
     overall_pass = True
     for size in sizes:
         if spreads_PI.get(size) is None:
-            raise ValueError(f"default PI spread for n={size} is None (not frozen) — cannot aggregate.")
+            raise ValueError(
+                f"default PI spread for n={size} is None (not frozen, or degenerate/unmeasurable and "
+                f"omitted by default_pi_spreads) — cannot aggregate.")
+        if spreads_PI[size] <= 0:  # NaN falls through to the non-finite margin guard below
+            raise ValueError(
+                f"default PI spread for n={size} is {spreads_PI[size]} (degenerate) — a zero noise "
+                f"margin cannot evaluate the §6.6 strict gate / REL_TOL deadband (bd 1xa).")
         m = k * spreads_PI[size]
         if not math.isfinite(m):
             raise ValueError(f"noise margin m={m} for n={size} is non-finite (bad spread) — fail loud.")

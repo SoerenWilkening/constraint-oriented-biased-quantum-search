@@ -426,6 +426,42 @@ def test_aggregate_drops_infeasible_and_requires_spread():
         aggregate_stratified(cand, deflt, {10: float("inf")})
 
 
+def test_aggregate_zero_margin_raises():
+    # bd 1xa: a zero PI-space spread yields margin m=0, which (a) degrades the §6.6 largest-n
+    # STRICT gate from "more than the noise margin" to "any ε>0 improvement" and (b) evaporates
+    # the REL_TOL deadband (_exceeds(x, 0.0) is True for ANY x>0, so an FP residual ~1e-13 fails
+    # gate B / counts as a win). A zero-margin stratum is UNEVALUABLE → raise (fail-loud, §2.1),
+    # mirroring the None/non-finite guards above.
+    # Repro (b) from the issue: an FP-residual "regression" must raise, not fail gate B.
+    with pytest.raises(ValueError, match="n=10"):
+        aggregate_stratified({(10, 0): 0.5 + 1e-13}, {(10, 0): 0.5}, {10: 0.0})
+    # Repro (a): an ε-improvement must not pass the strict largest-n gate via a degenerate margin.
+    cand = {(LARGEST_N, i): 0.5 - 1e-9 for i in range(4)}
+    deflt = {(LARGEST_N, i): 0.5 for i in range(4)}
+    with pytest.raises(ValueError, match=str(LARGEST_N)):
+        aggregate_stratified(cand, deflt, {LARGEST_N: 0.0})
+    # Negative spread is corrupt input — same guard.
+    with pytest.raises(ValueError, match="n=10"):
+        aggregate_stratified({(10, 0): 0.2}, {(10, 0): 0.5}, {10: -0.01})
+
+
+def test_default_pi_spreads_omits_degenerate_strata():
+    # bd 1xa producer side, mirroring default_objective_spreads: a size whose finite-PI population
+    # is a single point (spread() would return 0.0 for <2) or all-equal (IQR exactly 0) has NO
+    # measurable margin → the size is ABSENT from the dict (NOT 0.0), so aggregate_stratified's
+    # spread guard fires fail-loud downstream instead of a silent m=0.
+    default_PI = {(10, 0): 1.0, (10, 1): 2.0, (10, 2): 3.0,    # healthy → present, positive
+                  (20, 0): 0.7,                                 # single finite point → absent
+                  (30, 0): 0.4, (30, 1): 0.4, (30, 2): 0.4,     # all-equal (IQR 0) → absent
+                  (40, 0): float("inf"), (40, 1): 0.9}          # one finite after +inf excl. → absent
+    spreads = default_pi_spreads(default_PI)
+    assert spreads.get(10, 0) > 0
+    assert 20 not in spreads and 30 not in spreads and 40 not in spreads
+    # The degenerate stratum then raises at aggregation (not a silent zero-margin verdict).
+    with pytest.raises(ValueError, match="n=20"):
+        aggregate_stratified({(20, 0): 0.2}, {(20, 0): 0.7}, spreads)
+
+
 def test_aggregate_largest_n_feasibility_collapse_fails():
     # BLOCKER regression guard: candidate feasible on only 1 of 10 hardest (n=3000) instances,
     # default feasible on all 10. Despite a great PI on the survivor, the strict gate MUST fail.
@@ -894,7 +930,10 @@ def test_score_verdict_xcheck_flags_feasibility_mismatch():
     # Findings 1/8: the frozen default_PI is finite (freeze says "reliably feasible") but the supplied
     # live default run-set re-scores to +inf (median PI over the bank is non-finite — default_unreliable).
     # The finite-vs-finite REL_TOL band would skip this; it must be recorded and escalate under strict.
-    baselines = {(10, i): _bl(default_PI=0.5) for i in range(3)}
+    # distinct frozen default_PI per instance (0.5/0.55/0.6) — an all-equal population would be a
+    # degenerate zero-spread stratum, which now RAISES at aggregation (bd 1xa) instead of silently
+    # running the gates with a zero noise margin (which is what this fixture did pre-1xa).
+    baselines = {(10, i): _bl(default_PI=0.5 + 0.05 * i) for i in range(3)}
     cand = {(10, i): _bank({0: 80, 1: 70, 2: 60}[i], [(100, True), (90, True), (80, True)]) for i in range(3)}
     # default bank: seed 0 feasible (so an objective spread exists), seeds 1,2 never feasible → median PI +inf.
     def _unreliable_default():
