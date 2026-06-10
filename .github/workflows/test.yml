@@ -23,7 +23,7 @@ jobs:
         run: cd build-tests && make -j$(nproc)
 
       - name: Test
-        # All 21 cbqs C targets (was a 10-target subset). Explicit list, not a bare `ctest`,
+        # All 22 cbqs C targets except test_opt_sample_cap (was a 10-target subset). Explicit list, not a bare `ctest`,
         # because tests/CMakeLists sets UNIT_TESTING ON which also registers cmocka's own suite (bd 8an.1.8)
         run: cd build-tests && ctest -R "test_(intarray|expression|merge_duplicate_terms|state|constraint|model|branching|solver|searchlib|integration|local_search|thread_safety|prng|arena|dyn_expr|variable|csearch_ordering|stage_switching|reduce_ops)" --output-on-failure
 
