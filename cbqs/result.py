@@ -38,6 +38,12 @@ class OptimizeResult:
         best-of-portfolio ``value`` was achieved (NORTHSTAR §11 M0e; was
         ``elapsed_seconds`` pre-M0e). ``value`` is the objective for OPTIMIZE
         mode or the constraint satisfaction measure for SATISFY mode.
+        bd 4uf: entries derive from COMPLETE per-worker incumbent streams
+        (each worker logs every feasible incumbent it finds, independent of
+        the shared global incumbent) merged in Python into the best-of-P
+        running-max — making the curve, and the §6 PI computed from it, a
+        deterministic function of (seed, num_workers), independent of thread
+        scheduling. The tuple schema is unchanged.
         The oracle counter is incremented only on the quantum ``solve()``/``ctg``
         path; the classical ``local_search()`` solver issues no oracle queries,
         so its history entries are stamped ``oracle == 0``.

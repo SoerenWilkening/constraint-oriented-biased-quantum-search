@@ -18,12 +18,14 @@ cdef extern from "src/solver_ctx.h":
 		int worker_id  # 0-based portfolio worker index (decorrelates PRNG stream)
 		size_t oracle_count  # never-reset per-worker cumulative oracle charge (faithful metric)
 		double runtime  # bd lif: per-worker wall-clock telemetry (replaces racy shared mod->runtime)
+		int64_t callback_value  # bd 4uf: this worker's newest feasible incumbent (internal tot_profit), set by ctg before each callback
 		# M0g (bd 8an.1.7, NORTHSTAR §9): per-worker opt-phase branching diagnostics
 		unsigned long long opt_candidates  # uint64_t - # candidates CSearch_opt generated
 		unsigned long long opt_flip_sum     # uint64_t - Σ realized Hamming radius
 		unsigned long long opt_flip_sumsq   # uint64_t - Σ (realized radius)²
 		unsigned long long opt_free_sum     # uint64_t - Σ both-feasible free decisions
 	ctypedef solver_ctx solver_ctx_t
+	const int64_t SOLVER_CTX_CALLBACK_VALUE_UNSET  # bd 4uf sentinel: callback site did not set a per-worker value
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
 	void solver_ctx_request_stop(solver_ctx_t* ctx)

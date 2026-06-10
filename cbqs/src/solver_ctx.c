@@ -95,6 +95,8 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->worker_id = 0;
     ctx->oracle_count = 0;
     ctx->runtime = 0.0;  /* bd lif: per-worker wall-clock telemetry (see solver_ctx.h) */
+    /* bd 4uf: no incumbent value until ctg's per-worker callback site sets one. */
+    ctx->callback_value = SOLVER_CTX_CALLBACK_VALUE_UNSET;
     /* Opt-phase branching diagnostics (M0g / bd 8an.1.7) — pure per-worker
      * observation counters, accumulated over the solve (see solver_ctx.h). */
     ctx->opt_candidates = 0;

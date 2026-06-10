@@ -16,6 +16,10 @@
 #include "prng.h"
 #include "arena.h"
 
+/** bd 4uf: sentinel for solver_ctx_t.callback_value — "no per-worker incumbent
+ *  value was set for this callback invocation" (non-ctg callback sites). */
+#define SOLVER_CTX_CALLBACK_VALUE_UNSET INT64_MIN
+
 /**
  * @brief Solver context carrying all per-solve mutable state
  *
@@ -78,6 +82,18 @@ struct solver_ctx {
      *  in 8an.1.4). Pure telemetry — it never gates termination. solve() reduces
      *  it max-over-workers post-fan-out into mod->runtime (bd lif). */
     double runtime;
+
+    /** bd 4uf (NORTHSTAR §11 M0e): the internal tot_profit of THIS worker's
+     *  newest feasible incumbent, written by ctg immediately before invoking
+     *  the history callback so the Cython wrapper can record the PER-WORKER
+     *  incumbent value without dereferencing the shared mod->global_opt (an
+     *  unlocked cross-thread read once the callback fires outside update_lock).
+     *  Race-free like oracle_count (one ctx per worker; same-thread write→read).
+     *  Callback sites that do not log per-worker incumbents (local_search's
+     *  fresh ctx, quantum_local_search's NULL ctx) leave it at the UNSET
+     *  sentinel; the Python side falls back to its legacy single-trajectory
+     *  value source for those. */
+    int64_t callback_value;
 
     /** Opt-phase branching diagnostics (M0g / bd 8an.1.7, NORTHSTAR §9).
      *  Per-worker observation counters accumulated over EVERY candidate the

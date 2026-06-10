@@ -183,3 +183,52 @@ class TestConcurrentCallback:
         # Note: if no improvements are found, callbacks may not fire for history,
         # but the C-level callback is still called on each iteration.
         # We verify the mechanism works without crashing, not the exact count.
+
+
+class TestMultiWorkerDeterminism:
+    """bd 4uf (NORTHSTAR §11 M0e / §13): per-worker incumbent logging.
+
+    Each worker logs every feasible incumbent IT finds (stamped with its own
+    ctx->oracle_count) and Python merges the streams into the best-of-portfolio
+    running-max — so the merged history, and the §6 PI computed from it, is a
+    pure function of (master seed, num_workers), independent of thread
+    scheduling. Pre-4uf the callback was gated on beating the SHARED global_opt
+    (a wall-time race) inside update_lock: worker-local improvements that lost
+    the race were dropped even when not dominated on the per-worker oracle
+    axis, so identical fixed-seed multi-worker solves produced different merged
+    curves (measured: 17/20 real Eq.29 n=10/20 instances drifted >1e-3, mixed
+    direction). This test is the Python kill-shot: it cannot reliably pass
+    under the shared gate. §8: determinism baseline STRENGTHENED, not loosened
+    — single-worker asserts in test_determinism.py are untouched.
+    """
+
+    @staticmethod
+    def _build_cold_model():
+        # No general_greedy(): a cold start guarantees the workers themselves
+        # find improving incumbents, so the merged history is non-empty and the
+        # determinism assertion bites on real per-worker streams.
+        m = Model()
+        xs = m.add_variables(8)
+        x = [xs[i] for i in range(8)]
+        weights = [2, 3, 4, 5, 1, 6, 3, 2]
+        values = [3, 4, 5, 7, 2, 8, 4, 3]
+        m.add_constraint(sum(weights[i] * x[i] for i in range(8)) <= 15)
+        m.set_objective(sum(values[i] * x[i] for i in range(8)), sense=MAXIMIZE)
+        m.close()
+        return m
+
+    def test_multi_worker_history_deterministic_fixed_seed(self):
+        outcomes = []
+        for _ in range(3):
+            m = self._build_cold_model()
+            m.seed = 12345
+            m.set_param('num_workers', 4)
+            m.set_param('track_history', True)
+            result = m.solve()
+            outcomes.append((result.objective, list(result.history)))
+        assert outcomes[0] == outcomes[1] == outcomes[2], (
+            "multi-worker fixed-seed solves must produce identical merged "
+            "best-of-portfolio histories (bd 4uf; scheduling-dependent history "
+            "breaks §6 PI reproducibility)")
+        # the merged curve is non-trivial (at least one incumbent was logged)
+        assert outcomes[0][1], "expected a non-empty merged history"

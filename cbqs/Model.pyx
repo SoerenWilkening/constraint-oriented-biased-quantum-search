@@ -73,7 +73,7 @@ _PARAM_DEFS = {
 	                             'description': 'Target objective value; solver stops early if reached. -1 disables early stopping. Range: -1 or any int. Default: -1. Set before solve.'},
 	'callback':                 {'default': None,  'coerce': None,         'validate': lambda v: v is None or callable(v),
 	                             'validate_msg': 'callback must be callable or None',
-	                             'description': 'Callable invoked after each sampling iteration with the current model state. None disables callbacks. Default: None. Set before solve.'},
+	                             'description': 'Zero-arg callable invoked whenever a worker records a new feasible incumbent of its own (per-worker incumbent events, bd 4uf; fires more often than the pre-4uf global-improvement gate under multi-worker solves). None disables callbacks. Default: None. Set before solve.'},
 	'max_delta':                {'default': 7,     'coerce': int,          'validate': lambda v: v >= 0,
 	                             'validate_msg': 'max_delta must be non-negative',
 	                             'description': 'Maximum Hamming distance for neighborhood search during sampling. Larger values explore more neighbors per iteration. Range: >= 0. Default: 7. Set before solve.'},
@@ -838,11 +838,15 @@ or {self.runtime}s sampling
 
 		# Best-of-portfolio improvement curve vs ORACLE budget (NORTHSTAR §11/§1.3 M0e):
 		# concatenate the per-worker (value, oracle) streams, sort by oracle, and keep
-		# the running-best value. Each worker's stream is already monotone (the callback
-		# logs the global_opt-gated value, which only improves); it is the cross-worker
-		# reordering by per-worker oracle count that requires the running-best. For
-		# MAXIMIZE this is the running-MAX; MINIMIZE/SATISFY keep the running-min in
-		# their improving direction (global_opt->tot_profit only ever decreases).
+		# the running-best value. bd 4uf: streams are now COMPLETE per-worker incumbent
+		# logs (no longer filtered by the wall-time global_opt race), so this running-
+		# best filter is LOAD-BEARING for the best-of-P curve — different workers'
+		# streams overlap and most cross-worker events are dominated. Each worker's own
+		# stream is monotone (a worker's incumbents only improve), and the merged curve
+		# is a pure function of (master seed, worker_id, P) — scheduling-independent,
+		# which is what makes the §6 PI deterministic. For MAXIMIZE this is the
+		# running-MAX; MINIMIZE/SATISFY keep the running-min in their improving
+		# direction.
 		if track_history:
 			merged = []
 			for r in res:
@@ -1132,10 +1136,16 @@ or {self.runtime}s sampling
 		return inc
 
 	def _callback_value(self):
-		"""Current incumbent value for history callback.
+		"""Current GLOBAL incumbent value for the history callback.
 
 		In SATISFY mode, returns constraints satisfied count.
 		In OPTIMIZE mode, returns objective value scaled by sense.
+
+		bd 4uf: reads the SHARED ``mod->global_opt`` — only safe on
+		single-trajectory paths with no concurrent writer (local_search,
+		quantum_local_search; the ``raw=None`` fallback). The multi-worker ctg
+		path must use :meth:`_value_from_raw` on the per-worker
+		``ctx->callback_value`` instead.
 
 		Returns
 		-------
@@ -1145,6 +1155,26 @@ or {self.runtime}s sampling
 		if self.mod[0].solver == SATISFY:
 			return self.mod[0].con[0].num_constraints + self.mod[0].global_opt[0].tot_profit
 		return self.mod[0].global_opt[0].tot_profit * self.sense
+
+	def _value_from_raw(self, raw):
+		"""Apply the sign/sat convention to a PER-WORKER internal incumbent value.
+
+		``raw`` is a worker's ``cur_sol->tot_profit`` delivered via
+		``ctx->callback_value`` (bd 4uf / NORTHSTAR §11 per-worker incumbent
+		logging) — the exact transformation `_callback_value` applies to the
+		global incumbent and the per-worker final incumbent uses at return
+		(SearchLib.pyx), so history values and ``final_incumbents`` stay
+		mutually consistent. Reads no shared state.
+
+		Returns
+		-------
+		int
+			The worker incumbent in reporting convention (satisfied count for
+			SATISFY, sense-applied objective otherwise).
+		"""
+		if self.mod[0].solver == SATISFY:
+			return self.mod[0].con[0].num_constraints + raw
+		return raw * self.sense
 
 	@property
 	def objective_value(self):

@@ -49,8 +49,10 @@ static void test_incumbents_initial_state(void **state) {
 
 /* ---------- M0d (bd 8an.1.4): oracle-budget accumulator ---------- */
 
-/* 5-variable all-feasible knapsack (mirrors test_integration.c). Constraint
- * 2*(x0..x4) <= 33 is trivially satisfiable; objective minimizes -2*(x0..x4). */
+/* 5-variable knapsack (mirrors test_integration.c). NOTE the multiply_constant
+ * INSIDE the loop compounds: coefficients are binary-weighted (32,16,8,4,2),
+ * not uniform 2s. Constraint Σ w_i x_i <= 33 (all-zeros feasible; x0+x1 is
+ * not); objective minimizes -Σ w_i x_i, internal range [-62, 0], optimum -32. */
 static model_t *build_knapsack_5var(void) {
     model_t *mod = init_model();
 
@@ -262,6 +264,114 @@ static void test_ctg_runtime_per_worker(void **state) {
     free_model(mod);
 }
 
+/* ---------- bd 4uf (NORTHSTAR §11 M0e): per-worker incumbent logging ---------- */
+
+/* Capture buffer for the counting callback. ctg is driven single-threaded in
+ * these tests, so plain statics are fine; reset cb_count before each run. */
+#define CB_CAP 4096
+static int64_t cb_values[CB_CAP];
+static size_t cb_oracles[CB_CAP];
+static size_t cb_count;
+
+static void counting_callback(void *ctx_ptr) {
+    solver_ctx_t *cb_ctx = (solver_ctx_t *) ctx_ptr;
+    if (cb_count < CB_CAP) {
+        cb_values[cb_count] = cb_ctx->callback_value;
+        cb_oracles[cb_count] = cb_ctx->oracle_count;
+    }
+    cb_count++;
+}
+
+/* NORTHSTAR §11 M0e mandates PER-WORKER incumbent logging: the callback fires
+ * for every feasible incumbent THIS worker finds, independent of the shared
+ * mod->global_opt. Pre-seed global_opt strictly better than anything reachable
+ * (internal-minimize: lower is better; the knapsack's best internal objective
+ * is -10), so the old shared-gate code — callback only when cur_sol beats
+ * global_opt inside update_lock — fires ZERO times (RED). Per-worker logging
+ * fires on every worker-local feasible incumbent regardless (GREEN). This is
+ * the C-level pin for the bd 4uf scheduling-dependent-history bug: events
+ * dropped by the wall-time global gate are not necessarily dominated on the
+ * per-worker oracle axis, so the merged best-of-P curve (and the §6 PI) was
+ * non-deterministic under threading. */
+static void test_callback_per_worker_incumbent_logging(void **state) {
+    (void)state;
+    model_t *mod = build_knapsack_5var();
+    mod->M = 200;
+    mod->global_opt->tot_profit = INT64_MIN / 2;   /* never beaten by any worker */
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, zeros, 5);
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0xABCDEFULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    cb_count = 0;
+    ctg(ctx, mod, cur_sol, counting_callback, inc);
+
+    /* The kill-shot: per-worker incumbents MUST be logged even though the
+     * pre-seeded global_opt is never beaten (the shared gate logs nothing). */
+    assert_true(cb_count >= 1);
+    size_t recorded = cb_count < CB_CAP ? cb_count : CB_CAP;
+    for (size_t i = 0; i < recorded; i++) {
+        /* every ctg-path event carries THIS worker's incumbent value ... */
+        assert_true(cb_values[i] != SOLVER_CTX_CALLBACK_VALUE_UNSET);
+        /* ... which is a genuine objective: the knapsack's binary-weighted
+         * coefficients (32,16,8,4,2) bound the internal objective to [-62, 0];
+         * a stage-2 violation slack would be > 0 (and is feasible-gated out). */
+        assert_true(cb_values[i] <= 0 && cb_values[i] >= -62);
+        /* ... this worker's incumbents strictly tighten (internal-minimize) ... */
+        if (i > 0) assert_true(cb_values[i] <= cb_values[i - 1]);
+        /* ... and the per-worker oracle stamps never decrease. */
+        if (i > 0) assert_true(cb_oracles[i] >= cb_oracles[i - 1]);
+    }
+    /* The last logged incumbent is the worker's final solution. */
+    assert_true(cb_values[recorded - 1] == cur_sol->tot_profit);
+    /* global_opt stays at the pre-seed: the callback provably no longer
+     * depends on (or perturbs) the shared incumbent. */
+    assert_true(mod->global_opt->tot_profit == INT64_MIN / 2);
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
+/* Infeasible-start variant: every logged event must be a genuine OBJECTIVE of a
+ * feasible point — the first one being the recomputed first-feasible objective
+ * (the SearchLib.c first-feasible fixup runs BEFORE the callback site), never a
+ * stage-2 violation-slack (slack >= 0 travels with feasible==0 and is gated
+ * out). Covering requires sum x >= 2 with internal objective -sum x, so any
+ * feasible objective is <= -2 while any slack is >= 0 — disjoint ranges. */
+static void test_callback_first_feasible_objective(void **state) {
+    (void)state;
+    model_t *mod = build_covering_5var();
+    mod->M = 2000;
+    mod->global_opt->tot_profit = INT64_MIN / 2;   /* never beaten */
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, zeros, 5);
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0x5151ULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    cb_count = 0;
+    int feasible = ctg(ctx, mod, cur_sol, counting_callback, inc);
+
+    assert_true(feasible);
+    assert_true(cb_count >= 1);
+    size_t recorded = cb_count < CB_CAP ? cb_count : CB_CAP;
+    for (size_t i = 0; i < recorded; i++) {
+        assert_true(cb_values[i] <= -2);   /* objective of a feasible point, not slack */
+    }
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 /* ---------- M0g (bd 8an.1.7): opt-phase branching diagnostics ---------- */
 
 /* All-decisions-FREE model: constraint sum x <= 1000 is always satisfiable both
@@ -394,6 +504,8 @@ int main(void) {
         cmocka_unit_test(test_incumbents_initial_state),
         cmocka_unit_test(test_ctg_oracle_budget),
         cmocka_unit_test(test_ctg_runtime_per_worker),
+        cmocka_unit_test(test_callback_per_worker_incumbent_logging),
+        cmocka_unit_test(test_callback_first_feasible_objective),
         cmocka_unit_test(test_opt_switch_feasibility_gate),
         cmocka_unit_test(test_csearch_opt_diagnostics_exact),
         cmocka_unit_test(test_csearch_opt_diagnostics_flips),

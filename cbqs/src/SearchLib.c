@@ -85,6 +85,11 @@ static void handle_signal(int signum) {
  *             metric; replaces the racy shared mod->qtg_applications),
  *         ctx->runtime (per-worker wall-clock telemetry; replaces the racy
  *             shared mod->runtime, reduced max-over-workers in solve() -- bd lif),
+ *         ctx->callback_value (per-worker incumbent value, set immediately
+ *             before each callback invocation -- bd 4uf / NORTHSTAR §11 M0e.
+ *             The callback fires OUTSIDE update_lock on every feasible
+ *             worker-local incumbent; the Python wrapper must read the value
+ *             from ctx, never from mod->global_opt, on this path),
  *         mod->global_opt->tot_profit (mutex-protected via update_lock),
  *         mod->global_opt->vector (mutex-protected via update_lock),
  *         mod->global_opt->feasible (mutex-protected via update_lock),
@@ -241,15 +246,33 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             copy_state_inplace(&incumbents->states[incumbents->head + 1], cur_sol);
             incumbents->head++;
             samples = 0;
-            
+
+            /* bd 4uf (NORTHSTAR §11 M0e): PER-WORKER incumbent logging. Fire the
+             * callback for every feasible incumbent THIS worker finds — outside
+             * update_lock and independent of the shared mod->global_opt. The old
+             * site lived inside the critical section below, gated on beating
+             * global_opt: a wall-time race that dropped worker-local improvements
+             * not dominated on the per-worker oracle axis, making the merged
+             * best-of-P trajectory (and the §6 PI) scheduling-dependent. Moving
+             * it out also removes the GIL-under-update_lock inversion hazard —
+             * which is only safe because the Python wrapper reads the value from
+             * ctx->callback_value (per-worker, same-thread write→read), never
+             * from mod->global_opt (that would be an unlocked cross-thread read
+             * racing copy_state_inplace below). cur_sol->feasible is the exact
+             * predicate the old gate used (global_opt->feasible was copied from
+             * cur_sol); it correctly excludes stage-1 violation states and
+             * stage-2 slack states (slack travels with feasible==0), and the
+             * first-feasible objective recompute above precedes this site, so
+             * the first logged value is the true first-feasible objective. */
+            if (callback && cur_sol->feasible) {
+                ctx->callback_value = cur_sol->tot_profit;
+                callback(ctx);
+            }
+
 			// update global_opt if better solution is found
 			cbqs_mutex_lock(&update_lock);
 			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
 			    copy_state_inplace(mod->global_opt, cur_sol);
-
-				/* Pass ctx so the Cython wrapper can oracle-stamp this incumbent
-				 * with ctx->oracle_count (per-worker, never-reset; M0e). */
-				if (callback && mod->global_opt->feasible) callback(ctx);
 			}
 			cbqs_mutex_unlock(&update_lock);
 			/* Restart the Grover schedule on improvement (rounds -> 0). NOTE:

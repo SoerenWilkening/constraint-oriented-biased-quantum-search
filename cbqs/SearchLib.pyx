@@ -141,13 +141,27 @@ _callback_tls = threading.local()
 # `ctx_ptr` is a solver_ctx_t* (or NULL from quantum_local_search). We read the
 # per-worker, never-reset ctx->oracle_count (M0d) and hand it to the Python
 # callback so history is oracle-indexed, not wall-clock-indexed (NORTHSTAR §11).
+# bd 4uf: on the ctg path the callback fires OUTSIDE update_lock on every
+# feasible WORKER-LOCAL incumbent (NORTHSTAR §11 per-worker incumbent logging),
+# carrying that incumbent's internal value in ctx->callback_value. The Python
+# side must consume the value from ctx and must NOT read mod->global_opt on
+# this path (an unlocked cross-thread read racing the mutex-protected
+# copy_state_inplace). Non-ctg callback sites (local_search's fresh ctx,
+# quantum_local_search's NULL ctx) leave callback_value at the UNSET sentinel;
+# we pass raw=None so those single-trajectory paths keep their legacy
+# global-value fallback.
 cdef void my_callback_c(void* ctx_ptr) with gil:
 	cdef unsigned long long oracle = 0
+	cdef int64_t raw_c
+	raw = None
 	if ctx_ptr is not NULL:
 		oracle = <unsigned long long> (<solver_ctx_t*> ctx_ptr).oracle_count
+		raw_c = (<solver_ctx_t*> ctx_ptr).callback_value
+		if raw_c != SOLVER_CTX_CALLBACK_VALUE_UNSET:
+			raw = raw_c
 	cb = getattr(_callback_tls, 'python_callback', None)
 	if cb is not None:
-		cb(oracle)
+		cb(oracle, raw)
 
 
 # Per-thread/per-solve callback state for thread-safe history tracking.
@@ -169,13 +183,22 @@ class _SolveState:
 _solve_states = {}  # dict[int, _SolveState] keyed by threading.get_ident()
 
 
-def _history_callback_fn(oracle):
+def _history_callback_fn(oracle, raw=None):
 	"""Thread-safe callback that accumulates oracle-indexed improvement history.
 
 	`oracle` is this worker's cumulative oracle count (ctx->oracle_count) at the
-	moment of a global_opt improvement, supplied by my_callback_c. History entries
-	are (value, oracle:int) (NORTHSTAR §11 M0e) -- the running global-best value
-	stamped with the per-worker oracle count, replacing the old wall-clock stamp.
+	moment of a WORKER-LOCAL feasible incumbent (bd 4uf / NORTHSTAR §11 M0e),
+	supplied by my_callback_c. History entries are (value, oracle:int) -- this
+	worker's incumbent value stamped with its own oracle count; solve() merges
+	the per-worker streams into the best-of-portfolio running-max (§1.3).
+
+	`raw` is the incumbent's internal tot_profit from ctx->callback_value;
+	Model._value_from_raw applies the sign/sat convention PER WORKER. When raw
+	is None (non-ctg single-trajectory paths: local_search, quantum_local_search)
+	we fall back to the legacy global value -- safe there because those paths
+	have no concurrent global_opt writer. NEVER call mod._callback_value() on
+	the ctg path: it dereferences mod->global_opt, which would be an unlocked
+	cross-thread read now that the callback fires outside update_lock.
 
 	Looks up per-thread state via threading.get_ident() to support
 	concurrent solve() calls without cross-contamination.
@@ -186,7 +209,7 @@ def _history_callback_fn(oracle):
 		return
 	try:
 		mod = state.mod
-		value = mod._callback_value()
+		value = mod._value_from_raw(raw) if raw is not None else mod._callback_value()
 		if state.prev_best is None or value != state.prev_best:
 			state.history.append((value, int(oracle)))
 			state.prev_best = value
@@ -201,12 +224,13 @@ def _history_callback_fn(oracle):
 
 
 def _drop_oracle_arg(cb):
-	"""Adapt a user zero-arg callback to the M0e (oracle:int)->None callback ABI.
+	"""Adapt a user zero-arg callback to the (oracle:int, raw)->None callback ABI.
 
-	my_callback_c now calls python_callback(oracle); user callbacks remain
-	zero-arg, so the direct-assignment paths wrap them to drop the oracle stamp.
+	my_callback_c calls python_callback(oracle, raw) (M0e oracle stamp + bd 4uf
+	per-worker incumbent value); user callbacks remain zero-arg, so the
+	direct-assignment paths wrap them to drop both.
 	"""
-	def _wrapped(oracle):
+	def _wrapped(oracle, raw=None):
 		cb()
 	return _wrapped
 
