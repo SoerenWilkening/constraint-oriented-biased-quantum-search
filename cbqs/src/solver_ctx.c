@@ -26,6 +26,7 @@ static void branching_stats_init_defaults(BranchingStats_t *stats) {
     stats->look_ahead_factor = 0.0;
     stats->variable_order = NULL;
     stats->num_vars = 0;
+    stats->variable_rank = NULL;
 }
 
 static void branching_stats_free_weights(BranchingStats_t *stats) {
@@ -38,6 +39,10 @@ static void branching_stats_free_weights(BranchingStats_t *stats) {
         free(stats->variable_order);
         stats->variable_order = NULL;
         stats->num_vars = 0;
+    }
+    if (stats->variable_rank != NULL) {
+        free(stats->variable_rank);
+        stats->variable_rank = NULL;
     }
 }
 
@@ -370,18 +375,56 @@ static void free_variable_order(BranchingStats_t *stats) {
         stats->variable_order = NULL;
         stats->num_vars = 0;
     }
+    if (stats->variable_rank != NULL) {
+        free(stats->variable_rank);
+        stats->variable_rank = NULL;
+    }
 }
 
-/* Set variable_order on a single BranchingStats_t from a sorted index array */
+/* Set variable_order on a single BranchingStats_t from a sorted index array.
+ *
+ * bd h8d: also builds variable_rank, the inverse permutation
+ * (rank[order[k]] = k) that evaluation() needs to keep clause-closure
+ * prefix-consistent with the traversal. For an IDENTITY order the rank is
+ * deliberately left NULL: rank==NULL selects the natural-index closure path,
+ * which is exactly equivalent for identity traversal and keeps every default
+ * solve bit-for-bit on the pre-h8d code path (CLAUDE.md SS8 baselines). */
 static void set_variable_order_on_stats(BranchingStats_t *stats, const int *order, int n) {
     free_variable_order(stats);
     if (order == NULL || n <= 0) { return; }
     stats->variable_order = malloc((size_t)n * sizeof(int));
-    if (stats->variable_order == NULL) { return; }
+    if (stats->variable_order == NULL) {
+        /* SS2.1 fail loud (core-change review, bd h8d): a solve that was asked
+         * to run a custom order but silently runs the default corrupts every
+         * equal-T(n) A/B verdict built on it — the lever you priced is not the
+         * lever that ran. abort(), not assert(): -DNDEBUG strips asserts in
+         * the production .so. */
+        fprintf(stderr, "cbqs: FATAL: variable_order allocation failed (n=%d) — "
+                        "cannot run the requested ordering lever (CLAUDE.md SS2.1)\n", n);
+        abort();
+    }
+    int identity = 1;
     for (int i = 0; i < n; i++) {
         stats->variable_order[i] = order[i];
+        identity &= (order[i] == i);
     }
     stats->num_vars = n;
+
+    if (identity) { return; }  /* rank stays NULL: natural-equivalent traversal */
+
+    stats->variable_rank = malloc((size_t)n * sizeof(int));
+    if (stats->variable_rank == NULL) {
+        /* SS2.1 fail loud: a non-identity order WITHOUT a rank would silently
+         * reintroduce the h8d infeasible-acceptance bug (clause-closure keyed
+         * off the traversal). Never run that way — and never silently swap in
+         * a different lever either (see above). */
+        fprintf(stderr, "cbqs: FATAL: variable_rank allocation failed (n=%d) — "
+                        "a non-identity order must never run without its rank (bd h8d)\n", n);
+        abort();
+    }
+    for (int i = 0; i < n; i++) {
+        stats->variable_rank[stats->variable_order[i]] = i;
+    }
 }
 
 void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, int n) {

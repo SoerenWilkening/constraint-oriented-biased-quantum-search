@@ -197,7 +197,7 @@ Each entry: **location → why dangerous → how to detect.** These are the land
   the `mod._params` dict; live propagation is `_propagate_phase_params` (`SearchLib.pyx:223`) → per-phase
   setters. The C `solver_ctx_set_predicted_params` is **dead** from this path — don't assume it runs.
 - **CI's C-test filter still has holes (verified 2026-06-10).** The `ctest -R` filter (test.yml) now
-  matches **21 of the 22 registered** cmocka targets; the holes are: `test_opt_sample_cap` (registered,
+  matches **22 of the 23 registered** cmocka targets; the holes are: `test_opt_sample_cap` (registered,
   compiles under `-Werror`, but **never executes in CI**) and `test_predicted_params.c` (exists in
   `tests/` but is **not registered in CMakeLists at all** — never even built; it targets the dead C
   `set_predicted_params` path above). → **Always run the full local suite** (`ctest` with no `-R`)

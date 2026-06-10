@@ -46,6 +46,15 @@ typedef struct {
 
     int *variable_order;        /* Iteration order for variables (NULL = identity) */
     int num_vars;               /* Length of variable_order (0 when NULL) */
+
+    /* bd h8d: inverse permutation of variable_order -- variable_rank[var] is
+     * the traversal position of `var`. evaluation()/look_ahead_correct() key
+     * clause-closure on this rank so the potentials accounting stays
+     * prefix-consistent with the (reordered) traversal. NULL whenever the
+     * traversal is natural-equivalent (no order set, or identity order), which
+     * keeps the default path on the exact pre-h8d code path bit-for-bit.
+     * Invariant: variable_order non-identity  =>  variable_rank != NULL. */
+    int *variable_rank;
 } BranchingStats_t;
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */

@@ -300,6 +300,24 @@ add_cmocka_test(test_variable_ordering
     ${CBQS_SRC_DIR}/intarray.c
 )
 
+# --- bd h8d: feasibility consistency under variable reordering (quadratic clauses) ---
+# Name keeps the "test_variable" prefix so CI's ctest -R filter matches it.
+add_cmocka_test(test_variable_order_feasibility
+    test_variable_order_feasibility.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
 # --- M5: CSearch ordering iteration tests ---
 add_cmocka_test(test_csearch_ordering
     test_csearch_ordering.c

@@ -16,9 +16,14 @@
 
 int update_potentials(new_constraints_t *con, int64_t *potentials, int direction, int64_t *ret_total);
 
-int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
+/* bd h8d: operates in traversal-POSITION space. `order` maps position ->
+ * variable (NULL = identity) and `rank` is its inverse (NULL = natural-
+ * equivalent traversal); both must describe the SAME traversal the caller
+ * uses, or clause-closure charging desynchronizes from the assignment prefix
+ * and infeasible states are accepted as feasible. */
+int look_ahead_correct(int pos, int next_assignment, int depth_pos, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
-                       state_t *cur_sol, int64_t *ret_total);
+                       state_t *cur_sol, int64_t *ret_total, const int *order, const int *rank);
 
 int initial_state_preparation(model_t *mod);
 
