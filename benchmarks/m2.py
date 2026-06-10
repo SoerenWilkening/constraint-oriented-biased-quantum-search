@@ -109,6 +109,49 @@ register_schedule("radius_uniform2", lambda n, c1, c2, c3: {
 })
 
 
+def _pii(c1):
+    """diag(c1) = p_ii, the objective self-weights — §1.4 allow-list, one O(n) pass."""
+    import numpy as np
+    return np.asarray(np.diag(np.asarray(c1)), dtype=float)
+
+
+def _pii_z_clipped(c1):
+    """Bounded per-variable feature: z-score of p_ii clipped to [-1, 1]."""
+    import numpy as np
+    d = _pii(c1)
+    sd = d.std()
+    z = (d - d.mean()) / sd if sd > 0 else np.zeros_like(d)
+    return np.clip(z, -1.0, 1.0)
+
+
+# M2e — one structural variable_order (priced relabel, §5: same T(n) budget,
+# different realized feasible set / forced-vs-free split). Priorities argsort
+# DESCENDING (solver_ctx_set_variable_order); propagation applies the first
+# non-None priorities to ALL THREE phases. desc = high objective self-weight
+# decided first; asc = exact reverse (the negative control).
+register_schedule("order_pii_desc", lambda n, c1, c2, c3: {
+    "opt_variable_priorities": _pii(c1),
+})
+register_schedule("order_pii_asc", lambda n, c1, c2, c3: {
+    "opt_variable_priorities": -_pii(c1),
+})
+
+# M2f — per-variable logit offset theta_i (M0f sigmoid channel), OPT PHASE
+# ONLY (branching_weights are per-phase; opt is where the bias touches >90 %
+# of decisions per decision_touch_default.csv). theta = ±0.5·clip(z(p_ii), ±1):
+# bounded |theta| <= 0.5, mean-centered. theta>0 makes high-p_ii variables
+# STICKIER to the incumbent (BranchingFunction returns incumbent-bit
+# stickiness at the production call sites: bit_T==0); theta<0 flips them more.
+# MUST be radius-neutral (the M0f decoupling claim) — M2f checks realized
+# radius_mean against the default before scoring.
+register_schedule("theta_pii_pos", lambda n, c1, c2, c3: {
+    "opt_branching_weights": 0.5 * _pii_z_clipped(c1),
+})
+register_schedule("theta_pii_neg", lambda n, c1, c2, c3: {
+    "opt_branching_weights": -0.5 * _pii_z_clipped(c1),
+})
+
+
 # --------------------------------------------------------------------------- #
 # Anchored instance set
 # --------------------------------------------------------------------------- #
@@ -193,22 +236,46 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
 # Run-set persistence
 # --------------------------------------------------------------------------- #
 
+def require_verified(results, *, context):
+    """FAIL LOUD if any verify=True result failed post-solve verification (§2.1).
+
+    The M2e lesson (bd 8an.3.5): with ``variable_order`` set, the C look-ahead
+    keys clause-closure on the NATURAL index while traversal uses var_order, so
+    the solver can accept ``eval_constraints``-violating states as "feasible" —
+    the run then reports inflated, frontier-beating objectives that the metric
+    happily scores. ``result.verified`` is the independent ground-truth check;
+    a False there means the whole run-set is garbage, never a valid candidate.
+    """
+    bad = [(i, getattr(r, "seed", None)) for i, r in enumerate(results)
+           if getattr(r, "verified", None) is False]
+    if bad:
+        first = results[bad[0][0]]
+        raise ValueError(
+            f"{context}: {len(bad)}/{len(results)} solve(s) FAILED post-solve "
+            f"verification (seeds {[s for _i, s in bad]}) — the solver accepted "
+            f"constraint-violating solutions (violations: "
+            f"{getattr(first, 'violations', None)!r}). This run-set is invalid "
+            f"and will not be persisted (CLAUDE.md §2.1; bd 8an.3.5 lesson).")
+
+
 def result_to_record(result):
     """Serialize the metric-relevant slice of an OptimizeResult to plain JSON types.
 
     Persists exactly what :mod:`benchmarks.metric` duck-types (``history``,
     ``final_incumbents``, ``seed``) plus bookkeeping (``objective``,
-    ``feasible``, ``oracle_calls``) and ``branch_diagnostics`` WITHOUT the
-    bulky ``per_worker`` list (the pooled raw sums + ``decision_touch`` are
-    kept and re-poolable across seeds/instances).
+    ``feasible``, ``oracle_calls``, ``verified``) and ``branch_diagnostics``
+    WITHOUT the bulky ``per_worker`` list (the pooled raw sums +
+    ``decision_touch`` are kept and re-poolable across seeds/instances).
     """
     bd = getattr(result, "branch_diagnostics", None)
     if bd is not None:
         bd = {k: v for k, v in bd.items() if k != "per_worker"}
+    verified = getattr(result, "verified", None)
     return {
         "seed": int(result.seed),
         "objective": (None if result.objective is None else float(result.objective)),
         "feasible": bool(result.feasible),
+        "verified": (None if verified is None else bool(verified)),
         "oracle_calls": int(getattr(result, "oracle_calls", 0)),
         "history": [[float(v), int(o)] for (v, o) in (result.history or [])],
         "final_incumbents": [[float(v), bool(f)] for (v, f) in
@@ -223,6 +290,7 @@ def record_to_result(record):
         seed=record["seed"],
         objective=record["objective"],
         feasible=record["feasible"],
+        verified=record.get("verified"),
         oracle_calls=record.get("oracle_calls", 0),
         history=[(v, int(o)) for (v, o) in record["history"]],
         final_incumbents=[(v, bool(f)) for (v, f) in record["final_incumbents"]],
@@ -278,7 +346,12 @@ def load_run_set_dir(run_dir):
         with open(os.path.join(run_dir, name)) as fh:
             payload = json.load(fh)
         key = (int(payload["n"]), int(payload["index"]))
-        out[key] = [record_to_result(rec) for rec in payload["records"]]
+        results = [record_to_result(rec) for rec in payload["records"]]
+        # Defense in depth vs pre-guard run-sets (records carry verified=None
+        # if written before the bd 8an.3.5 fix — those pass; an explicit False
+        # means a KNOWN-invalid run-set and must never reach the metric).
+        require_verified(results, context=f"{run_dir} {key[0]}_{key[1]}")
+        out[key] = results
     if not out:
         raise ValueError(f"run-set directory {run_dir} contains no instance files")
     return out
@@ -315,6 +388,9 @@ def run_sweep(schedule_id, params_or_factory, instances, *, out_dir,
                 n, index, seeds, params_or_factory, bench_root=bench_root,
                 num_workers=num_workers, opt_sample_cap=opt_sample_cap,
                 vectorized=vectorized)
+        # §2.1 fail-loud: a verification failure means the solver accepted
+        # constraint-violating solutions — never persist such a run-set.
+        require_verified(results, context=f"{schedule_id} {n}_{index}")
         save_run_set(out_dir, n, index, results, schedule_id=schedule_id,
                      resolved_params=resolved)
         done.append((n, index))

@@ -332,3 +332,53 @@ def test_verdict_from_dirs_enforces_matched_seeds(tmp_path):
 def test_run_candidate_seed_bank_rejects_seed_zero():
     with pytest.raises(ValueError, match="seed"):
         m2.run_candidate_seed_bank(10, 0, (0, 1), {"opt_branching_radius": 4.0})
+
+
+# --------------------------------------------------------------------------- #
+# Verification guard (bd 8an.3.5 lesson: variable_order accepted infeasible
+# solutions and the harness scored them — verified=False must FAIL LOUD)
+# --------------------------------------------------------------------------- #
+
+def test_run_sweep_rejects_unverified_results(tmp_path, monkeypatch):
+    d = str(tmp_path / "sweep")
+
+    def fake_candidate(n, index, seeds, factory, **kw):
+        bad = [_result(seed=s) for s in seeds]
+        for r in bad:
+            r.verified = False
+            r.violations = ["Post-solve verification FAILED"]
+        return bad, {"opt_variable_priorities": [1.0]}
+
+    monkeypatch.setattr(m2, "run_candidate_seed_bank", fake_candidate)
+    with pytest.raises(ValueError, match="verification"):
+        run_sweep("corrupt", {"opt_variable_priorities": [1.0]}, [(10, 0)],
+                  out_dir=d, seeds=(1,), log=lambda *a: None)
+    assert not os.path.exists(os.path.join(d, "10_0.json"))  # never persisted
+
+
+def test_record_roundtrip_preserves_verified():
+    r = _result()
+    r.verified = True
+    rec = json.loads(json.dumps(result_to_record(r)))
+    assert rec["verified"] is True
+    assert record_to_result(rec).verified is True
+
+
+def test_load_run_set_dir_rejects_known_invalid_records(tmp_path):
+    d = str(tmp_path / "rs")
+    r = _result()
+    r.verified = False
+    save_run_set(d, 10, 0, [r], schedule_id="corrupt")
+    with pytest.raises(ValueError, match="verification"):
+        load_run_set_dir(d)
+
+
+def test_pre_guard_records_without_verified_still_load(tmp_path):
+    # Run-sets written before the guard carry no "verified" key -> None -> pass.
+    d = str(tmp_path / "rs")
+    save_run_set(d, 10, 0, [_result()], schedule_id="legacy")
+    payload = json.load(open(os.path.join(d, "10_0.json")))
+    for rec in payload["records"]:
+        rec.pop("verified", None)
+    json.dump(payload, open(os.path.join(d, "10_0.json"), "w"))
+    assert (10, 0) in load_run_set_dir(d)
