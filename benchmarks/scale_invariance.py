@@ -88,29 +88,45 @@ def _per_worker_estimates(branch_diagnostics, n):
     return out
 
 
-def radius_profile(n, index=0, seed=0, *, radius=None, bias=None,
+def radius_profile(n, index=0, seed=0, *, radius=None, bias=None, params=None,
                    num_workers=8, M=2500, opt_switch_oracles=0,
                    avg_degree=8, weight_low=1, weight_high=10):
     """Solve one synthetic matched-tightness Eq.29 instance and return its
     opt-phase radius/f(n) profile.
 
-    Exactly one of ``radius`` (sets bias = n/r − 2, the scale-stable lever) or
-    ``bias`` (raw scalar bias — the drift-prone lever, NORTHSTAR §1.5) is used.
+    Exactly one of three lever inputs is used:
+      * ``radius`` — sets bias = n/r − 2, the scale-stable scalar lever;
+      * ``bias``   — raw scalar bias (the drift-prone lever, NORTHSTAR §1.5);
+      * ``params`` — a RESOLVED schedule-param dict (per-phase
+        ``{opt_branching_radius, opt_sat_branching_radius, opt_branching_weights,
+        …}``) for the M3 candidate gate (bd 8an.4.2). Every key is pushed via
+        ``set_param`` so the candidate's own radius/θ/order levers drive the
+        solve, while the MEASUREMENT controls (``M``, ``num_workers``,
+        ``opt_switch_oracles``) are applied LAST so they always win — the gate
+        observes the candidate's realized opt-phase RADIUS distribution under a
+        fixed observation budget, independent of the candidate's switch timing
+        (the switch is a bounded scalar with no scale-invariance concern; forcing
+        early entry just maximizes opt-phase samples).
+
     ``opt_switch_oracles=0`` enters the opt phase as soon as a feasible point
     exists, maximizing opt-phase candidate samples under the capped budget ``M``.
     """
-    if (radius is None) == (bias is None):
-        raise ValueError("pass exactly one of radius= or bias=")
+    if sum(x is not None for x in (radius, bias, params)) != 1:
+        raise ValueError("pass exactly one of radius=, bias=, or params=")
     m = build_synthetic_model(n, index=index, avg_degree=avg_degree,
                               weight_low=weight_low, weight_high=weight_high)
     m.seed = seed
-    m.set_param("num_workers", num_workers)
-    m.set_param("opt_switch_oracles", opt_switch_oracles)
-    m.set_param("M", M)
-    if radius is not None:
+    if params is not None:
+        # candidate levers first; the measurement controls below override any clash
+        for key, value in params.items():
+            m.set_param(key, value)
+    elif radius is not None:
         m.set_param("branching_radius", float(radius))
     else:
         m.set_param("branching_bias", float(bias))
+    m.set_param("num_workers", num_workers)
+    m.set_param("opt_switch_oracles", opt_switch_oracles)
+    m.set_param("M", M)
     r = m.solve()
     bd = r.branch_diagnostics
     workers = _per_worker_estimates(bd, n)
