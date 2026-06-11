@@ -61,6 +61,16 @@ def selection_sizes(sizes, *, inner_loop_max=INNER_LOOP_MAX_N):
 
     The default ``inner_loop_max`` reproduces the split that
     scale_invariance_characterization.py emits (inner-loop = {n: 100<=n<=1000}).
+
+    SCOPE (bd 8an.4.5): this n>=100 split governs the M3 selection toward the M4
+    n=3000 generalization gate (where the radius lever's scale-stability is the
+    constraint). The M3 *inner instance-CV* over the frozen-anchored strata uses a
+    DIFFERENT, deliberately-overriding split — ``benchmarks.m3_select.FOLDS``
+    (train n=10..50 / validate n=60..90) — because those are the only strata with
+    enough frozen anchors for a paired comparison today (n=100 has 2 instances,
+    n>=500 ``default_PI`` is pending bd 0o8). The compression risk for that interim
+    is held off by the §10 pre-scoring scale-invariance gate (checked at n>=100),
+    not by this size partition.
     """
     return {
         "scale_stable":     [n for n in sizes if n >= SCALE_STABLE_MIN_N],
