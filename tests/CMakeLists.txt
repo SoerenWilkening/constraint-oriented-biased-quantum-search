@@ -165,6 +165,7 @@ add_cmocka_test(test_branching
 add_cmocka_test(test_solver
     test_solver.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -183,6 +184,7 @@ add_cmocka_test(test_searchlib
     test_searchlib.c
     ${CBQS_SRC_DIR}/SearchLib.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -200,6 +202,7 @@ add_cmocka_test(test_searchlib
 add_cmocka_test(test_integration
     test_integration.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -220,6 +223,7 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/local_search.c
     ${CBQS_SRC_DIR}/quantum_search.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -305,6 +309,7 @@ add_cmocka_test(test_variable_ordering
 add_cmocka_test(test_variable_order_feasibility
     test_variable_order_feasibility.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -322,6 +327,25 @@ add_cmocka_test(test_variable_order_feasibility
 add_cmocka_test(test_csearch_ordering
     test_csearch_ordering.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- bd 0o8.2 (exact win A): incremental evaluation() cross-check ---
+add_cmocka_test(test_eval_incremental
+    test_eval_incremental.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -339,6 +363,7 @@ add_cmocka_test(test_csearch_ordering
 add_cmocka_test(test_opt_sample_cap
     test_opt_sample_cap.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c

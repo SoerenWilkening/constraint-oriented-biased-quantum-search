@@ -1,6 +1,7 @@
 #include "solver.h"
 #undef branching_stats  /* Use active_stats pointer for phase-aware branching */
 #include "prng.h"
+#include "incr_eval.h"  /* bd 0o8.2 (exact win A): incremental depth-0 marginals */
 
 // implementations of classical sampling search and benchmarking =======================================================
 /*
@@ -395,7 +396,15 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
 	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
+	/* bd 0o8.2 (exact win A): at depth 0 the two per-variable look_ahead_correct
+	 * re-scans are replaced by O(C) incremental marginal reads; incr_create returns
+	 * NULL for k-ary (clause length > 2) models, which fall back to the dense path.
+	 * CBQS_NO_INCR=1 forces the dense path (kill-switch / equivalence A-B; cached once). */
+	static int incr_disabled = -1;
+	if (incr_disabled < 0) incr_disabled = getenv("CBQS_NO_INCR") ? 1 : 0;
+	incr_state_t *st = (depth_look_ahead == 0 && !incr_disabled) ? incr_create(con, n, var_order, var_rank) : NULL;
 	for (l = 0; l < Leff; l++) {
+		if (st) incr_reset(st);
 		// Reset reusable state instead of alloc/free
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -428,10 +437,16 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// check, if assignment does not exceed potentials
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
-			// look ahead to the left side (position space, bd h8d)
-			look_ahead_correct(k, 0, imin(k + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
-			// look ahead to the right side
-			look_ahead_correct(k, 1, imin(k + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
+			if (st) {
+				/* bd 0o8.2: O(C) incremental reads == the two dense look-aheads.
+				 * POS arm -> ret_total2/count[1], NEG arm -> ret_total1/count[0]. */
+				incr_marginal(st, i, potentials, ret_total2, &count[1], ret_total1, &count[0]);
+			} else {
+				// look ahead to the left side (position space, bd h8d)
+				look_ahead_correct(k, 0, imin(k + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
+				// look ahead to the right side
+				look_ahead_correct(k, 1, imin(k + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
+			}
 
 			/* M2a (bd 8an.3.1): classify this decision for the per-phase
 			 * touch fraction — pure counters, no behavior change. The
@@ -465,6 +480,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 				sw_setbit(new_sol->vector, i);
 				new_bit = 1;
 			}
+
+			// bd 0o8.2: fold this variable's finalized bit into the incremental accumulators
+			if (st) incr_commit(st, i, new_bit);
 
 			// was a bit flipped?
 			if (bit != new_bit) ChangedBits[NumChanges++] = i;
@@ -507,6 +525,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
+			if (st) incr_free(st);
 			return 1;
 		}
 	}
@@ -516,6 +535,7 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	free(potentials);
 	free(ret_total1);
 	free(ret_total2);
+	if (st) incr_free(st);
 	return 0;
 }
 
