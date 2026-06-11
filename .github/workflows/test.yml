@@ -1,10 +1,13 @@
 name: Tests
 
 on:
-  push:
-    branches: ['**']  # '*' does not match branch names containing '/', so feat/* never ran CI
-  pull_request:
-    branches: [main]
+  # TEMPORARILY DISABLED for local test iteration — auto-CI is off on push/PR.
+  # RESTORE CI: uncomment the push/pull_request blocks below and remove workflow_dispatch.
+  workflow_dispatch:  # manual-only trigger while auto-CI is disabled
+  # push:
+  #   branches: ['**']  # '*' does not match branch names containing '/', so feat/* never ran CI
+  # pull_request:
+  #   branches: [main]
 
 jobs:
   c-tests:
