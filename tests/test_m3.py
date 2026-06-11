@@ -10,12 +10,14 @@ import math
 import os
 import sys
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from benchmarks import m3  # noqa: E402
-from benchmarks.m3 import fitness  # noqa: E402
+from benchmarks.m3 import (  # noqa: E402
+    Candidate, Fitness, evolve, fitness, select_survivors)
 
 
 # --------------------------------------------------------------------------- #
@@ -189,3 +191,168 @@ def test_fitness_exposes_components_for_audit():
     assert math.isfinite(f.pi_rank)
     assert math.isfinite(f.pi_median)
     assert math.isfinite(f.floor_fraction)
+
+
+# --------------------------------------------------------------------------- #
+# The population / selection loop (bd 8an.4.3 + .4 determinism). Tested with a
+# FAKE evaluator and a FAKE proposer — the loop logic (generations, selection,
+# diversity, elitism, gating, determinism) is verified with NO solve.
+# --------------------------------------------------------------------------- #
+
+#: A toy fitness landscape: optimum genome, fitness rises as the genome nears it.
+_OPT = np.array([6.0, 0.10])
+
+
+def _fit_from_genome(genome):
+    """A Fitness whose pi_rank decreases with distance to _OPT; passes_gate when
+    close. Maps a genome to a real Fitness object (the loop's sort key)."""
+    g = np.asarray(genome, dtype=float)
+    dist = float(np.linalg.norm(g - _OPT))
+    return Fitness(passes_gate=dist < 0.5, lost_feasibility_total=0,
+                   pi_rank=-dist, pi_median=-0.3, floor_fraction=1.0)
+
+
+def _fake_evaluator(candidate, **_kw):
+    """Stand-in for m3.evaluate_candidate: scores from the genome, no solve."""
+    return m3.Individual(candidate=candidate, fitness=_fit_from_genome(candidate.genome),
+                         verdict=None, gate=None, gated_out=False)
+
+
+def _gating_evaluator(candidate, **_kw):
+    """Rejects any candidate whose genome[0] is negative (a stand-in gate fail)."""
+    if candidate.genome[0] < 0:
+        return m3.Individual(candidate=candidate, fitness=Fitness.gated_out(),
+                             verdict=None, gate=None, gated_out=True)
+    return _fake_evaluator(candidate)
+
+
+class _MutatingProposer:
+    """Mutates the top individuals' genomes by gaussian steps (rng-driven)."""
+
+    def __init__(self, n_offspring=4, step=0.5):
+        self.n_offspring = n_offspring
+        self.step = step
+
+    def __call__(self, population, rng):
+        # parents = current best few; offspring = parent + gaussian noise
+        parents = sorted(population, key=lambda ind: ind.fitness, reverse=True)
+        parents = parents[:max(1, len(parents) // 2)] or population
+        out = []
+        for i in range(self.n_offspring):
+            p = parents[i % len(parents)]
+            genome = np.asarray(p.candidate.genome) + rng.normal(0, self.step, size=2)
+            out.append(Candidate(factory=(lambda n, c1, c2, c3: {}),
+                                 genome=tuple(genome), meta={"parent": p.candidate.genome}))
+        return out
+
+
+def _seed_pop():
+    return [Candidate(factory=(lambda n, c1, c2, c3: {}), genome=g, meta={})
+            for g in [(0.0, 0.0), (3.0, 1.0), (9.0, -0.5)]]
+
+
+def test_evolve_runs_generations_and_tracks_best():
+    res = evolve(_MutatingProposer(), rng=np.random.default_rng(0), generations=8,
+                 pop_size=6, init_population=_seed_pop(), evaluator=_fake_evaluator)
+    assert res.generations == 8
+    assert len(res.history) == 8 + 1          # initial + one per generation
+    # the search should approach the optimum (best pi_rank == -distance rises)
+    assert res.best.fitness.pi_rank > _fit_from_genome((0.0, 0.0)).pi_rank
+
+
+def test_evolve_elitism_best_never_regresses():
+    res = evolve(_MutatingProposer(step=1.5), rng=np.random.default_rng(3),
+                 generations=10, pop_size=5, init_population=_seed_pop(),
+                 evaluator=_fake_evaluator)
+    # history of best-so-far fitness must be monotone non-decreasing (elitism)
+    for a, b in zip(res.history, res.history[1:]):
+        assert b >= a
+
+
+def test_evolve_population_capped_at_pop_size():
+    res = evolve(_MutatingProposer(n_offspring=10), rng=np.random.default_rng(1),
+                 generations=4, pop_size=5, init_population=_seed_pop(),
+                 evaluator=_fake_evaluator)
+    assert len(res.population) <= 5
+
+
+def test_evolve_is_deterministic_under_fixed_seed():
+    def run():
+        r = evolve(_MutatingProposer(), rng=np.random.default_rng(42), generations=6,
+                   pop_size=6, init_population=_seed_pop(), evaluator=_fake_evaluator)
+        return [tuple(round(x, 9) for x in ind.candidate.genome) for ind in r.population]
+    assert run() == run()
+
+
+def test_evolve_different_seed_different_trajectory():
+    def run(seed):
+        r = evolve(_MutatingProposer(), rng=np.random.default_rng(seed), generations=6,
+                   pop_size=6, init_population=_seed_pop(), evaluator=_fake_evaluator)
+        return res_best_genome(r)
+    assert run(1) != run(2)
+
+
+def res_best_genome(r):
+    return tuple(round(x, 6) for x in r.best.candidate.genome)
+
+
+def test_evolve_excludes_gated_out_from_survivors_when_alternatives_exist():
+    # a gated-out candidate (genome[0] < 0) must never out-rank an admitted one
+    res = evolve(_MutatingProposer(step=0.3), rng=np.random.default_rng(7),
+                 generations=8, pop_size=6, init_population=_seed_pop(),
+                 evaluator=_gating_evaluator)
+    assert not res.best.gated_out
+    # survivors prefer admitted candidates; a gated-out only survives if the
+    # population can't fill pop_size with admitted ones
+    admitted = [ind for ind in res.population if not ind.gated_out]
+    assert len(admitted) >= 1
+
+
+def _ind(genome, pi_rank):
+    return m3.Individual(
+        candidate=Candidate(factory=(lambda n, c1, c2, c3: {}), genome=genome),
+        fitness=Fitness(passes_gate=True, lost_feasibility_total=0,
+                        pi_rank=pi_rank, pi_median=-0.3, floor_fraction=1.0))
+
+
+def test_select_survivors_diversity_floor_prefers_spread_over_near_duplicates():
+    # A and B are a near-duplicate high-fitness cluster; C and D are spread out
+    # and lower fitness. With a diversity floor, the best of the cluster (A) is
+    # kept but its near-duplicate (B) is dropped in favor of the spread points.
+    A, B = _ind((0.00, 0.0), -0.00), _ind((0.01, 0.0), -0.01)
+    C, D = _ind((5.0, 0.0), -5.0), _ind((10.0, 0.0), -10.0)
+    survivors = select_survivors([A, B, C, D], 3, min_genome_distance=0.5)
+    genomes = {tuple(ind.candidate.genome) for ind in survivors}
+    assert (0.00, 0.0) in genomes          # best of the cluster kept (elitism)
+    assert (0.01, 0.0) not in genomes      # its near-duplicate pruned
+    assert {(5.0, 0.0), (10.0, 0.0)} <= genomes
+
+
+def test_select_survivors_plain_truncation_keeps_top_k():
+    A, B = _ind((0.00, 0.0), -0.00), _ind((0.01, 0.0), -0.01)
+    C, D = _ind((5.0, 0.0), -5.0), _ind((10.0, 0.0), -10.0)
+    survivors = select_survivors([A, B, C, D], 3, min_genome_distance=0.0)
+    genomes = {tuple(ind.candidate.genome) for ind in survivors}
+    assert genomes == {(0.00, 0.0), (0.01, 0.0), (5.0, 0.0)}  # top-3 by fitness
+
+
+def test_select_survivors_backfills_rather_than_starve_population():
+    # a tightly clustered set with a large floor cannot satisfy diversity for
+    # k survivors — backfill keeps the population at k (never collapses it).
+    inds = [_ind((float(i) * 0.01, 0.0), -float(i)) for i in range(5)]
+    survivors = select_survivors(inds, 4, min_genome_distance=1.0)
+    assert len(survivors) == 4
+
+
+def test_evolve_default_evaluator_is_module_level_seam(monkeypatch):
+    # the real evaluate_candidate is the monkeypatch seam (no solve in tests)
+    calls = []
+
+    def spy(candidate, **kw):
+        calls.append(candidate)
+        return _fake_evaluator(candidate)
+
+    monkeypatch.setattr(m3, "evaluate_candidate", spy)
+    evolve(_MutatingProposer(n_offspring=2), rng=np.random.default_rng(0),
+           generations=2, pop_size=4, init_population=_seed_pop())
+    assert calls  # the loop routed through the patched module-level evaluator
