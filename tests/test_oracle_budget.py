@@ -48,9 +48,11 @@ def _stalling(n):
     return m
 
 
-def _T(n):
-    """Default per-worker oracle budget T(n) = (n/4)^2 + 1200 (float, NORTHSTAR §3)."""
-    return int((n / 4.0) ** 2 + 1200)
+# bd 8an.4.9: the per-worker budget T(n) = (n/32)^2 + 1200 has ONE source of truth —
+# benchmarks.metric.oracle_budget, which byte-matches the live Model.pyx M=-1 default.
+# Alias it here instead of a hand-maintained copy so this test and the solver can never
+# drift onto two different budgets (§2.7 DON'T DUPLICATE; §8 byte-match invariant).
+from benchmarks.metric import oracle_budget as _T
 
 
 class TestOracleBudget:
@@ -65,6 +67,25 @@ class TestOracleBudget:
         T = _T(n)
         assert T <= r.oracle_calls < 2 * T, (
             f"oracle_calls={r.oracle_calls} not in [T, 2T)=[{T}, {2*T}) for n={n}"
+        )
+
+    def test_default_budget_matches_metric_oracle_budget(self):
+        """bd 8an.4.9 anti-drift guard: the LIVE Model M=-1 budget and the scoring-side
+        benchmarks.metric.oracle_budget MUST be the same formula. Import it by name (no
+        alias, no literal), solve at M=-1, and assert the realized per-worker oracle count
+        lands in [T, 2T) of that imported value — so the solver and the metric can never
+        score candidates against a budget the solver never spent (§8 byte-match)."""
+        from benchmarks.metric import oracle_budget
+        n = 40
+        m = _knapsack(n)
+        m.seed = 7
+        m.set_param("M", -1)
+        m.set_param("num_workers", 1)
+        r = m.solve()
+        T = oracle_budget(n)  # the SAME function Model.pyx:M=-1 mirrors; T(40)=1201
+        assert T <= r.oracle_calls < 2 * T, (
+            f"live M=-1 oracle_calls={r.oracle_calls} not in [T,2T)=[{T},{2*T}) for "
+            f"metric.oracle_budget({n})={T} — Model.pyx and metric.py drifted"
         )
 
     def test_stalling_instance_budget_binds(self):

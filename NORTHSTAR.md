@@ -39,7 +39,10 @@ s.t.  Σ_i Σ_{j≥i} w1_ij · x_i x_j ≤ c1                (quadratic "capacit
 ```
 
 Binary; quadratic objective + two quadratic constraints (≤ and ≥). n = 10…3000, 10 instances/size.
-Per-run oracle budget **T(n) = (n/4)² + 1200**. Baselines Gurobi / Hexaly / Simanneal; **no proven
+Per-run oracle budget **T(n) = (n/32)² + 1200** (lowered from `(n/4)²` on 2026-06-11, bd 8an.4.9: the
+quadratic — hence √-speedup — *shape* is preserved (`j_max ∝ n`), only the depth constant shrinks 8×, so
+the largest strata are tractable for an exact anchor freeze; the `(n/4)²` cost made n≥2000 ~days/solve).
+Baselines Gurobi / Hexaly / Simanneal; **no proven
 optimum** (≥~50 % gap). The `≥ c2` covering constraint makes many constructions **infeasible** — a
 first-class concern (§6 feasibility tier; feasibility-first switch).
 

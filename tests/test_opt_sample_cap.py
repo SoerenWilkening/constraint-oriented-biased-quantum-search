@@ -48,9 +48,10 @@ def _stalling(n):
     return m
 
 
-def _T(n):
-    """Default per-worker oracle budget T(n) = (n/4)^2 + 1200 (NORTHSTAR sec 3)."""
-    return int((n / 4.0) ** 2 + 1200)
+# bd 8an.4.9: single source of truth for T(n) = (n/32)^2 + 1200 — the same
+# benchmarks.metric.oracle_budget the live Model.pyx M=-1 default byte-matches
+# (no hand-maintained copy; §2.7 DON'T DUPLICATE).
+from benchmarks.metric import oracle_budget as _T
 
 
 def _solve(mk, n, cap, *, seed=7, M=-1, workers=1, verify=False):

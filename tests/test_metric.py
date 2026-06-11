@@ -89,10 +89,14 @@ def test_d_i_floor_and_drop_rule():
 
 
 def test_oracle_budget_matches_model():
-    # Model.pyx:778 — int((n/4.0)**2 + 1200).
-    assert oracle_budget(3000) == int((3000 / 4.0) ** 2 + 1200) == 563700
-    assert oracle_budget(10) == int((10 / 4.0) ** 2 + 1200) == 1206
-    assert oracle_budget(13) == int((13 / 4.0) ** 2 + 1200)  # not divisible by 4 → float division
+    # Model.pyx — int((n/32.0)**2 + 1200).  T(n) lowered (n/4)->(n/32) on
+    # 2026-06-11 (NORTHSTAR §3/§6, bd 8an.4.9); quadratic shape preserved.
+    assert oracle_budget(3000) == int((3000 / 32.0) ** 2 + 1200) == 9989
+    assert oracle_budget(1000) == int((1000 / 32.0) ** 2 + 1200) == 2176  # freeze stratum (NORTHSTAR §9)
+    assert oracle_budget(10) == int((10 / 32.0) ** 2 + 1200) == 1200
+    # n not divisible by 32 → float division matters: 48/32=1.5, 1.5**2=2.25
+    # (int part 2), whereas integer 48//32=1 would give 1**2=1. Pin the float path.
+    assert oracle_budget(48) == int((48 / 32.0) ** 2 + 1200) == 1202
 
 
 def test_require_anchor_raises_on_none_not_zero():

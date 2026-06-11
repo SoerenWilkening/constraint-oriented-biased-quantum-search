@@ -15,8 +15,9 @@ def _cap_default_oracle_budget(request):
     """Keep the suite fast under the bd 8an.1.4 (M0d) oracle-budget change.
 
     solve()'s default ``M`` is now the full per-worker oracle budget
-    ``T(n) = (n/4)**2 + 1200`` and the wall-clock stop is disabled, so a default
-    solve runs >=1206 oracles regardless of ``stopping_time`` (correct in
+    ``T(n) = (n/32)**2 + 1200`` (lowered from (n/4)**2 on 2026-06-11, bd 8an.4.9)
+    and the wall-clock stop is disabled, so a default solve runs >=1200 oracles
+    regardless of ``stopping_time`` (correct in
     production, but ~15x slower across the suite). Cap the *default* ``M`` so
     default-budget solves stay fast in tests.
 

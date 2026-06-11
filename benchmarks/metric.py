@@ -106,14 +106,16 @@ XCHECK_REL_TOL = 1e-3
 # --------------------------------------------------------------------------- #
 
 def oracle_budget(n):
-    """T(n) = (n/4)**2 + 1200 — the per-worker oracle budget T_I (NORTHSTAR §3/§11).
+    """T(n) = (n/32)**2 + 1200 — the per-worker oracle budget T_I (NORTHSTAR §3/§11).
 
-    Float division to byte-match Model.pyx:778 ``int((self.n / 4.0) ** 2 + 1200)``; integer
-    ``//`` would diverge for ``n`` not divisible by 4.
+    Lowered from ``(n/4)**2`` on 2026-06-11 (bd 8an.4.9) for large-n freeze
+    tractability; the quadratic shape is preserved. Float division to byte-match
+    ``Model.pyx`` ``int((self.n / 32.0) ** 2 + 1200)``; integer ``//`` would
+    diverge for ``n`` not divisible by 32.
 
     n : int  ->  int
     """
-    return int((n / 4.0) ** 2 + 1200)
+    return int((n / 32.0) ** 2 + 1200)
 
 
 def require_anchor(value, name, key):

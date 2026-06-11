@@ -60,7 +60,7 @@ def _coerce_bool(value):
 _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
 	'M':                        {'default': -1,    'coerce': int,          'validate': None,
-	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/4)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
+	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/32)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
 	'opt_switch_oracles':       {'default': -1,    'coerce': int,          'validate': None,
 	                             'description': 'Cumulative per-worker oracle count at which the optimize phase switches from constraint-tightening (opt_sat) to objective maximization (opt), replacing the legacy counter>10 heuristic (NORTHSTAR §4). The switch only fires once a feasible point exists. -1 auto-calculates int(0.1*M); the effective value is clamped to [0, int(0.25*M)] (alpha<=0.25). Set before solve.'},
 	'opt_sample_cap':           {'default': 0,     'coerce': int,          'validate': lambda v: v >= 0,
@@ -782,11 +782,13 @@ or {self.runtime}s sampling
 			if stop_val != -1: warn("Defined stop_val will be ignored when solving SAT")
 
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
-		# Default per-worker oracle budget T(n) = (n/4)^2 + 1200 (NORTHSTAR §3/§11).
-		# mod->M is now a *cumulative* oracle cap enforced by the never-reset
-		# total_oracles accumulator in ctg (the wall-clock stop is disabled there),
-		# so the run terminates at ~T(n) oracles regardless of improvement frequency.
-		if M == -1: M = int((self.n / 4.0) ** 2 + 1200)
+		# Default per-worker oracle budget T(n) = (n/32)^2 + 1200 (NORTHSTAR §3/§11;
+		# lowered from (n/4)^2 on 2026-06-11, bd 8an.4.9 — quadratic shape kept,
+		# depth constant /8, for large-n freeze tractability). mod->M is a
+		# *cumulative* oracle cap enforced by the never-reset total_oracles
+		# accumulator in ctg (the wall-clock stop is disabled there), so the run
+		# terminates at ~T(n) oracles regardless of improvement frequency.
+		if M == -1: M = int((self.n / 32.0) ** 2 + 1200)
 
 		# M0f: opt_sat->opt exploit->explore switch point, in cumulative oracle
 		# units (NORTHSTAR §4), replacing the legacy counter>10. -1 auto-defaults
