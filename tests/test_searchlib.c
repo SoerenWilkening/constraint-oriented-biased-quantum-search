@@ -80,7 +80,7 @@ static model_t *build_knapsack_5var(void) {
 
     mod->n = 5;
     mod->depth_look_ahead = 0;
-    mod->stopping_time = 1e6;   /* wall-clock stop is disabled in ctg anyway */
+    mod->stopping_time = 1e6;   /* ctg wall-cap is opt-in (>0); 1e6 s is effectively OFF */
     mod->stop_val = -1;
     mod->ignore_constraint_search = 0;
     mod->solver = OPTIMIZE;

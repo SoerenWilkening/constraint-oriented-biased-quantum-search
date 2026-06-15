@@ -163,13 +163,19 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	g_active_ctx = ctx;
 	cbqs_install_interrupt_handler(handle_signal);
 
-	/* Gate purely on the never-reset oracle budget; the wall-clock stop
-	 * (total_time < mod->stopping_time) is deliberately removed (NORTHSTAR §11)
-	 * so termination is in oracle units, not seconds. mod->M carries T(n).
-	 * The `mod->M > 0` guard keeps a non-positive budget a no-op (matching the
-	 * old `m_tot < mod->M` behavior): without it, (size_t)(-1) == SIZE_MAX would
-	 * make a raw-API caller that left mod->M == -1 loop near-unboundedly. */
-	while (mod->M > 0 && total_oracles < (size_t) mod->M) {
+	/* Primary gate: the never-reset oracle budget (mod->M carries T(n)), so
+	 * termination is in ORACLE units, not seconds (NORTHSTAR §11). The wall-clock
+	 * stop (total_time < mod->stopping_time) is OFF by default (stopping_time <= 0)
+	 * and opt-in ONLY for the TRAINING search, where bounded wall-time matters and
+	 * reproducibility/faithfulness is explicitly waived (a truncated solve records a
+	 * machine-dependent trajectory). It is checked BETWEEN rounds (total_time is set
+	 * at the end of the previous iteration), so it cannot interrupt a single
+	 * in-progress large-j round. The `mod->M > 0` guard keeps a non-positive budget a
+	 * no-op (matching the old `m_tot < mod->M` behavior): without it,
+	 * (size_t)(-1) == SIZE_MAX would make a raw-API caller that left mod->M == -1
+	 * loop near-unboundedly. */
+	while (mod->M > 0 && total_oracles < (size_t) mod->M
+	       && (mod->stopping_time <= 0 || total_time < mod->stopping_time)) {
 		if (solver_ctx_should_stop(ctx)) {
 			cbqs_install_interrupt_handler(NULL);
 			g_active_ctx = NULL;

@@ -591,7 +591,9 @@ int local_search(solver_ctx_t *ctx, state_t *cur_sol, model_t *mod, callback_t c
         mod->runtime = time;
 		/* ctx carries the per-worker oracle counter for history stamping (M0e). */
 		if (callback) callback(ctx);
-		if (time > mod->stopping_time || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
+		/* stopping_time <= 0 = OFF (the new default -1); guard so the off-sentinel
+		 * does not make `time > -1` break on the first iteration (Model.pyx default). */
+		if ((mod->stopping_time > 0 && time > mod->stopping_time) || ((cur_sol->tot_profit <= mod->stop_val) && (mod->stop_val != -1))) break;
 
 		/* Refresh remainings[] and ful_con for the (possibly changed) cur_sol */
 		for (uint32_t i = 0; i < C; ++i) remainings[i] = constraint_violation(mod->con, cur_sol, i);
