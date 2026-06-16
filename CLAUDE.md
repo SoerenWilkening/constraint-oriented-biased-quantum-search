@@ -17,6 +17,20 @@ This is a research solver. **The oracle count is the product.** CBQS is a faithf
 whose oracle count *is* the quantum cost; everything we measure and claim rests on that number being
 correct. Treat any code touching it as load-bearing.
 
+> **⚡ RUN POLICY (overrides §1.1/§1.2 for execution — user directive 2026-06-16).** Every CBQS run sets a
+> wall-clock cap `stopping_time` of **15–30 minutes** (900–1800 s; pick within the band by available time —
+> more time → toward 30 min): `m.set_param('stopping_time', 900..1800)` before `solve()`. **Do not leave it
+> at the `-1` default.** Faithfulness is **explicitly waived for runs** — 15–30 min is long enough that
+> schedule changes have a meaningful, measurable performance impact, and wall-clock performance within that
+> fixed budget is what we evaluate. This **supersedes** the "never substitute wall-clock for oracles"
+> prohibition (§1.2) and the equal-`T(n)` pricing (§1.1) *for run execution*; the oracle-accounting code
+> stays load-bearing (it must remain correct), but the oracle-indexed primal-integral faithfulness
+> guarantees (NORTHSTAR §6) no longer hold for wall-capped runs — the accepted tradeoff. Consequences:
+> n≥1000 / n=3000 (M4) become runnable on a single box (non-exact, accepted); both arms of any A/B must
+> share the same cap to stay matched; the cap is checked **between** Grover rounds, so one in-progress
+> large-`j` round can overshoot. `stopping_time` is a **harness/run-level** setting, not a per-candidate
+> lever (`candidate_gate` keeps it in `_FAITHFULNESS_BREACH_PARAMS`, so tuned candidates cannot set it).
+
 ---
 
 ## 1. Non-negotiable invariants (reject-early gates)
@@ -32,6 +46,8 @@ candidate schedule violates one of these, stop and reconsider — do not "make i
   worker. Never substitute wall-clock for oracles, never let the accumulator be racy/under-counted, never
   reset the cumulative counter. The current shared `mod->qtg_applications` is **racy and wrong** (§5);
   fixing it (per-worker counter, never-reset accumulator) is M0, not optional polish.
+  *(Exception — the RUN POLICY callout above: runs now carry a 15–30 min wall cap and faithfulness is
+  waived for them. The counter must still be correct; only the "no wall-clock termination" rule is lifted.)*
 - **§1.3 No uniform-greedy collapse.** Greedy is an *allowed opening stage*, never the whole schedule.
   Score on **best-of-portfolio** (running-max over workers), **never the mean** — the mean rewards
   low-variance greedy and discards the restart tail. (NORTHSTAR §2, §8.)
