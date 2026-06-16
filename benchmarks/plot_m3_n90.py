@@ -301,7 +301,70 @@ def _plot(out_dir, data, instances, grid, T):
     fig2.tight_layout()
     p2 = os.path.join(out_dir, "m3_n90_primal_gap_aggregate.png")
     fig2.savefig(p2, dpi=130); plt.close(fig2)
-    print(f"[plot_m3_n90] figures -> {p1}\n                       {p2}")
+    p3 = _plot_spread(out_dir, data, instances, grid, T)
+    print(f"[plot_m3_n90] figures -> {p1}\n                       {p2}\n                       {p3}")
+
+
+def _plot_spread(out_dir, data, instances, grid, T):
+    """Per-instance min–max envelope over seeds (the seed-to-seed VARIANCE band).
+
+    Same axes as Figure 1 but instead of averaging it fills the area between the
+    BEST and WORST seed at each oracle (the pointwise min/max over the seed bank),
+    with the median drawn on top — so the band width *is* the run-to-run spread.
+    The legend annotates the per-seed PI range [min, max] (the variance in the
+    scored metric, lower = better)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ncol = 3
+    nrow = int(math.ceil(len(instances) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(15, 4.2 * nrow), squeeze=False)
+    for ax_i, index in enumerate(instances):
+        ax = axes[ax_i // ncol][ax_i % ncol]
+        B_I, L_I = data[index]["B_I"], data[index]["L_I"]
+        for sched in SCHEDULES:
+            sd = data[index]["schedules"][sched]
+            med, stack = median_trajectory(sd["histories"], grid, L_I)
+            lo, hi = stack.min(axis=0), stack.max(axis=0)   # worst / best seed, pointwise
+            c = SCHEDULE_COLORS[sched]
+            ax.fill_between(grid, lo, hi, color=c, alpha=0.18, lw=0)
+            ax.plot(grid, lo, color=c, lw=0.6, alpha=0.45)   # band edges for definition
+            ax.plot(grid, hi, color=c, lw=0.6, alpha=0.45)
+            pis = sd["per_seed_PI"]
+            ax.plot(grid, med, color=c, lw=1.8,
+                    label=f"{sched}  PI {min(pis):.2f}–{max(pis):.2f} (med {sd['median_PI']:.2f})")
+        ax.axhline(B_I, ls="--", color="k", lw=1.0, alpha=0.7)
+        ax.axhline(L_I, ls=":", color="k", lw=1.0, alpha=0.5)
+        ax.set_title(f"90_{index}   B_I={B_I:.0f} (hexaly)", fontsize=10)
+        ax.set_xlabel("cumulative oracle calls  (faithful cost axis)")
+        ax.set_ylabel("best-of-portfolio objective")
+        ax.set_xlim(0, T)
+        ax.set_ylim(L_I - 0.03 * (B_I - L_I), B_I + 0.04 * (B_I - L_I))
+        ax.legend(fontsize=6.5, loc="lower right")
+        ax.grid(alpha=0.25)
+    for k in range(len(instances), nrow * ncol):
+        axes[k // ncol][k % ncol].axis("off")
+    fig.suptitle("CBQS objective vs oracle budget — seed-to-seed VARIANCE band (n=90 Eq.29)\n"
+                 f"shaded = best–worst over {len(SEEDS)} seeds, line = median; "
+                 "dashed = B_I target, dotted = L_I floor", fontsize=12, y=0.999)
+    fig.tight_layout(rect=[0, 0, 1, 0.985])
+    p3 = os.path.join(out_dir, "m3_n90_objective_spread.png")
+    fig.savefig(p3, dpi=130); plt.close(fig)
+    return p3
+
+
+def replot(out_dir, json_path):
+    """Regenerate the figures from a saved m3_n90_trajectories.json (no re-solve)."""
+    with open(json_path) as fh:
+        blob = json.load(fh)
+    T = int(blob["T"])
+    instances = [int(i) for i in blob["instances"]]
+    data = {int(i): rec for i, rec in blob["data"].items()}
+    grid = np.arange(0, T + 1)
+    print(f"[plot_m3_n90] replot from {json_path}: {len(instances)} instances, T={T}")
+    _plot(out_dir, data, instances, grid, T)
+    _print_summary(data, instances)
 
 
 def main(argv=None):
@@ -309,7 +372,12 @@ def main(argv=None):
     p.add_argument("--out-dir", default=os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "m3_n90"))
     p.add_argument("--bench-root", default=os.environ.get("CBQS_BENCHMARKS_DIR"))
+    p.add_argument("--replot-from", default=None,
+                   help="regenerate figures from a saved trajectories.json (no solve).")
     args = p.parse_args(argv)
+    if args.replot_from:
+        replot(args.out_dir, args.replot_from)
+        return
     if not args.bench_root:
         raise SystemExit("CBQS_BENCHMARKS_DIR (or --bench-root) is required.")
     run(args.out_dir, args.bench_root)
