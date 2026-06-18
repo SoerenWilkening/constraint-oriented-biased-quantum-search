@@ -139,6 +139,15 @@ warm greedy start IS feasible (~2.27e10 from oracle 0), so `opt_sat` is skipped 
 `opt_sat` radius helps), absent at n=3000 (tie). (Oracle counts under the `M=1e8` wall-bind setup are
 inflated by one giant post-convergence round — not a faithful measure; the objective is the signal.)
 
+**Objective-over-oracles trajectory** (history captured, `logs/m4_spot/compare_n3000_warm_history.py`
+→ `*_logx.png`): all three jump to within ~0.1 % of their final at oracle ~50 (the warm greedy,
+already above B_I), then the M3 arms climb to ~2.272e10 by ~5000 oracles while the default stalls at
+2.2695e10 and only catches up via a runaway giant round at ~4.3e7 oracles. A re-run shows the deltas
+are **wall-timing noise**: the default's own final moved 2.27204e10→2.27146e10 between runs (its
+objective depends on where the wall cuts the giant round), so the ±0.03 % schedule deltas are not
+signal — all three tie. The faster, giant-round-free convergence of the M3 arms in this run is a
+single-run observation (the big-M stall is a stuck-worker artifact), not a robust claim.
+
 ## 7. Reproduce
 
 ```bash
