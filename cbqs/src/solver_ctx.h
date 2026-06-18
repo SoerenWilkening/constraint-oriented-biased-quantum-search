@@ -14,6 +14,12 @@
 #include <stdint.h>
 #include "Branching.h"
 #include "prng.h"
+
+/** bd 0o8.3: candidates drawn between two wall-clock deadline checks inside a
+ *  CSearch_* sample loop. Power of two so the check is a cheap bitmask; large
+ *  enough that clock-read overhead is O(Leff/CHUNK) and the overshoot past the
+ *  deadline is bounded to <= CHUNK candidates (sub-ms at n=3000). */
+#define CBQS_DEADLINE_CHUNK 1024u
 #include "arena.h"
 
 /** bd 4uf: sentinel for solver_ctx_t.callback_value — "no per-worker incumbent
@@ -150,6 +156,20 @@ struct solver_ctx {
      *  classical success probability for rare improvers (p < ~1/cap) is reduced.
      *  Copied from mod->opt_sample_cap at ctg entry (per-worker, race-free). */
     int64_t opt_sample_cap;
+
+    /** bd 0o8.3: per-worker monotonic-ns deadline that lets the wall cap
+     *  (mod->stopping_time) interrupt a Grover round IN PROGRESS, not only
+     *  between rounds (SearchLib.c). 0 == OFF (the strict no-op for every
+     *  faithful/exact run; stopping_time <= 0). When armed it is
+     *  t1_ns + stopping_time·1e9 -- the SAME monotonic basis as the existing
+     *  between-rounds total_time check, so the two agree. Each CSearch_* sample
+     *  loop checks it every CBQS_DEADLINE_CHUNK candidates and breaks once
+     *  cbqs_monotonic_ns() >= deadline_ns; the truncated round is an APPROXIMATE
+     *  outcome (faithfulness-of-outcome is RUN-POLICY-waived for wall-capped
+     *  runs) but the 2j+1 oracle charge (applied in ctg) is UNCHANGED. Written
+     *  once per worker from the read-only mod->stopping_time then read -- the
+     *  same race-free pattern as opt_sample_cap (no shared mod-> writes). */
+    uint64_t deadline_ns;
 
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;

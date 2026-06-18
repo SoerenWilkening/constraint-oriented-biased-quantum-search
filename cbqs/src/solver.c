@@ -2,6 +2,7 @@
 #undef branching_stats  /* Use active_stats pointer for phase-aware branching */
 #include "prng.h"
 #include "incr_eval.h"  /* bd 0o8.2 (exact win A): incremental depth-0 marginals */
+#include "platform.h"   /* bd 0o8.3: cbqs_monotonic_ns for the mid-round deadline */
 
 // implementations of classical sampling search and benchmarking =======================================================
 /*
@@ -404,6 +405,10 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	if (incr_disabled < 0) incr_disabled = getenv("CBQS_NO_INCR") ? 1 : 0;
 	incr_state_t *st = (depth_look_ahead == 0 && !incr_disabled) ? incr_create(con, n, var_order, var_rank) : NULL;
 	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (see the
+		 * opt_sat/sat loops); no-op when deadline_ns == 0, 2j+1 charge unaffected. */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
 		if (st) incr_reset(st);
 		// Reset reusable state instead of alloc/free
         sw_set_ui_0(new_sol->vector);
@@ -569,6 +574,12 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	int *var_order = ctx->active_stats->variable_order;
 	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
 	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (checked
+		 * every CBQS_DEADLINE_CHUNK candidates; no-op when deadline_ns == 0). The
+		 * 2j+1 oracle charge is applied in ctg before this call, so a truncated
+		 * round neither over- nor under-charges (CLAUDE.md §1.2). */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -725,6 +736,12 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	int *var_order = ctx->active_stats->variable_order;
 	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
 	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (checked
+		 * every CBQS_DEADLINE_CHUNK candidates; no-op when deadline_ns == 0). The
+		 * 2j+1 oracle charge is applied in ctg before this call, so a truncated
+		 * round neither over- nor under-charges (CLAUDE.md §1.2). */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);

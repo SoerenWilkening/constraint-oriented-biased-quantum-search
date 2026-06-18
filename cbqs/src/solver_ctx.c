@@ -121,6 +121,7 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->opt_bothinf = 0;
     ctx->opt_forced = 0;
     ctx->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim) */
+    ctx->deadline_ns = 0;     /* bd 0o8.3: 0 == OFF; armed by ctg from stopping_time */
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */

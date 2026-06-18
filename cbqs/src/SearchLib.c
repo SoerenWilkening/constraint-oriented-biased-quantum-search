@@ -126,6 +126,18 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 	uint64_t t1_ns = cbqs_monotonic_ns();
 
+	/* bd 0o8.3: arm the per-worker mid-round wall deadline from the opt-in cap
+	 * mod->stopping_time (seconds). stopping_time <= 0 leaves deadline_ns == 0
+	 * (OFF -- the strict no-op for faithful/exact runs). Uses the SAME t1_ns basis
+	 * as the between-rounds `total_time < mod->stopping_time` check below, so the
+	 * in-round interrupt and the between-rounds stop agree. The truncated round is
+	 * an approximate OUTCOME (RUN-POLICY-waived); the 2j+1 charge is unaffected.
+	 * Per-worker write from the read-only mod->stopping_time -- no shared mod->
+	 * write (race-free, like ctx->opt_sample_cap). */
+	ctx->deadline_ns = (mod->stopping_time > 0)
+	    ? t1_ns + (uint64_t)(mod->stopping_time * 1e9)
+	    : 0;
+
 	int res;
 
     int feasible = eval_constraints(mod->con, cur_sol, n);
