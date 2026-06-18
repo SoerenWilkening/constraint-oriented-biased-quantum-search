@@ -2,40 +2,41 @@
 """benchmarks/run_m3_warm.py — the EXPLORATORY WARM M3 agent-loop driver (bd 8an.10).
 
 The published CBQS (``iqs``) WARM-starts via ``general_greedy()`` (bd 8an.9); the cold
-M3 (bd 884) optimized a configuration iqs never uses. A warm start is FEASIBLE from
-oracle 0, so the phase machine jumps straight to stage-3 opt — collapsing the lever
-space: of the cold 5-gene genome, ``r_opt_sat`` and ``alpha_switch`` go INERT (no
-opt_sat phase, no opt_sat→opt switch). This driver re-runs M3 over the warm-LIVE space
-(``benchmarks.m3_proposer.WARM_SPEC`` = ``{r_opt, theta_amp, theta_feature}``) against a
-freshly-solved WARM default, on the anchored ``n≤90`` strata where the warm headroom
-lives (n=90 ~28%, M3 +23% — ``plot_m3_n90 --warm``; n=3000 ~0%, all methods tie).
+M3 (bd 884) optimized against a ``0^n`` cold start iqs never uses. This driver re-runs
+M3 WARM (both A/B arms warm) against a freshly-solved warm default on the anchored
+``n≤90`` strata, with the §13 discipline (capstone, CV+Holm, negative control, held-out
+rescore) intact.
 
-It MIRRORS :mod:`benchmarks.run_m3` (same §13 discipline — capstone, CV+Holm, negative
-control, held-out rescore) but with three warm-specific changes:
+GENOME SCOPE — a corrected finding (bd 8an.10 run + review). The task's premise was that
+a warm (feasible-from-oracle-0) start makes ``r_opt_sat`` + ``alpha_switch`` INERT, so
+only ``{r_opt, θ}`` need searching. **That is empirically FALSE at n≤90:** the greedy
+construction is FREQUENTLY INFEASIBLE (4/9 n=90 instances), so the solver DOES run
+``opt_sat`` and the broad ``opt_sat_branching_radius`` + early ``opt_switch_oracles`` are
+the DOMINANT drivers of the warm win (full cand_16 warm at n=90: §13 W=+9, +23% mean-PI;
+the warm-live ``{r_opt,θ}`` subset: tie / −3%). So this driver searches the **FULL 5-gene
+genome** by default; ``--warm-live-only`` restricts to ``WARM_SPEC`` (valid only where the
+greedy start is always feasible — e.g. verified-feasible large-n, NOT n≤90).
+
+Warm-specific machinery:
 
   1. **Warm solves** — every default/candidate/neg-control/rescore solve warm-starts
      (``run_sweep(warm=True)``; bd 8an.10 wiring). BOTH arms warm → matched A/B.
   2. **Warm anchor table** — the frozen ``default_PI`` is COLD, so it is REPLACED in an
      in-memory table by the freshly-solved WARM default's median PI
      (:func:`benchmarks.baselines.synthesize_warm_default_pi`); ``B_I`` (protocol-
-     independent frontier) and ``L_I`` (cold first-feasible floor) are KEPT — the warm
-     candidate and warm default both normalize against the SAME cold ``L_I``, so its
-     warm/cold inconsistency cancels in the paired delta (the accepted EXPLORATORY gap,
-     bd 8an.10 NOTE). The capstone STILL holds: the warm default re-scores to exactly
-     the synthesized warm ``default_PI`` (strict_xcheck passes — a real consistency guard).
-  3. **Warm proposer** — ``ParametricProposer(spec=WARM_SPEC)`` searches only the live
-     opt-phase levers; the warm factory emits ONLY ``opt_branching_radius`` (+ opt-phase
-     ``opt_branching_weights`` when θ active), so a warm candidate differs from the warm
-     default PURELY in the live levers (no inert-dim confound).
+     independent frontier) and ``L_I`` (cold first-feasible floor) are KEPT — both arms
+     normalize against the SAME cold ``L_I`` so its warm/cold inconsistency cancels in the
+     paired delta (the accepted EXPLORATORY gap). The capstone STILL holds: the warm
+     default re-scores to exactly the synthesized warm ``default_PI`` (strict_xcheck).
 
-EXPLORATORY (bd 8an.10 NOTE): a FINAL/reproducible result still needs 8an.9 (a re-FROZEN
-warm ``default_PI`` + 'default := warm' governance). This driver discovers/ranks warm
-schedules; it does NOT re-freeze anchors.
+EXPLORATORY: a FINAL/reproducible result still needs 8an.9 (re-FROZEN warm ``default_PI``
++ 'default := warm' governance). This driver discovers/ranks warm schedules; it does NOT
+re-freeze anchors. See ``benchmarks/M3_WARM_FINDINGS.md``.
 
 Usage:
   CBQS_BENCHMARKS_DIR=<clone> python -m benchmarks.run_m3_warm [--generations G]
       [--pop-size P] [--n-offspring K] [--n-init-random R] [--seed S]
-      [--out-dir DIR] [--bench-root DIR] [--no-rescore]
+      [--out-dir DIR] [--bench-root DIR] [--no-rescore] [--warm-live-only] [--max-per-size N]
 """
 import argparse
 import json
@@ -96,11 +97,30 @@ def _subset_per_size(instances, max_per_size):
 
 
 def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
-        n_init_random, num_workers=None, do_rescore=True, max_per_size=None, log=print):
+        n_init_random, num_workers=None, do_rescore=True, max_per_size=None,
+        warm_live_only=False, log=print):
     """Solve the WARM default once, synthesize the warm anchor table, run the warm
-    population search, then the §13 selection (vs the warm default)."""
+    population search, then the §13 selection (vs the warm default).
+
+    GENOME SCOPE (bd 8an.10 — corrected by the empirical run): searches the FULL 5-gene
+    genome by DEFAULT. The task's premise was that a warm (feasible-from-oracle-0) start makes
+    ``r_opt_sat`` + ``alpha_switch`` inert, so only ``{r_opt, θ}`` (``WARM_SPEC``) need
+    searching. That is EMPIRICALLY FALSE at n≤90: the greedy construction is FREQUENTLY
+    INFEASIBLE (4/9 n=90 instances: 90_2/6/7/8), so the solver DOES run ``opt_sat`` and the
+    broad ``opt_sat_branching_radius`` + early ``opt_switch_oracles`` are the DOMINANT drivers
+    of the warm win (full cand_16 warm: §13 W=+9, +23% mean-PI at n=90; dropping them → tie
+    /−3%). So the warm search must keep them. ``warm_live_only=True`` restricts to the 3-gene
+    ``WARM_SPEC`` (valid ONLY where the greedy start is always feasible — e.g. verified-feasible
+    large-n — NOT n≤90)."""
     os.makedirs(out_dir, exist_ok=True)
     rng = np.random.default_rng(seed)
+    if warm_live_only:
+        spec = m3_proposer.WARM_SPEC
+        fmt_genome, genome_dict = _fmt_warm_genome, _warm_genome_dict
+    else:
+        spec = m3_proposer.COLD_SPEC          # full 5-gene — opt_sat/switch LIVE at n≤90
+        from benchmarks.run_m3 import _fmt_genome, _genome_dict
+        fmt_genome, genome_dict = _fmt_genome, _genome_dict
     frozen_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "baselines_frozen.csv")
     frozen = baselines.load_frozen_baselines(frozen_path)
@@ -108,14 +128,16 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     instances = _subset_per_size(instances, max_per_size)  # fast exploratory subset (bd 8an.10)
     seeds = baselines.DEFAULT_SEED_BANK
     log(f"[run_m3_warm] WARM exploratory M3 (bd 8an.10): {len(instances)} anchored "
-        f"instances over sizes {SELECTION_SIZES}; seed bank {seeds}; rng seed {seed}")
+        f"instances over sizes {SELECTION_SIZES}; seed bank {seeds}; rng seed {seed}; "
+        f"genome={'WARM_SPEC (live-only)' if warm_live_only else 'FULL 5-gene'} {spec.genes}")
 
     # --- Config stamp (cross-run aliasing guard; warm flag makes the provenance explicit). ---
     run_cfg = {"seed": int(seed), "generations": int(generations),
                "pop_size": int(pop_size), "n_offspring": int(n_offspring),
                "n_init_random": int(n_init_random), "sizes": list(SELECTION_SIZES),
                "max_per_size": (int(max_per_size) if max_per_size else None),
-               "n_instances": len(instances), "warm": True}
+               "n_instances": len(instances), "warm": True,
+               "genome": ("warm_live" if warm_live_only else "full")}
     cfg_path = os.path.join(out_dir, "run_config.json")
     cand_root = os.path.join(out_dir, "candidates")
     if os.path.isdir(cand_root) and any(os.scandir(cand_root)):
@@ -205,7 +227,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
             ind.gate = gate
         evaluated[cid] = ind
         tag = ("GATED " + "; ".join(gate.reasons)) if ind.gated_out else repr(ind.fitness)
-        log(f"[run_m3_warm]   eval {cid} genome={_fmt_warm_genome(candidate.genome)} -> {tag}")
+        log(f"[run_m3_warm]   eval {cid} genome={fmt_genome(candidate.genome)} -> {tag}")
         return ind
 
     eval_kwargs = dict(
@@ -214,17 +236,16 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
         num_workers=num_workers, opt_sample_cap=0, scale_check=True, warm=True)
 
     # ------------------------------------------------------------------ #
-    # 5) Init population = WARM baseline genome + R random WARM genomes.
+    # 5) Init population = the spec's baseline genome + R random genomes.
     # ------------------------------------------------------------------ #
     init_pop = [m3.Candidate(
-        factory=m3_proposer.warm_genome_to_factory(m3_proposer.WARM_BASELINE_GENOME),
-        genome=tuple(float(x) for x in m3_proposer.WARM_BASELINE_GENOME),
+        factory=spec.to_factory(spec.baseline),
+        genome=tuple(float(x) for x in spec.baseline),
         meta={"id": "init_default", "op": "seed"})]
     for i in range(n_init_random):
-        g = m3_proposer.random_genome(rng, genes=m3_proposer.WARM_GENES,
-                                      bounds=m3_proposer.WARM_GENE_BOUNDS)
+        g = m3_proposer.random_genome(rng, genes=spec.genes, bounds=spec.bounds)
         init_pop.append(m3.Candidate(
-            factory=m3_proposer.warm_genome_to_factory(g),
+            factory=spec.to_factory(g),
             genome=tuple(float(x) for x in g),
             meta={"id": f"init_rand_{i}", "op": "seed"}))
 
@@ -233,16 +254,16 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     # ------------------------------------------------------------------ #
     proposer = m3_proposer.ParametricProposer(
         n_offspring=n_offspring, sigma=m3_proposer.GENE_SIGMA, crossover_rate=0.3,
-        id_prefix="cand", spec=m3_proposer.WARM_SPEC)
+        id_prefix="cand", spec=spec)
     log(f"[run_m3_warm] evolve: pop_size={pop_size} generations={generations} "
-        f"n_offspring={n_offspring} (init {len(init_pop)}) over WARM_SPEC {m3_proposer.WARM_GENES}")
+        f"n_offspring={n_offspring} (init {len(init_pop)}) over {spec.genes}")
     t0 = time.time()
     result = m3.evolve(proposer, rng=rng, generations=generations, pop_size=pop_size,
                        init_population=init_pop, evaluator=evaluator,
                        eval_kwargs=eval_kwargs, min_genome_distance=0.0, log=log)
     log(f"[run_m3_warm] evolve done ({time.time() - t0:.0f}s, {len(evaluated)} candidates "
         f"evaluated). best {result.best.fitness!r} "
-        f"genome={_fmt_warm_genome(result.best.candidate.genome)}")
+        f"genome={fmt_genome(result.best.candidate.genome)}")
 
     # ------------------------------------------------------------------ #
     # 7) §13 selection over the admitted family (CV + Holm FWER), vs the warm default.
@@ -297,7 +318,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
         winner_id = max(sel.survivors, key=lambda cid: admitted[cid].fitness)
         winner_factory = admitted[winner_id].candidate.factory
         log(f"[run_m3_warm] winner {winner_id} "
-            f"genome={_fmt_warm_genome(admitted[winner_id].candidate.genome)} — rescoring WARM on "
+            f"genome={fmt_genome(admitted[winner_id].candidate.genome)} — rescoring WARM on "
             f"holdout {list(HOLDOUT_INSTANCES)} with new seeds {RESCORE_SEEDS}.")
 
         def default_solve(inst, sds):
@@ -330,7 +351,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     # ------------------------------------------------------------------ #
     summary = _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
                          evaluated, result, sel, neg, final, winner_id, admitted,
-                         warm_baselines)
+                         warm_baselines, genome_dict, warm_live_only)
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(summary, fh, indent=2)
     _print_report(log, summary)
@@ -342,12 +363,13 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
 # --------------------------------------------------------------------------- #
 
 def _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
-               evaluated, result, sel, neg, final, winner_id, admitted, warm_baselines):
+               evaluated, result, sel, neg, final, winner_id, admitted, warm_baselines,
+               genome_dict, warm_live_only):
     candidates = {}
     for cid, ind in evaluated.items():
         rec = sel.per_candidate.get(cid, {})
         candidates[cid] = {
-            "genome": _warm_genome_dict(ind.candidate.genome),
+            "genome": genome_dict(ind.candidate.genome),
             "op": ind.candidate.meta.get("op"),
             "parent": ind.candidate.meta.get("parent"),
             "gated_out": ind.gated_out,
@@ -365,7 +387,8 @@ def _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
         "protocol": "WARM (general_greedy; exploratory — cold L_I/B_I anchors, warm default_PI)",
         "config": {"seed": seed, "generations": generations, "pop_size": pop_size,
                    "n_offspring": n_offspring, "n_instances": len(instances),
-                   "sizes": list(SELECTION_SIZES), "warm_genes": list(m3_proposer.WARM_GENES),
+                   "sizes": list(SELECTION_SIZES),
+                   "genome": ("warm_live" if warm_live_only else "full"),
                    "folds": {k: sorted(v) for k, v in m3_select.FOLDS.items()},
                    "alpha": m3_select.ALPHA},
         "n_evaluated": len(evaluated),
@@ -375,7 +398,7 @@ def _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
         "best_by_fitness": {
             "id": next((cid for cid, ind in evaluated.items() if ind is result.best), None),
             "gated_out": result.best.gated_out,
-            "genome": _warm_genome_dict(result.best.candidate.genome),
+            "genome": genome_dict(result.best.candidate.genome),
             "fitness": _fitness_dict(result.best.fitness)},
         "survivors": sel.survivors,
         "winner_id": winner_id,
@@ -398,7 +421,7 @@ def _print_report(log, s):
     log(f"protocol: {s['protocol']}")
     log(f"config: seed={c['seed']} gens={c['generations']} pop={c['pop_size']} "
         f"n_offspring={c['n_offspring']} | {c['n_instances']} instances over {c['sizes']}")
-    log(f"warm genome: {c['warm_genes']}")
+    log(f"genome scope: {c['genome']} ({'WARM_SPEC live-only' if c['genome']=='warm_live' else 'FULL 5-gene — opt_sat/switch LIVE at n<=90'})")
     log(f"evaluated={s['n_evaluated']} admitted={s['n_admitted']} gated_out={s['n_gated_out']}")
     b = s["best_by_fitness"]
     log(f"best-by-fitness: {b['id']} genome={b['genome']} fitness={b['fitness']}")
@@ -438,6 +461,10 @@ def main(argv=None):
                         "per size (all folds still populated). Default: all (~88 instances).")
     p.add_argument("--no-rescore", dest="do_rescore", action="store_false",
                    help="skip the held-out warm rescore (the exploratory selection still runs).")
+    p.add_argument("--warm-live-only", action="store_true",
+                   help="search only the 3-gene warm-live space {r_opt, theta} (WARM_SPEC). "
+                        "Default is the FULL 5-gene genome — at n<=90 the warm greedy is often "
+                        "INFEASIBLE so opt_sat_radius/switch are LIVE and dominant (bd 8an.10).")
     p.set_defaults(do_rescore=True)
     args = p.parse_args(argv)
     if not args.bench_root:
@@ -449,7 +476,8 @@ def main(argv=None):
     run(out_dir=args.out_dir, bench_root=args.bench_root, seed=args.seed,
         generations=args.generations, pop_size=args.pop_size, n_offspring=args.n_offspring,
         n_init_random=args.n_init_random, num_workers=args.num_workers,
-        do_rescore=args.do_rescore, max_per_size=args.max_per_size)
+        do_rescore=args.do_rescore, max_per_size=args.max_per_size,
+        warm_live_only=args.warm_live_only)
 
 
 if __name__ == "__main__":

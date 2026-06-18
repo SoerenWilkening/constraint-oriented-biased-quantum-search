@@ -219,26 +219,28 @@ def baseline_equivalent_factory():
 
 
 # --------------------------------------------------------------------------- #
-# WARM re-scope (bd 8an.10) — the warm-started algorithm's LIVE lever space.
+# WARM "live-lever" genome (bd 8an.10) — VALID ONLY where the greedy start is
+# always feasible. NOT the right warm search at n<=90 — see the caveat below.
 # --------------------------------------------------------------------------- #
-# The published CBQS (iqs) WARM-starts via general_greedy() (bd 8an.9). A warm
-# start is FEASIBLE from oracle 0, so the phase machine jumps straight to stage-3
-# opt (SearchLib.c:142), SKIPPING opt_sat. Of the cold 5-gene genome, two genes go
-# INERT under warm and were cand_16's DOMINANT cold levers:
-#   * r_opt_sat   -> inert (no opt_sat phase runs when the start is feasible)
-#   * alpha_switch-> inert (no opt_sat->opt switch; already in opt)
-# The warm genome searches ONLY the warm-live dims (M2_FINDINGS + the n=90 warm
-# +23% PI win, which came entirely from r_opt + θ):
-#   * r_opt        — the opt-phase scalar radius (the dominant warm lever).
-#   * theta_amp/feature — the per-variable θ logit channel (opt-phase only).
-# warm_genome_to_factory emits ONLY the live opt-phase levers (opt_branching_radius
-# and, when θ is active, opt_branching_weights) and OMITS opt_sat_branching_radius /
-# opt_switch_oracles entirely — so a warm candidate differs from the warm DEFAULT
-# PURELY in the live levers (no inert-dim confound, no wasted mutation budget). A
-# convergence-aware / scheduled radius (radius that tightens as the warm search
-# polishes a near-optimal point) is M5 territory: it needs a NEW oracle-indexed C
-# lever (a core change, outside the §1.4 scalar/array lever surface) — filed as a
-# follow-up, NOT searched here.
+# The original 8an.10 premise: the published CBQS (iqs) WARM-starts via
+# general_greedy() (bd 8an.9); a warm start is feasible from oracle 0, so the phase
+# machine jumps to stage-3 opt (SearchLib.c:142), SKIPPING opt_sat — making two cold
+# genes (r_opt_sat, alpha_switch) inert, leaving a warm-live space {r_opt, θ}.
+#
+# *** THAT PREMISE IS EMPIRICALLY FALSE AT n<=90 (bd 8an.10 run + review). *** The
+# greedy construction (initial_state_preparation) is FREQUENTLY INFEASIBLE — 4/9
+# n=90 instances (90_2/6/7/8), and 10_0/20_1/40_0/60_0 — so the solver DOES start in
+# opt_sat, and r_opt_sat (broad radius) + alpha_switch (early switch) are NOT inert:
+# they are the DOMINANT drivers of the warm win (full cand_16 warm at n=90: §13 W=+9,
+# +23% mean-PI; the warm-live {r_opt,θ} subset: tie / -3%). So at n<=90 the warm
+# search must use the FULL genome (COLD_SPEC); run_m3_warm defaults to it.
+#
+# WARM_SPEC (below) restricts to {r_opt, θ} and is admissible ONLY in a regime where
+# the greedy start is ALWAYS feasible (e.g. verified-feasible large-n) — there opt_sat
+# genuinely never runs. warm_genome_to_factory emits ONLY the opt-phase levers
+# (opt_branching_radius [+opt_branching_weights when θ active]) and OMITS
+# opt_sat_branching_radius / opt_switch_oracles. A convergence-aware / scheduled radius
+# is M5 territory (a new oracle-indexed C lever = core change) — filed as bd 71e.
 
 #: Warm-live genome layout (a float64 vector). A strict subset of the cold GENES.
 WARM_GENES = ("r_opt", "theta_amp", "theta_feature")
