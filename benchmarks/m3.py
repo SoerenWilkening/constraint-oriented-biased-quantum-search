@@ -283,7 +283,7 @@ def select_survivors(individuals, k, *, min_genome_distance=0.0):
 def evaluate_candidate(candidate, *, default_results, baselines, instances, seeds,
                        out_dir, bench_root=None, num_workers=None,
                        opt_sample_cap=0, gate_scale_ns=(100, 1000),
-                       scale_check=True, score_kwargs=None):
+                       scale_check=True, score_kwargs=None, warm=False):
     """Gate → solve → score → :func:`fitness` for one candidate (the real evaluator).
 
     Module-level so the loop calls ``m3.evaluate_candidate`` by name and tests
@@ -311,7 +311,7 @@ def evaluate_candidate(candidate, *, default_results, baselines, instances, seed
 
     m2.run_sweep(candidate.meta.get("id", "m3_candidate"), candidate.factory,
                  instances, out_dir=out_dir, seeds=seeds, bench_root=bench_root,
-                 num_workers=num_workers, opt_sample_cap=opt_sample_cap)
+                 num_workers=num_workers, opt_sample_cap=opt_sample_cap, warm=warm)
     candidate_results = m2.load_run_set_dir(out_dir)
     verdict = metric.score_verdict(candidate_results, default_results, baselines,
                                    strict_xcheck=True, require_largest_n=False,

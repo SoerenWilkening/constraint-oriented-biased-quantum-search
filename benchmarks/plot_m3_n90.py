@@ -76,17 +76,23 @@ SCHEDULE_LABELS = {
 }
 SCHEDULE_COLORS = {"default": "#666666", "m3_winner": "#1f77b4",
                    "m3_parsimonious": "#2ca02c"}
+_WARM = False    # bd 8an.9: set by run(warm=True); read by _plot for the title suffix
 
 
 # --------------------------------------------------------------------------- #
 # Solving (mirrors m2.run_candidate_seed_bank, + the RUN POLICY wall cap)
 # --------------------------------------------------------------------------- #
-def solve_seed_bank(n, index, params_or_factory, bench_root):
+def solve_seed_bank(n, index, params_or_factory, bench_root, warm=False):
     """Solve one instance once per master seed at the faithful M3 A/B recipe.
 
     Identical to :func:`benchmarks.m2.run_candidate_seed_bank` (M=-1 real T(n),
     exact sampler, vectorized build, fail-loud seed guard) plus the RUN POLICY
-    ``stopping_time`` wall cap. Returns the list of OptimizeResults."""
+    ``stopping_time`` wall cap. Returns the list of OptimizeResults.
+
+    ``warm=True`` (bd 8an.9) calls ``m.general_greedy()`` before each solve so the
+    portfolio workers start from the greedy construction instead of 0^n — matching
+    the published CBQS (``iqs``) protocol (run_quantum.py). Cold (default) keeps the
+    legacy 0^n start used to freeze the small-n anchors."""
     bad = [s for s in SEEDS if int(s) <= 0]
     if bad:
         raise ValueError(f"seed bank has non-positive seeds {bad!r} (seed 0 == entropy, "
@@ -96,6 +102,8 @@ def solve_seed_bank(n, index, params_or_factory, bench_root):
     out = []
     for seed in SEEDS:
         m = build_model(c1, c2, c3, vectorized=True)
+        if warm:
+            m.general_greedy()    # bd 8an.9: warm-start (initial_state_preparation)
         m.seed = int(seed)
         m.set_param("M", -1)                       # real T(n) == equal-T(n) A/B (§1.1)
         m.set_param("verify", True)
@@ -103,7 +111,13 @@ def solve_seed_bank(n, index, params_or_factory, bench_root):
         m.set_param("stopping_time", STOPPING_TIME)  # RUN POLICY; dormant at n=90
         for key, value in resolved.items():
             m.set_param(key, value)
-        out.append(m.solve())
+        r = m.solve()
+        if warm:
+            # bd 8an.10: seed the warm best-of-P trajectory at oracle 0 (feasible greedy).
+            # Centralizes — and fixes — the old manual extension below, which missed the
+            # empty-history (greedy-optimal, never-improved) case the metric reads as +inf.
+            baselines.warm_repair_history(r)
+        out.append(r)
     return out, resolved
 
 
@@ -137,7 +151,9 @@ def gamma_curve(best_values, B_I, D_I):
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
-def run(out_dir, bench_root):
+def run(out_dir, bench_root, warm=False):
+    global _WARM
+    _WARM = warm
     os.makedirs(out_dir, exist_ok=True)
     frozen = baselines.load_frozen_baselines(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "baselines_frozen.csv"))
@@ -157,10 +173,13 @@ def run(out_dir, bench_root):
         data[index] = {"B_I": B_I, "L_I": L_I, "schedules": {}}
         for sched, pf in SCHEDULES.items():
             t0 = time.time()
-            results, resolved = solve_seed_bank(N, index, pf, bench_root)
+            results, resolved = solve_seed_bank(N, index, pf, bench_root, warm=warm)
+            # warm: result.history was already seeded at oracle 0 by warm_repair_history
+            # (bd 8an.10) inside solve_seed_bank — feasible from oracle 0, incl. the
+            # greedy-optimal empty-history case. cold: histories unchanged.
             histories = [[(float(v), int(o)) for (v, o) in (r.history or [])]
                          for r in results]
-            pis = [metric.compute_primal_integral(r.history, B_I, L_I, T) for r in results]
+            pis = [metric.compute_primal_integral(h, B_I, L_I, T) for h in histories]
             med_pi = statistics.median(pis)
             data[index]["schedules"][sched] = {
                 "histories": histories,
@@ -172,19 +191,27 @@ def run(out_dir, bench_root):
             print(f"  {N}_{index} {sched:16s} median_PI={med_pi:.4f} "
                   f"final_obj(med)={np.median([r.objective for r in results]):.0f} "
                   f"({time.time()-t0:.1f}s)")
-        # CAPSTONE: recomputed default median-PI must reproduce the frozen anchor
-        # bit-for-bit (proves faithful setup AND that stopping_time is dormant).
-        rec = data[index]["schedules"]["default"]["median_PI"]
-        froz = float(anchor["default_PI"])
-        if not math.isclose(rec, froz, rel_tol=1e-9, abs_tol=1e-9):
-            capstone_fail.append((index, rec, froz))
-    if capstone_fail:
+        # CAPSTONE: recomputed COLD default median-PI must reproduce the frozen anchor
+        # bit-for-bit (proves faithful setup AND that stopping_time is dormant). The
+        # frozen default_PI was generated COLD (0^n), so this check only applies to
+        # cold mode; warm-start (bd 8an.9) is a deliberate protocol change.
+        if not warm:
+            rec = data[index]["schedules"]["default"]["median_PI"]
+            froz = float(anchor["default_PI"])
+            if not math.isclose(rec, froz, rel_tol=1e-9, abs_tol=1e-9):
+                capstone_fail.append((index, rec, froz))
+    if warm:
+        print("[plot_m3_n90] WARM mode (bd 8an.9): default warm-starts via general_greedy() "
+              "to match the published iqs; cold-anchor CAPSTONE SKIPPED (frozen default_PI is "
+              "cold, so it is not the warm reference).")
+    elif capstone_fail:
         raise SystemExit(
             "[plot_m3_n90] CAPSTONE FAILED — recomputed default median-PI does not "
             f"reproduce the frozen default_PI (setup drift or a binding wall cap): "
             f"{capstone_fail}. Refusing to plot against a poisoned reference (§2.1).")
-    print(f"[plot_m3_n90] CAPSTONE OK: default reproduces all {len(instances)} frozen "
-          f"default_PI anchors ({time.time()-t_start:.0f}s total).")
+    else:
+        print(f"[plot_m3_n90] CAPSTONE OK: default reproduces all {len(instances)} frozen "
+              f"default_PI anchors ({time.time()-t_start:.0f}s total).")
 
     _save_data(out_dir, data, instances, T)
     _plot(out_dir, data, instances, grid, T)
@@ -270,8 +297,10 @@ def _plot(out_dir, data, instances, grid, T):
         ax.grid(alpha=0.25)
     for k in range(len(instances), nrow * ncol):
         axes[k // ncol][k % ncol].axis("off")
+    _w = "  [WARM-START: general_greedy(), bd 8an.9]" if _WARM else ""
     fig.suptitle("CBQS objective over oracle budget — M3 findings vs default, "
-                 f"n=90 Eq.29 (median over seeds {SEEDS}; dashed=B_I target, dotted=L_I floor)",
+                 f"n=90 Eq.29 (median over seeds {SEEDS}; dashed=B_I target, dotted=L_I floor)"
+                 + _w,
                  fontsize=13, y=0.998)
     fig.tight_layout(rect=[0, 0, 1, 0.985])
     p1 = os.path.join(out_dir, "m3_n90_objective_over_time.png")
@@ -294,7 +323,8 @@ def _plot(out_dir, data, instances, grid, T):
     ax.set_ylabel("normalized primal gap  γ = (B_I − best)/D_I   (lower = better)")
     ax.set_title("Aggregate primal gap over oracle budget — n=90 (mean over 9 instances, "
                  "median over seeds)\nArea under curve ≈ primal integral; γ=0 reaches the "
-                 "classical frontier B_I", fontsize=11)
+                 "classical frontier B_I"
+                 + ("   [WARM-START: general_greedy(), bd 8an.9]" if _WARM else ""), fontsize=11)
     ax.set_xlim(0, T)
     ax.legend(fontsize=9, loc="upper right")
     ax.grid(alpha=0.3)
@@ -374,13 +404,19 @@ def main(argv=None):
     p.add_argument("--bench-root", default=os.environ.get("CBQS_BENCHMARKS_DIR"))
     p.add_argument("--replot-from", default=None,
                    help="regenerate figures from a saved trajectories.json (no solve).")
+    p.add_argument("--warm", action="store_true",
+                   help="bd 8an.9: warm-start every solve via general_greedy() (matches the "
+                        "published iqs); default out-dir gets a _warm suffix; cold capstone skipped.")
     args = p.parse_args(argv)
     if args.replot_from:
         replot(args.out_dir, args.replot_from)
         return
     if not args.bench_root:
         raise SystemExit("CBQS_BENCHMARKS_DIR (or --bench-root) is required.")
-    run(args.out_dir, args.bench_root)
+    out_dir = args.out_dir
+    if args.warm and out_dir.endswith(os.path.join("logs", "m3_n90")):
+        out_dir = out_dir + "_warm"   # don't clobber the cold figures
+    run(out_dir, args.bench_root, warm=args.warm)
 
 
 if __name__ == "__main__":

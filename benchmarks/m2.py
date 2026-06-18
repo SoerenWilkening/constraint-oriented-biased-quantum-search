@@ -39,10 +39,12 @@ try:  # package import (pytest / installed) vs flat script import
     from benchmarks.baselines import (
         DEFAULT_SEED_BANK,
         load_frozen_baselines,
+        warm_repair_history,
     )
     from benchmarks import metric
 except ImportError:  # pragma: no cover - flat layout fallback
-    from baselines import DEFAULT_SEED_BANK, load_frozen_baselines  # type: ignore
+    from baselines import (  # type: ignore
+        DEFAULT_SEED_BANK, load_frozen_baselines, warm_repair_history)
     import metric  # type: ignore
 
 #: Default frozen-anchor table (M1, re-frozen post-4uf/cjz @ 3c6ba1c).
@@ -192,7 +194,7 @@ def resolve_params(params_or_factory, n, c1, c2, c3):
 
 def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=None,
                             M=-1, num_workers=None, verify=True, opt_sample_cap=0,
-                            vectorized=True):
+                            vectorized=True, warm=False):
     """Run a CANDIDATE schedule on one Eq.29 instance once per master seed.
 
     Mirrors :func:`benchmarks.baselines.run_default_seed_bank` (same budget
@@ -200,6 +202,11 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
     then injects the resolved schedule params via ``Model.set_param`` before
     each ``solve()``. Equal-``T(n)`` by construction — the §5 pricing is the
     A/B comparison at the same oracle budget, never a discount.
+
+    ``warm`` (bd 8an.10, default False) calls ``m.general_greedy()`` before each
+    ``solve()`` (greedy warm start, matching the published iqs / the warm default).
+    The A/B stays matched only if the default is solved warm TOO — the warm M3 driver
+    runs both arms warm; never mix a warm candidate against a cold default.
 
     Returns ``(results, resolved_params)`` — the resolved params are persisted
     next to the run-set for §13 audit/replay.
@@ -220,6 +227,8 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
     results = []
     for seed in seeds:
         m = build_model(c1, c2, c3, vectorized=vectorized)
+        if warm:
+            m.general_greedy()  # bd 8an.10: warm-start (greedy construction, deterministic)
         m.seed = int(seed)
         m.set_param("M", M)
         if num_workers is not None:
@@ -228,7 +237,10 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
         m.set_param("opt_sample_cap", int(opt_sample_cap))
         for key, value in resolved.items():
             m.set_param(key, value)
-        results.append(m.solve())
+        r = m.solve()
+        if warm:
+            warm_repair_history(r)  # bd 8an.10: seed best-of-P at oracle 0 (feasible greedy)
+        results.append(r)
     return results, resolved
 
 
@@ -385,13 +397,17 @@ def load_run_set_dir(run_dir):
 
 def run_sweep(schedule_id, params_or_factory, instances, *, out_dir,
               seeds=DEFAULT_SEED_BANK, bench_root=None, num_workers=None,
-              opt_sample_cap=0, vectorized=True, resume=True, log=print):
+              opt_sample_cap=0, vectorized=True, resume=True, warm=False, log=print):
     """Solve a schedule over ``instances`` (list of ``(n, index)``), persisting incrementally.
 
     ``params_or_factory=None`` runs the CBQS default (no injected params) via
     :func:`benchmarks.baselines.run_default_seed_bank` — byte-identical to the
     anchor-freeze recipe. ``resume=True`` skips instances whose file already
     exists, so an interrupted sweep continues where it stopped.
+
+    ``warm`` (bd 8an.10) warm-starts every solve via ``general_greedy()`` (the
+    published iqs protocol). Threaded into BOTH the default and candidate paths so a
+    warm M3 A/B keeps both arms matched; never mix warm and cold across the two arms.
     """
     try:
         from benchmarks.baselines import run_default_seed_bank
@@ -407,13 +423,13 @@ def run_sweep(schedule_id, params_or_factory, instances, *, out_dir,
         if params_or_factory is None:
             results = run_default_seed_bank(
                 n, index, seeds, bench_root=bench_root, num_workers=num_workers,
-                opt_sample_cap=opt_sample_cap, vectorized=vectorized)
+                opt_sample_cap=opt_sample_cap, vectorized=vectorized, warm=warm)
             resolved = None
         else:
             results, resolved = run_candidate_seed_bank(
                 n, index, seeds, params_or_factory, bench_root=bench_root,
                 num_workers=num_workers, opt_sample_cap=opt_sample_cap,
-                vectorized=vectorized)
+                vectorized=vectorized, warm=warm)
         # §2.1 fail-loud: a verification failure means the solver accepted
         # constraint-violating solutions — never persist such a run-set.
         require_verified(results, context=f"{schedule_id} {n}_{index}")
@@ -427,6 +443,7 @@ def run_sweep(schedule_id, params_or_factory, instances, *, out_dir,
         "seeds": [int(s) for s in seeds],
         "num_workers": num_workers,
         "opt_sample_cap": int(opt_sample_cap),
+        "warm": bool(warm),  # bd 8an.10 provenance: greedy warm start vs cold 0^n
         "instances_done": sorted([list(k) for k in done + skipped]),
     }
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:

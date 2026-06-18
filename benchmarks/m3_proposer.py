@@ -126,42 +126,46 @@ GENE_SIGMA = 0.1
 BASELINE_GENOME = np.array([4.0, 4.0, 0.1, 0.0, 0.0], dtype=float)
 
 
-def clamp_genome(genome):
-    """Project a genome onto :data:`GENE_BOUNDS` (the single, idempotent bounds
-    enforcement point). Raises on a wrong-length genome (fail loud, §2.1)."""
+def clamp_genome(genome, *, genes=GENES, bounds=GENE_BOUNDS):
+    """Project a genome onto its per-gene ``bounds`` (the single, idempotent bounds
+    enforcement point). Raises on a wrong-length genome (fail loud, §2.1).
+
+    ``genes`` / ``bounds`` default to the cold 5-gene layout; the warm re-scope
+    (bd 8an.10) passes :data:`WARM_GENES` / :data:`WARM_GENE_BOUNDS` to clamp the
+    3-gene warm-live genome with the SAME logic (no duplicate code path)."""
     g = np.array([float(x) for x in genome], dtype=float)
-    if g.shape != (len(GENES),):
+    if g.shape != (len(genes),):
         raise ValueError(
-            f"genome must have {len(GENES)} genes {GENES}, got shape {g.shape}")
-    for i, name in enumerate(GENES):
-        lo, hi = GENE_BOUNDS[name]
+            f"genome must have {len(genes)} genes {genes}, got shape {g.shape}")
+    for i, name in enumerate(genes):
+        lo, hi = bounds[name]
         g[i] = min(max(g[i], lo), hi)
     return g
 
 
-def random_genome(rng):
+def random_genome(rng, *, genes=GENES, bounds=GENE_BOUNDS):
     """A uniform-random in-bounds genome (rng-driven; reproducible)."""
-    return np.array([rng.uniform(*GENE_BOUNDS[name]) for name in GENES], dtype=float)
+    return np.array([rng.uniform(*bounds[name]) for name in genes], dtype=float)
 
 
-def mutate(genome, rng, *, sigma=GENE_SIGMA):
+def mutate(genome, rng, *, sigma=GENE_SIGMA, genes=GENES, bounds=GENE_BOUNDS):
     """Gaussian per-gene step (σ scaled to each gene's range), then clamp.
 
     All randomness comes from ``rng`` (a numpy ``Generator``) so an identical
     call sequence reproduces the trajectory (bd 8an.4.4).
     """
-    g = clamp_genome(genome)
-    steps = np.array([rng.normal(0.0, sigma * (GENE_BOUNDS[name][1] - GENE_BOUNDS[name][0]))
-                      for name in GENES], dtype=float)
-    return clamp_genome(g + steps)
+    g = clamp_genome(genome, genes=genes, bounds=bounds)
+    steps = np.array([rng.normal(0.0, sigma * (bounds[name][1] - bounds[name][0]))
+                      for name in genes], dtype=float)
+    return clamp_genome(g + steps, genes=genes, bounds=bounds)
 
 
-def crossover(g_a, g_b, rng):
+def crossover(g_a, g_b, rng, *, genes=GENES, bounds=GENE_BOUNDS):
     """Per-gene uniform-coin recombination of two genomes, then clamp."""
-    a = clamp_genome(g_a)
-    b = clamp_genome(g_b)
-    mask = rng.random(len(GENES)) < 0.5
-    return clamp_genome(np.where(mask, a, b))
+    a = clamp_genome(g_a, genes=genes, bounds=bounds)
+    b = clamp_genome(g_b, genes=genes, bounds=bounds)
+    mask = rng.random(len(genes)) < 0.5
+    return clamp_genome(np.where(mask, a, b), genes=genes, bounds=bounds)
 
 
 def genome_to_factory(genome):
@@ -214,6 +218,103 @@ def baseline_equivalent_factory():
     return factory
 
 
+# --------------------------------------------------------------------------- #
+# WARM re-scope (bd 8an.10) — the warm-started algorithm's LIVE lever space.
+# --------------------------------------------------------------------------- #
+# The published CBQS (iqs) WARM-starts via general_greedy() (bd 8an.9). A warm
+# start is FEASIBLE from oracle 0, so the phase machine jumps straight to stage-3
+# opt (SearchLib.c:142), SKIPPING opt_sat. Of the cold 5-gene genome, two genes go
+# INERT under warm and were cand_16's DOMINANT cold levers:
+#   * r_opt_sat   -> inert (no opt_sat phase runs when the start is feasible)
+#   * alpha_switch-> inert (no opt_sat->opt switch; already in opt)
+# The warm genome searches ONLY the warm-live dims (M2_FINDINGS + the n=90 warm
+# +23% PI win, which came entirely from r_opt + θ):
+#   * r_opt        — the opt-phase scalar radius (the dominant warm lever).
+#   * theta_amp/feature — the per-variable θ logit channel (opt-phase only).
+# warm_genome_to_factory emits ONLY the live opt-phase levers (opt_branching_radius
+# and, when θ is active, opt_branching_weights) and OMITS opt_sat_branching_radius /
+# opt_switch_oracles entirely — so a warm candidate differs from the warm DEFAULT
+# PURELY in the live levers (no inert-dim confound, no wasted mutation budget). A
+# convergence-aware / scheduled radius (radius that tightens as the warm search
+# polishes a near-optimal point) is M5 territory: it needs a NEW oracle-indexed C
+# lever (a core change, outside the §1.4 scalar/array lever surface) — filed as a
+# follow-up, NOT searched here.
+
+#: Warm-live genome layout (a float64 vector). A strict subset of the cold GENES.
+WARM_GENES = ("r_opt", "theta_amp", "theta_feature")
+
+#: Per-gene bounds for the warm-live genome (identical to the cold bounds for the
+#: shared genes; see :data:`GENE_BOUNDS` for the r<n / |θ|<=0.5 / feature-index reasoning).
+WARM_GENE_BOUNDS = {
+    "r_opt": GENE_BOUNDS["r_opt"],
+    "theta_amp": GENE_BOUNDS["theta_amp"],
+    "theta_feature": GENE_BOUNDS["theta_feature"],
+}
+
+#: Near-default warm seed anchor for evolve's initial population: r=4 (scale-invariant
+#: realized radius ~4, close to the default's n/4-bias radius), θ off. Mirrors the warm
+#: DEFAULT (which sets no opt levers) up to the explicit opt radius.
+WARM_BASELINE_GENOME = np.array([4.0, 0.0, 0.0], dtype=float)
+
+
+def warm_genome_to_factory(genome):
+    """Decode a 3-gene WARM genome into a schedule factory (bd 8an.10).
+
+    Emits ONLY the warm-LIVE opt-phase levers — both in
+    :data:`benchmarks.candidate_gate.LEGAL_LEVER_PARAMS`, §1.4/§1.6 by construction:
+
+    * ``opt_branching_radius`` — the per-phase scalar radius (C converts r → bias =
+      n/r − 2). The dominant warm lever.
+    * ``opt_branching_weights`` (only when θ is active) — ``theta_amp`` times an
+      allow-listed, bounded, z-clipped feature vector (opt-phase only).
+
+    Crucially it OMITS ``opt_sat_branching_radius`` and ``opt_switch_oracles``: under
+    a warm (feasible) start those phases never run, so emitting them would only
+    (a) confound the A/B vs the warm default (which sets neither) on the rare
+    greedy-infeasible instance, and (b) waste search budget on dead dims. The warm
+    candidate therefore differs from the warm default PURELY in the live opt levers.
+    """
+    g = clamp_genome(genome, genes=WARM_GENES, bounds=WARM_GENE_BOUNDS)
+    r_opt, theta_amp, theta_feat = (float(x) for x in g)
+    feat_name, feat_fn = FEATURES[int(math.floor(theta_feat))]
+
+    def factory(n, c1, c2, c3):
+        # r < n keeps radius_to_bias (phase_params.py) in domain (bias > −1); never
+        # fires for r ≤ 8 < n ≥ 10, but assert it rather than silently corrupt the
+        # lever at a hypothetical tiny n (fail loud, §2.1; mirrors genome_to_factory).
+        if not (r_opt < n):
+            raise ValueError(
+                f"radius must be < n for a valid bias (r_opt={r_opt}, n={n}) — "
+                f"bias = n/r − 2 would breach > −1.")
+        params = {"opt_branching_radius": r_opt}
+        if theta_amp > 0.0 and feat_name != "none":
+            vec = feat_fn(n, c1, c2, c3)
+            params["opt_branching_weights"] = theta_amp * np.asarray(vec, dtype=float)
+        return params
+
+    return factory
+
+
+class GenomeSpec:
+    """A genome layout: its gene names, per-gene bounds, and the genome→factory
+    decoder. Lets ONE :class:`ParametricProposer` drive either the cold 5-gene or
+    the warm 3-gene search (bd 8an.10) without a parallel proposer class (§2.7)."""
+
+    __slots__ = ("genes", "bounds", "to_factory", "baseline")
+
+    def __init__(self, genes, bounds, to_factory, baseline):
+        self.genes = tuple(genes)
+        self.bounds = dict(bounds)
+        self.to_factory = to_factory
+        self.baseline = np.asarray(baseline, dtype=float)
+
+
+#: The cold (full 5-gene) and warm (3-gene live) genome specs.
+COLD_SPEC = GenomeSpec(GENES, GENE_BOUNDS, genome_to_factory, BASELINE_GENOME)
+WARM_SPEC = GenomeSpec(WARM_GENES, WARM_GENE_BOUNDS, warm_genome_to_factory,
+                       WARM_BASELINE_GENOME)
+
+
 class ParametricProposer:
     """Evolutionary ``proposer(population, rng) -> list[Candidate]`` over the genome.
 
@@ -228,13 +329,14 @@ class ParametricProposer:
     """
 
     def __init__(self, *, n_offspring=8, sigma=GENE_SIGMA, crossover_rate=0.0,
-                 id_prefix="cand"):
+                 id_prefix="cand", spec=COLD_SPEC):
         if n_offspring < 1:
             raise ValueError(f"n_offspring must be >= 1, got {n_offspring}")
         self.n_offspring = int(n_offspring)
         self.sigma = float(sigma)
         self.crossover_rate = float(crossover_rate)
         self.id_prefix = str(id_prefix)
+        self.spec = spec  # COLD_SPEC (5-gene) or WARM_SPEC (3-gene live, bd 8an.10)
         self._next_id = 0
 
     def _make_id(self):
@@ -248,6 +350,7 @@ class ParametricProposer:
                 "ParametricProposer needs a non-empty population to mutate from "
                 "(evolve guarantees this — a bare modulo-by-zero would be the silent "
                 "alternative, §2.1).")
+        genes, bounds = self.spec.genes, self.spec.bounds
         parents = sorted(population, key=lambda ind: ind.fitness, reverse=True)
         n_parents = max(1, -(-len(parents) // 2))  # ceil(len/2)
         parents = parents[:n_parents] or list(population)
@@ -259,11 +362,12 @@ class ParametricProposer:
             if (self.crossover_rate > 0.0 and len(parents) > 1
                     and float(rng.random()) < self.crossover_rate):
                 mate = parents[int(rng.integers(len(parents)))]
-                child = crossover(child, np.asarray(mate.candidate.genome, dtype=float), rng)
+                child = crossover(child, np.asarray(mate.candidate.genome, dtype=float),
+                                  rng, genes=genes, bounds=bounds)
                 op = "crossover"
-            child = mutate(child, rng, sigma=self.sigma)
+            child = mutate(child, rng, sigma=self.sigma, genes=genes, bounds=bounds)
             out.append(Candidate(
-                factory=genome_to_factory(child),
+                factory=self.spec.to_factory(child),
                 genome=tuple(float(x) for x in child),
                 meta={"id": self._make_id(), "op": op,
                       "parent": tuple(float(x) for x in parent.candidate.genome)}))

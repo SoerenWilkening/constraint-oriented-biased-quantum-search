@@ -369,7 +369,8 @@ class FinalVerdict:
 
 def rescore_once(winner_factory, baselines, *, holdout_instances, new_seeds,
                  default_solve, candidate_solve, selection_keys,
-                 selection_seeds=DEFAULT_SEED_BANK, score_kwargs=None):
+                 selection_seeds=DEFAULT_SEED_BANK, score_kwargs=None,
+                 default_pi_synthesizer=None, strict_xcheck=False):
     """Re-score the selected rule ONCE on an untouched held-out set with NEW seeds (§13).
 
     ``default_solve(instances, seeds) -> run_set`` and
@@ -386,11 +387,19 @@ def rescore_once(winner_factory, baselines, *, holdout_instances, new_seeds,
     must not be silently bypassable by omitting it — an empty set RAISES, mirroring
     the seed guard's non-bypassable posture (§2.1).
 
-    Scored with ``strict_xcheck=False`` (a correct NEW-seed default run legitimately
-    re-scores away from the frozen ``default_PI``, which was frozen at the selection
-    seeds — strict_xcheck=True would wrongly RAISE; the asymmetry vs selection's
+    Scored with ``strict_xcheck=False`` by default (a correct NEW-seed default run
+    legitimately re-scores away from the frozen ``default_PI``, which was frozen at the
+    selection seeds — strict_xcheck=True would wrongly RAISE; the asymmetry vs selection's
     strict_xcheck=True is deliberate). Reports the single number; no FWER (one
     pre-registered test). Keep OUT of the selection loop.
+
+    ``default_pi_synthesizer(baselines, default_rs) -> baselines`` (bd 8an.10, default
+    None) refreshes the held-out ``default_PI`` from the freshly-solved default run-set
+    BEFORE scoring. For the WARM exploratory M3 the frozen table has no warm holdout
+    ``default_PI``, so the warm default is solved here and its PI synthesized into the
+    table (:func:`benchmarks.baselines.synthesize_warm_default_pi`); the warm default
+    run-set then re-scores to exactly that value, so the warm path passes
+    ``strict_xcheck=True`` (a real consistency guard). None keeps the cold behavior.
     """
     new_seeds = tuple(int(s) for s in new_seeds)
     sel_seeds = set(int(s) for s in selection_seeds)
@@ -413,9 +422,13 @@ def rescore_once(winner_factory, baselines, *, holdout_instances, new_seeds,
             f"the held-out test must be untouched.")
 
     default_rs = default_solve(holdout, new_seeds)
+    if default_pi_synthesizer is not None:
+        # bd 8an.10: refresh the holdout default_PI from THIS default run-set (warm),
+        # so the gate reference is the warm default, not the (cold/absent) frozen value.
+        baselines = default_pi_synthesizer(baselines, default_rs)
     candidate_rs = candidate_solve(winner_factory, holdout, new_seeds)
     verdict = metric.score_verdict(candidate_rs, default_rs, baselines,
-                                   require_largest_n=False, strict_xcheck=False,
+                                   require_largest_n=False, strict_xcheck=strict_xcheck,
                                    **(score_kwargs or {}))
     stat = candidate_pvalue(verdict)
     return FinalVerdict(verdict=verdict, passed=verdict["overall_pass"],

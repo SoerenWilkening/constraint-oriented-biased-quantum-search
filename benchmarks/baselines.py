@@ -295,7 +295,7 @@ def default_instance_anchors(results, B_I, n, T_I=None):
 
 
 def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers=None,
-                          verify=True, opt_sample_cap=0, vectorized=True):
+                          verify=True, opt_sample_cap=0, vectorized=True, warm=False):
     """Run the CBQS-DEFAULT schedule on one Eq.29 instance once per master seed (NORTHSTAR §6/§11).
 
     Default schedule = ``build_model`` + ``close()`` (auto ``branching_bias = n/4``) with NO custom
@@ -316,6 +316,13 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
     (``eq29_loader.test_vectorized_matches_loop_terms`` / ``test_build_model_solves_consistent``), so
     forcing it does not change the anchors — only the build wall-time. Pass False to keep the loop
     path (e.g. to reproduce a legacy build exactly).
+
+    ``warm`` (bd 8an.10, default False) calls ``m.general_greedy()`` before each ``solve()`` so the
+    portfolio workers start from the greedy construction (``initial_state_preparation``) instead of
+    ``0^n`` — matching the published CBQS (``iqs``) protocol (bd 8an.9). A warm start is feasible
+    from oracle 0, so the solver jumps straight to stage-3 opt. The frozen small-n anchors were
+    frozen COLD, so a warm default does NOT reproduce the frozen ``default_PI`` — warm runs are for
+    the EXPLORATORY warm M3 scored against a freshly-solved warm default (8an.10), not the cold freeze.
     """
     try:  # lazy: pulls in cbqs (the C extension) only when an actual solve is requested
         from eq29_loader import load_eq29, build_model
@@ -334,14 +341,105 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
     results = []
     for seed in seeds:
         m = build_model(c1, c2, c3, vectorized=vectorized)
+        if warm:
+            m.general_greedy()  # bd 8an.10: warm-start (greedy construction, deterministic)
         m.seed = int(seed)
         m.set_param("M", M)
         if num_workers is not None:
             m.set_param("num_workers", num_workers)
         m.set_param("verify", verify)
         m.set_param("opt_sample_cap", int(opt_sample_cap))
-        results.append(m.solve())
+        r = m.solve()
+        if warm:
+            warm_repair_history(r)  # bd 8an.10: seed best-of-P at oracle 0 (feasible greedy)
+        results.append(r)
     return results
+
+
+def warm_repair_history(result):
+    """Repair a WARM run's best-of-portfolio history for the §6 metric (bd 8an.10). Returns
+    the repaired history (also set in place on ``result.history``).
+
+    A warm worker starts from the greedy construction, but the C history callback logs only
+    incumbent IMPROVEMENTS — so a run whose greedy start is FEASIBLE-and-never-improved has an
+    EMPTY history, which :func:`benchmarks.metric.compute_primal_integral` reads as
+    never-feasible (``+∞``), turning a feasible — often OPTIMAL — warm run into a spurious
+    feasibility LOSS (observed at 10_2: greedy lands exactly on B_I, no worker improves).
+
+    Repair (the ONLY case touched): **empty history + a feasible final** → ``history =
+    [(best feasible final, 0)]``. This is provably exact even though the greedy start is NOT
+    guaranteed feasible (``initial_state_preparation`` can leave an infeasible state): all
+    workers share the SAME deterministic greedy start, and an infeasible-greedy worker that
+    later reaches feasibility logs that first-feasible incumbent as an improvement — so an
+    empty history with a feasible final can ONLY come from a FEASIBLE greedy start that no
+    worker improved on. Then every worker's final incumbent equals that greedy value, feasible
+    from oracle 0 and held across the whole budget — best-of-P ≡ ``max(feasible finals)``
+    over ``[0, T]``.
+
+    DELIBERATELY NOT REPAIRED (bd 8an.10 review): a non-empty warm history is left verbatim,
+    so ``[0, first_stamp)`` keeps the cold ``γ=1`` plateau. Earlier this branch backdated
+    ``history[0]`` to oracle 0, but that (a) credited the interval with the FIRST-IMPROVEMENT
+    value rather than the lower greedy value (optimistic) and (b) was simply WRONG when the
+    greedy start was INFEASIBLE — then ``history[0]`` is the first *feasible* incumbent and
+    ``[0, first_stamp)`` is genuinely pre-feasible. ``first_stamp`` is ~3–10 of ~1200 oracles
+    at n≤90, so the residual plateau is <1% of the integral and near-symmetric across both A/B
+    arms (the accepted EXPLORATORY gap). The faithful fix — seed the true greedy value at
+    oracle 0 only when the greedy start is feasible — needs the greedy objective + feasibility
+    exposed from the C layer; that is deferred to the 8an.9 (frozen-warm-anchor) FINAL path.
+
+    A genuinely never-feasible warm run (empty history AND no feasible final) is left empty
+    (``+∞``) — that IS a feasibility loss. COLD runs (0^n start, infeasible until the search
+    finds a point) must NOT be repaired (their pre-feasible ``γ=1`` plateau is correct) — so
+    this is only ever called on the warm solve path.
+    """
+    hist = list(getattr(result, "history", None) or [])
+    if not hist:
+        feas = [float(v) for (v, ok) in (getattr(result, "final_incumbents", None) or []) if ok]
+        if feas:
+            result.history = [(max(feas), 0)]
+    return result.history
+
+
+def synthesize_warm_default_pi(frozen_table, warm_default_results):
+    """Build an in-memory baselines table whose ``default_PI`` is the WARM default's median PI
+    (bd 8an.10, EXPLORATORY warm M3).
+
+    The §6 metric (:func:`benchmarks.metric.score_verdict`) consumes ``default_PI`` from the frozen
+    table as the AUTHORITATIVE gate reference. The frozen column is COLD (0^n start); to score a warm
+    candidate against a freshly-solved WARM default we must hand the metric a table whose ``default_PI``
+    is the warm default's PI — otherwise it would compare warm-vs-cold (the exact mis-scope 8an.10
+    fixes). ``B_I`` (the classical frontier) is protocol-independent and KEPT; ``L_I`` (the cold-default
+    first-feasible floor) is KEPT as the shared normalizer (its warm/cold inconsistency is the minor,
+    accepted EXPLORATORY normalization gap — the warm candidate and warm default both score against the
+    SAME cold ``L_I``, so it cancels in the paired delta; bd 8an.10 NOTE).
+
+    ``warm_default_results`` : ``{(n,index): [warm-default OptimizeResult, ...]}`` (a live warm run-set,
+    e.g. from :func:`run_default_seed_bank` ``warm=True`` via :func:`benchmarks.m2.run_sweep`). For each
+    SCOREABLE instance (B_I/L_I present, L_I < B_I) with a warm run-set, ``default_PI`` is the median
+    over the seed bank of the per-seed warm PI — byte-identical to the frozen-freeze recipe
+    (:func:`benchmarks.metric._reduce_seed_bank_pi`), so the supplied warm run-set re-scores to exactly
+    this value and ``score_verdict``'s ``strict_xcheck`` PASSES (a real consistency guard: the warm
+    table and the warm default run-set are the same runs). Instances WITHOUT a warm run, or whose warm
+    median PI is non-finite (warm default not reliably feasible — should not happen for n≤90), get
+    ``default_PI=None`` so a stale COLD value is NEVER silently served as a warm reference (§2.1).
+
+    Returns a NEW table (the input ``frozen_table`` is not mutated)."""
+    try:  # lazy: avoid a hard metric import at module load (baselines<->metric cycle)
+        from metric import _reduce_seed_bank_pi
+    except ImportError:  # pragma: no cover - package import
+        from benchmarks.metric import _reduce_seed_bank_pi
+    out = {}
+    for key, entry in frozen_table.items():
+        new = dict(entry)
+        B_I, L_I = entry.get("B_I"), entry.get("L_I")
+        runs = warm_default_results.get(key)
+        warm_pi = None
+        if runs and B_I is not None and L_I is not None and L_I < B_I:
+            pi = _reduce_seed_bank_pi(runs, key[0], float(B_I), float(L_I))
+            warm_pi = pi if math.isfinite(pi) else None
+        new["default_PI"] = warm_pi  # warm reference, or None (never a stale cold value)
+        out[key] = new
+    return out
 
 
 def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
