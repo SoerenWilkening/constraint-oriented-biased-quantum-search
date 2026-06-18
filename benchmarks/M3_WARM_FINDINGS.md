@@ -121,6 +121,24 @@ full-88-instance run is needed for a definitive cross-stratum verdict; (2) explo
 (cold `L_I`/`B_I`); (3) the faithful warm history (true greedy value at oracle 0, gated on greedy
 feasibility) is deferred to 8an.9.
 
+### n=3000 (the other side of the mechanism — confirmed 2026-06-19)
+
+Warm A/B on a single n=3000 instance (3000_0), 15-min wall cap per arm, 4 workers, exact sampler
+(`logs/m4_spot/compare_n3000_warm.py`):
+
+| schedule (warm) | objective | feasible | vs default |
+|---|---|---|---|
+| default | 22,720,395,009 | ✓ | — |
+| m3_winner (cand_16) | 22,720,183,491 | ✓ | −0.001 % |
+| m3_parsimonious (cand_23) | 22,722,122,642 | ✓ | +0.008 % |
+
+**All three TIE** (±0.01 %), all ~0.28 % *above* the hexaly frontier (B_I=2.2656e10). At n=3000 the
+warm greedy start IS feasible (~2.27e10 from oracle 0), so `opt_sat` is skipped and the schedule
+(opt-phase radius/θ) cannot move a near-optimal point. This is the SAME mechanism as n≤90, inverted:
+**the M3 schedule only matters when the warm greedy start is infeasible** — frequent at n≤90 (broad
+`opt_sat` radius helps), absent at n=3000 (tie). (Oracle counts under the `M=1e8` wall-bind setup are
+inflated by one giant post-convergence round — not a faithful measure; the objective is the signal.)
+
 ## 7. Reproduce
 
 ```bash
