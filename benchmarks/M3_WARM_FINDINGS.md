@@ -23,8 +23,11 @@
 ## 1. Why a warm re-run
 
 The cold M3 (bd 884, winner `cand_16`) optimized against a `0^n` cold start; `iqs` **warm-starts**
-via `general_greedy()` (bd 8an.9). Warm headroom is small/mid-`n` only — n=90 ≈28 % headroom;
-n=3000 ≈0 % (greedy near-optimal, all methods tie, `logs/m4_spot/compare_n3000_warm.py`).
+via `general_greedy()` (bd 8an.9). Warm headroom in *objective* terms is largest at small/mid-`n`
+(n=90 ≈28 %), but at n=3000 there is still a real, schedule-driven advantage **at a fixed oracle
+budget** (M3 +0.12 % within `T(n)`; see §6) — it is small relative to the ~2.27e10 objective
+*magnitude* but real relative to the *headroom*. An earlier "n=3000 ≈0 %, all tie" reading was an
+artifact of comparing wall-bound final objectives (corrected in §6).
 
 ## 2. Genome scope — the corrected lever analysis
 
@@ -121,32 +124,44 @@ full-88-instance run is needed for a definitive cross-stratum verdict; (2) explo
 (cold `L_I`/`B_I`); (3) the faithful warm history (true greedy value at oracle 0, gated on greedy
 feasibility) is deferred to 8an.9.
 
-### n=3000 (the other side of the mechanism — confirmed 2026-06-19)
+### n=3000 — M3 WINS at the faithful oracle budget (corrected 2026-06-19)
 
 Warm A/B on a single n=3000 instance (3000_0), 15-min wall cap per arm, 4 workers, exact sampler
-(`logs/m4_spot/compare_n3000_warm.py`):
+(`logs/m4_spot/compare_n3000_warm_history.py`, with oracle-indexed history). **Two corrections to an
+earlier wrong reading of this run:**
 
-| schedule (warm) | objective | feasible | vs default |
-|---|---|---|---|
-| default | 22,720,395,009 | ✓ | — |
-| m3_winner (cand_16) | 22,720,183,491 | ✓ | −0.001 % |
-| m3_parsimonious (cand_23) | 22,722,122,642 | ✓ | +0.008 % |
+1. The warm greedy start at 3000_0 is **INFEASIBLE** (−63 M violation; an `M=1` probe returns it
+   infeasible on all 4 workers). It is *not* feasible-from-oracle-0 — feasibility is reached only at
+   oracle ~40–76, then the objective climbs. So `opt_sat` DOES run; the mechanism is the SAME as the
+   n≤90 infeasible-greedy instances, not an exception.
+2. The wall-bound "tie on final objective" was an **artifact of the cost axis, not a real tie.** Read
+   at a FIXED oracle budget — which is the project's actual cost metric ("the oracle count is the
+   product") — the M3 schedules clearly WIN:
 
-**All three TIE** (±0.01 %), all ~0.28 % *above* the hexaly frontier (B_I=2.2656e10). At n=3000 the
-warm greedy start IS feasible (~2.27e10 from oracle 0), so `opt_sat` is skipped and the schedule
-(opt-phase radius/θ) cannot move a near-optimal point. This is the SAME mechanism as n≤90, inverted:
-**the M3 schedule only matters when the warm greedy start is infeasible** — frequent at n≤90 (broad
-`opt_sat` radius helps), absent at n=3000 (tie). (Oracle counts under the `M=1e8` wall-bind setup are
-inflated by one giant post-convergence round — not a faithful measure; the objective is the signal.)
+   | at T(3000)=9989 oracles | objective | vs default |
+   |---|---|---|
+   | default | 22,694,940,349 (stalled) | — |
+   | m3_winner (cand_16) | 22,719,890,812 | **+24.95 M (+0.110 %)** |
+   | m3_parsimonious (cand_23) | 22,722,395,203 | **+27.45 M (+0.121 %)** |
 
-**Objective-over-oracles trajectory** (history captured, `logs/m4_spot/compare_n3000_warm_history.py`
-→ `*_logx.png`): all three jump to within ~0.1 % of their final at oracle ~50 (the warm greedy,
-already above B_I), then the M3 arms climb to ~2.272e10 by ~5000 oracles while the default stalls at
-2.2695e10 and only catches up via a runaway giant round at ~4.3e7 oracles. A re-run shows the deltas
-are **wall-timing noise**: the default's own final moved 2.27204e10→2.27146e10 between runs (its
-objective depends on where the wall cuts the giant round), so the ±0.03 % schedule deltas are not
-signal — all three tie. The faster, giant-round-free convergence of the M3 arms in this run is a
-single-run observation (the big-M stall is a stuck-worker artifact), not a robust claim.
+   The M3 arms **converge by ~5–6 K oracles**; the default does not improve past 2.2695e10 until
+   oracle **43,448,066** — its catch-up is at **~4300× the faithful budget**, inside the over-budget
+   region (`compare_n3000_warm_budget.png`). The default's huge 90.9 M `oracle_calls` is the
+   **big-M giant-round artifact** (M=1e8 removes the `j`-clamp → one stuck worker commits a single
+   runaway Grover round charging `2j+1 ≈ 90 M`, faithfully counted but with its sim deadline-truncated;
+   it cannot happen under the faithful `M=T(n)=9989`). So the "tie" only appears if the default is
+   allowed to spend 4300× the budget; at any budget ≤ ~4.3e7 oracles, M3 leads by ~+0.12 % / ~27 M.
+
+**The relative deltas look tiny only because the objective is ~2.27e10** — the *absolute* within-budget
+gain is ~25–27 M, and the right denominator is the headroom (per the primal-gap metric), not the
+objective magnitude. So n=3000 is NOT "~0 % headroom": at the faithful budget there is a real,
+schedule-driven advantage; it was hidden by (a) the magnitude-relative %, and (b) comparing final
+objectives in a wall-bound run that let the default run 4300× over budget.
+
+**Caveat:** single instance + single seed. The at-budget M3 lead (M3 converges within budget, default
+stalls) is the robust signal and matches the n≤90 mechanism (broad `opt_sat` radius on an
+infeasible-greedy start); a multi-instance / multi-seed run at the faithful `M=T(n)` is needed to
+confirm it generalizes. (Figures: `compare_n3000_warm_budget.png`, `*_history_logx.png`.)
 
 ## 7. Reproduce
 
