@@ -599,7 +599,15 @@ def _main(argv=None):
     p.add_argument("--no-strict-xcheck", dest="strict_xcheck", action="store_false",
                    help="verdict: tolerate default-side drift from the frozen PI "
                         "(recorded, not raised) — for inspection only.")
-    p.set_defaults(resume=True, strict_xcheck=True)
+    p.add_argument("--warm", dest="warm", action="store_true",
+                   help="run-default/run-candidate: published warm general_greedy start (bd 8an.9) "
+                        "— the DEFAULT (matches the canonical warm baselines_frozen.csv). Accepted "
+                        "explicitly for scripts; equivalent to omitting it.")
+    p.add_argument("--cold", dest="warm", action="store_false",
+                   help="run-default/run-candidate: COLD 0^n start instead of the warm general_greedy "
+                        "start. Reproduces the archived baselines_frozen_cold.csv. BOTH arms of an "
+                        "A/B must share the start.")
+    p.set_defaults(resume=True, strict_xcheck=True, warm=True)
     args = p.parse_args(argv)
 
     if args.command in ("run-default", "run-candidate"):
@@ -627,9 +635,11 @@ def _main(argv=None):
         out = run_sweep(schedule_id, factory, instances, out_dir=args.out_dir,
                         seeds=seeds, bench_root=args.bench_root,
                         num_workers=args.num_workers,
-                        opt_sample_cap=args.opt_sample_cap, resume=args.resume)
+                        opt_sample_cap=args.opt_sample_cap, resume=args.resume,
+                        warm=args.warm)
         print(f"{schedule_id}: {len(out['done'])} solved, "
-              f"{len(out['skipped'])} already present -> {args.out_dir}")
+              f"{len(out['skipped'])} already present ({'WARM' if args.warm else 'COLD'} start) "
+              f"-> {args.out_dir}")
     elif args.command == "touch-report":
         if not args.run_dir:
             p.error("touch-report requires --run-dir")

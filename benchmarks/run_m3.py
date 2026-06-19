@@ -95,6 +95,16 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     frozen_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "baselines_frozen.csv")
     baselines_table = baselines.load_frozen_baselines(frozen_path)
+    # bd 8an.9: the canonical baselines_frozen.csv is now WARM (general_greedy start). This is the
+    # COLD M3 driver: it solves cold candidates, which cannot reproduce the warm anchors, so its own
+    # default-vs-default strict_xcheck capstone below would breach. Fail loud early with a pointer
+    # rather than a cryptic re-score error (§2.1).
+    if any(r.get("protocol") == "warm"
+           for r in baselines_table.values() if r.get("default_PI") is not None):
+        raise SystemExit(
+            "[run_m3] baselines_frozen.csv is WARM (bd 8an.9) but this is the COLD M3 driver. Use "
+            "benchmarks/run_m3_warm.py (the canonical warm driver). To reproduce the archived cold "
+            "M3, restore benchmarks/baselines_frozen_cold.csv over baselines_frozen.csv first.")
     instances = selection_instances(baselines_table)
     seeds = baselines.DEFAULT_SEED_BANK
     log(f"[run_m3] {len(instances)} anchored instances over sizes {SELECTION_SIZES}; "

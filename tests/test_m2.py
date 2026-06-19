@@ -515,3 +515,35 @@ def test_pre_guard_records_without_verified_still_load(tmp_path):
         rec.pop("verified", None)
     json.dump(payload, open(os.path.join(d, "10_0.json"), "w"))
     assert (10, 0) in load_run_set_dir(d)
+
+
+# --------------------------------------------------------------------------- #
+# bd 8an.9: the m2 CLI defaults run-default/run-candidate to the WARM start
+# (matching the canonical warm baselines_frozen.csv); --cold opts out.
+# --------------------------------------------------------------------------- #
+
+def _stub_cli(monkeypatch):
+    captured = {}
+
+    def fake_run_sweep(*a, **k):
+        captured.update(k)
+        return {"done": [], "skipped": []}
+
+    monkeypatch.setattr(m2, "run_sweep", fake_run_sweep)
+    monkeypatch.setattr(m2, "load_frozen_baselines",
+                        lambda p: {(10, 0): {"B_I": 1.0, "L_I": 0.0, "default_PI": 0.1,
+                                             "default_cap": 0, "protocol": "warm"}})
+    monkeypatch.setattr(m2, "anchored_instances", lambda t: [(10, 0)])
+    return captured
+
+
+def test_m2_cli_run_default_defaults_to_warm(monkeypatch, tmp_path):
+    captured = _stub_cli(monkeypatch)
+    m2._main(["run-default", "--out-dir", str(tmp_path), "--sizes", "10", "--seeds", "1"])
+    assert captured["warm"] is True      # WARM is the default (bd 8an.9)
+
+
+def test_m2_cli_cold_flag_opts_out(monkeypatch, tmp_path):
+    captured = _stub_cli(monkeypatch)
+    m2._main(["run-default", "--cold", "--out-dir", str(tmp_path), "--sizes", "10", "--seeds", "1"])
+    assert captured["warm"] is False     # --cold reproduces the archived cold baselines

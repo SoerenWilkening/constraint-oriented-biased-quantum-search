@@ -321,6 +321,14 @@ A change to any of these must be deliberate, justified in the `bd` issue, and up
   prob `1/7`). Pins the bias→value map; the sigmoid reparam must recover it at `θ_i=0`.
 - **Eq.29 RHS (instance `100_0`):** `le_rhs==5032863` (sum over c3), `ge_rhs==5040079` (sum over c2).
   Encodes the LE-uses-c3 / GE-uses-c2 mapping. Needs `CBQS_BENCHMARKS_DIR`.
+- **Frozen-default protocol = WARM (bd 8an.9, 2026-06-19).** `baselines_frozen.csv` / `floor_calibration.csv`
+  are the **warm** default (published `iqs` `general_greedy` start), `protocol` column == `warm` on every
+  scored row. The cold `0^n` tables are archived at `baselines_frozen_cold.csv` / `floor_calibration_cold.csv`
+  for M1-cold provenance. The warm freeze **keeps the cold `L_I`** (shared normalizer) and re-scores only
+  `default_PI` warm (`default_instance_anchors(L_I_override=)`); a warm `default_PI` is NOT comparable to a
+  cold one (feasible from oracle 0), so `freeze_default_anchors` enforces a **single-protocol** guard. The
+  canonical M3 driver is `run_m3_warm.py`; the cold `run_m3.py` fails loud against the warm table. To
+  reproduce the cold M1 baselines, restore the `*_cold.csv` archive (or `m2 … --cold`).
 - **Determinism:** fixed seed + single worker → identical objective **and** solution array
   (`test_determinism.py`). The M0 per-worker PRNG decorrelation must keep single-worker determinism intact
   and only change *multi-worker* trajectory divergence. Never "fix" a failing determinism assert by

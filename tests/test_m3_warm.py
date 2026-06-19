@@ -434,3 +434,17 @@ def test_rescore_once_cold_path_unchanged_without_synthesizer():
     for k in _HOLDOUT:
         exp = metric.score_instance(_res(_HDV[k], k[0], 8), k[0], _B_I, _L_I)["PI"]
         assert final.verdict["default_PI"][k] == pytest.approx(exp)
+
+
+# --------------------------------------------------------------------------- #
+# bd 8an.9: the COLD run_m3.py fails loud against the now-warm canonical table.
+# --------------------------------------------------------------------------- #
+
+def test_cold_run_m3_refuses_warm_baselines(monkeypatch, tmp_path):
+    import benchmarks.run_m3 as run_m3
+    warm_table = {(10, 0): {"B_I": 100.0, "L_I": 50.0, "default_PI": 0.3,
+                            "default_cap": 0, "protocol": "warm"}}
+    monkeypatch.setattr(run_m3.baselines, "load_frozen_baselines", lambda p: warm_table)
+    with pytest.raises(SystemExit, match="WARM"):
+        run_m3.run(out_dir=str(tmp_path), bench_root=None, seed=1, generations=1,
+                   pop_size=1, n_offspring=1, n_init_random=1)
