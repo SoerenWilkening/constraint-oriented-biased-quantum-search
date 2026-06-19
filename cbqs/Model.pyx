@@ -713,10 +713,28 @@ or {self.runtime}s sampling
 		The result is stored as the initial state for subsequent solve calls.
 		If no initial state has been set, a default all-zeros state is
 		created first.
+
+		Returns
+		-------
+		tuple ``(value, feasible)``
+			``feasible`` (bool): whether the greedy construction satisfies all
+			constraints. ``value`` (int or None): the greedy objective
+			(``global_opt.tot_profit * sense``, same space as ``objective_value``
+			and the incumbent history) when feasible, else ``None`` — an infeasible
+			greedy ``tot_profit`` holds a constraint-violation sum, not an objective.
+
+			This is a pure read of fields ``initial_state_preparation`` just wrote
+			into ``global_opt`` (solver.c); the greedy value is only live in the
+			window BEFORE ``solve()`` overwrites ``global_opt``. The warm harness
+			(bd 8an.9) captures it here to seed the faithful oracle-0 incumbent
+			(``benchmarks.baselines.warm_repair_history``).
 		"""
 		if not self.initialized:
 			self.manual_initial(0, [0] * self.n)
 		initial_state_preparation(self.mod)
+		cdef bint greedy_feasible = self.mod[0].global_opt[0].feasible
+		greedy_value = self.objective_value if greedy_feasible else None
+		return greedy_value, bool(greedy_feasible)
 
 	def solve(self):
 		"""Solve the optimization or satisfiability problem.

@@ -227,8 +227,11 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
     results = []
     for seed in seeds:
         m = build_model(c1, c2, c3, vectorized=vectorized)
+        greedy_value = greedy_feasible = None
         if warm:
-            m.general_greedy()  # bd 8an.10: warm-start (greedy construction, deterministic)
+            # bd 8an.10 warm-start; bd 8an.9: capture greedy value+feasibility before solve()
+            # overwrites global_opt, to seed the faithful oracle-0 incumbent below.
+            greedy_value, greedy_feasible = m.general_greedy()
         m.seed = int(seed)
         m.set_param("M", M)
         if num_workers is not None:
@@ -239,7 +242,7 @@ def run_candidate_seed_bank(n, index, seeds, params_or_factory, *, bench_root=No
             m.set_param(key, value)
         r = m.solve()
         if warm:
-            warm_repair_history(r)  # bd 8an.10: seed best-of-P at oracle 0 (feasible greedy)
+            warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
         results.append(r)
     return results, resolved
 

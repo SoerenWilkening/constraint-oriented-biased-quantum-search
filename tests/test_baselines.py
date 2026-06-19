@@ -398,6 +398,131 @@ def test_freeze_default_anchors_uniform_cap_ok(tmp_path):
     assert table[(100, 0)]["default_cap"] == 500  # re-frozen at the same cap, not kept verbatim
 
 
+# --------------------------------------------------------------------------- #
+# bd 8an.9: warm (general_greedy) vs cold (0^n) start — protocol provenance + guard
+# --------------------------------------------------------------------------- #
+
+def test_load_frozen_protocol_defaults_cold_for_legacy_table(tmp_path):
+    """A table without a `protocol` column loads as 'cold' (every pre-8an.9 freeze was cold)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap\n"
+        "10,0,100,hexaly,50,0.5,\n"
+    )
+    table = B.load_frozen_baselines(str(frozen))
+    assert table[(10, 0)]["protocol"] == "cold"
+
+
+def test_freeze_default_anchors_records_warm_protocol(tmp_path):
+    """Freezing with warm=True KEEPS the cold L_I and re-scores default_PI warm against it; tags the
+    row 'warm' and flags the summary warm (bd 8an.9 keep-cold-L_I decision)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap,protocol\n"
+        "10,0,100,hexaly,50,,,cold\n"           # cold L_I=50 present (no default_PI yet)
+    )
+    out = tmp_path / "out.csv"
+    summary = B.freeze_default_anchors(seeds=(1,), frozen_path=str(frozen), out_path=str(out),
+                                       warm=True,
+                                       run_fn=lambda n, i, s: [_res([(60, 100), (90, 500)])])
+    table = B.load_frozen_baselines(str(out))
+    assert table[(10, 0)]["protocol"] == "warm"
+    assert table[(10, 0)]["L_I"] == 50.0                 # cold L_I KEPT (not recomputed warm)
+    assert table[(10, 0)]["default_PI"] is not None       # warm default_PI filled
+    assert summary["protocol"] == "warm" and summary["warm"] is True
+    assert summary["anchored_protocol"] == "warm"
+
+
+def test_freeze_default_anchors_cold_protocol_by_default(tmp_path):
+    """warm=False (default) tags rows 'cold' and writes an EMPTY protocol cell (loads back 'cold')."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text("size,index,B_I,B_I_method,L_I,default_PI,default_cap,protocol\n10,0,100,hexaly,,,,\n")
+    out = tmp_path / "out.csv"
+    summary = B.freeze_default_anchors(seeds=(1,), frozen_path=str(frozen), out_path=str(out),
+                                       run_fn=lambda n, i, s: [_res([(40, 100), (90, 500)])])
+    assert ",cold\n" not in out.read_text()      # cold written as empty (diffable; loads as cold)
+    assert B.load_frozen_baselines(str(out))[(10, 0)]["protocol"] == "cold"
+    assert summary["protocol"] == "cold" and summary["warm"] is False
+
+
+def test_freeze_default_anchors_rejects_mixed_protocol(tmp_path):
+    """GOVERNANCE (8an.9): re-freezing one size's default_PI WARM while another keeps a COLD
+    default_PI mixes non-comparable scored values — must raise (guard keys on default_PI)."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap,protocol\n"
+        "10,0,100,hexaly,50,,,cold\n"          # cold L_I, default_PI to be filled warm
+        "100,0,200,gurobi,80,0.5,,cold\n"      # already-scored COLD default_PI for n=100
+    )
+    with pytest.raises(ValueError, match="MIXED-protocol"):
+        B.freeze_default_anchors(seeds=(1,), frozen_path=str(frozen), out_path=str(tmp_path / "o.csv"),
+                                 sizes=[10], warm=True,
+                                 run_fn=lambda n, i, s: [_res([(60, 100), (90, 500)])])
+
+
+def test_freeze_default_anchors_uniform_warm_ok(tmp_path):
+    """Re-freezing ALL scored sizes warm against their kept cold L_I tags every row 'warm'."""
+    frozen = tmp_path / "frozen.csv"
+    frozen.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap,protocol\n"
+        "10,0,100,hexaly,50,,,cold\n"          # cold L_I=50 kept
+        "100,0,200,gurobi,80,0.5,,cold\n"      # cold L_I=80 kept; cold default_PI re-scored warm
+    )
+    out = tmp_path / "out.csv"
+    B.freeze_default_anchors(seeds=(1,), frozen_path=str(frozen), out_path=str(out),
+                             warm=True,  # sizes=None -> recompute every size's default_PI warm
+                             run_fn=lambda n, i, s: [_res([(60, 100), (190 if n == 100 else 90, 500)])])
+    table = B.load_frozen_baselines(str(out))
+    assert table[(10, 0)]["protocol"] == "warm" and table[(10, 0)]["L_I"] == 50.0
+    assert table[(100, 0)]["protocol"] == "warm" and table[(100, 0)]["L_I"] == 80.0  # cold L_I kept
+
+
+def test_default_anchors_l_i_override_keeps_cold_floor(tmp_path):
+    """bd 8an.9: with L_I_override the cold L_I is KEPT and only default_PI is (re)scored against it
+    — and a warm greedy that lands ON B_I no longer triggers the spurious L>=B drop."""
+    # warm runs whose first-feasible == B_I (greedy optimal) would be dropped by the cold path...
+    warm_runs = [_res([(100, 0), (100, 50)]) for _ in range(3)]  # history[0]=100==B_I
+    cold_path = B.default_instance_anchors(warm_runs, B_I=100, n=10)
+    assert cold_path["status"] == "dropped_L_ge_B"               # warm L_I = 100 == B_I -> dropped
+    # ...but with the cold L_I kept, it scores fine against the lower cold floor.
+    kept = B.default_instance_anchors(warm_runs, B_I=100, n=10, L_I_override=50.0)
+    assert kept["status"] == "ok" and kept["L_I"] == 50.0
+    import math as _m
+    assert _m.isfinite(kept["default_PI"])
+
+
+def test_warm_skeleton_keeps_cold_li_blanks_pi_then_freeze_single_protocol(tmp_path):
+    """The bd 8an.9 warm re-freeze keeps the cold L_I, blanks default_PI in the skeleton, and fills
+    warm default_PI per size against that cold L_I — never tripping the (default_PI-keyed) guard."""
+    import refreeze_largen as R
+    cold = tmp_path / "baselines_frozen.csv"
+    cold.write_text(
+        "size,index,B_I,B_I_method,L_I,default_PI,default_cap,protocol\n"
+        "10,0,100,hexaly,50,0.5,,cold\n"
+        "20,0,200,hexaly,80,0.4,,cold\n"
+        "1000,0,9999,gurobi,,,,\n"          # large-n B_I-only: no L_I -> kept verbatim, skipped warm
+    )
+    warm = tmp_path / "baselines_frozen_warm.csv"
+    R._seed_warm_skeleton(str(warm), src_path=str(cold))
+    skel = B.load_frozen_baselines(str(warm))
+    assert skel[(10, 0)]["L_I"] == 50.0 and skel[(10, 0)]["default_PI"] is None  # L_I KEPT, PI blanked
+    assert skel[(20, 0)]["L_I"] == 80.0 and skel[(20, 0)]["default_PI"] is None
+    assert skel[(1000, 0)]["B_I"] == 9999.0
+
+    def mock_run(n, i, s):
+        return [_res([(60, 100), (90, 500)]) for _ in s]   # feasible warm history
+
+    for n in (10, 20):   # per-size, in place — must NOT raise MIXED-protocol
+        summ = B.freeze_default_anchors(sizes=[n], seeds=(1,), frozen_path=str(warm),
+                                        warm=True, run_fn=mock_run)
+        assert summ["anchored_protocol"] == "warm"
+    final = B.load_frozen_baselines(str(warm))
+    assert final[(10, 0)]["protocol"] == "warm" and final[(10, 0)]["L_I"] == 50.0  # cold L_I kept
+    assert final[(20, 0)]["protocol"] == "warm" and final[(20, 0)]["L_I"] == 80.0
+    assert final[(10, 0)]["default_PI"] is not None                                 # warm PI filled
+    assert final[(1000, 0)]["L_I"] is None                                          # large-n untouched
+
+
 def test_assess_cap_convergence_converges():
     """_assess picks the SMALLER cap of the first consecutive pair within tol."""
     rows = [{"cap": 10, "default_PI": 0.90}, {"cap": 20, "default_PI": 0.80},

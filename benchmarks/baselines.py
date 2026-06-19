@@ -61,7 +61,13 @@ RESULT_CSVS = ("classical_comparison.csv", "res.csv")
 #: improvers less often, so the anchor is degraded and the bias grows with n). All anchored
 #: rows in a table MUST share one cap (:func:`freeze_default_anchors` enforces it) or
 #: candidates would be scored against a mix of faithful and approximate anchors.
-FROZEN_COLUMNS = ("size", "index", "B_I", "B_I_method", "L_I", "default_PI", "default_cap")
+#: ``protocol`` (bd 8an.9) records the DEFAULT-START the L_I/default_PI anchors were run at:
+#: ``cold``/empty == the ``0^n`` start (pre-8an.9 freezes); ``warm`` == the published CBQS
+#: (``iqs``) ``general_greedy`` warm start (now the project default). A warm default is feasible
+#: from oracle 0, so its PI is NOT comparable to a cold anchor — like the cap, all ANCHORED rows
+#: in a table MUST share one protocol (:func:`freeze_default_anchors` enforces it) or candidates
+#: would be scored against a mix of warm and cold references.
+FROZEN_COLUMNS = ("size", "index", "B_I", "B_I_method", "L_I", "default_PI", "default_cap", "protocol")
 
 #: Relative-change threshold (in default_PI) below which doubling ``opt_sample_cap`` is
 #: judged not to move the anchor — i.e. the cap is large enough to be effectively faithful
@@ -198,7 +204,8 @@ def freeze_baselines(bench_root=None, out_path=None, require_all=True):
         w.writerow(FROZEN_COLUMNS)
         for size, index in sorted(b_i):
             val, method = b_i[(size, index)]
-            w.writerow([size, index, _fmt_num(val), method, "", "", ""])
+            # L_I, default_PI, default_cap, protocol are empty until freeze_default_anchors runs.
+            w.writerow([size, index, _fmt_num(val), method, "", "", "", ""])
     return out_path
 
 
@@ -208,19 +215,23 @@ def load_frozen_baselines(path):
     ``B_I`` is returned as float; empty ``L_I`` / ``default_PI`` cells load as ``None``.
     ``default_cap`` (bd 0o8) loads as int (0 == exact/faithful anchor); a MISSING column or
     empty cell reads as ``0`` so the legacy 6-column table (committed before 0o8) is read as
-    fully-faithful. This is the accessor the §6 metric (M1) consumes.
+    fully-faithful. ``protocol`` (bd 8an.9) loads as ``"cold"`` or ``"warm"``; a MISSING column
+    or empty cell reads as ``"cold"`` so every pre-8an.9 table is read as the ``0^n`` start it
+    was. This is the accessor the §6 metric (M1) consumes.
     """
     table = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
             key = (int(r["size"]), int(r["index"]))
             cap_field = (r.get("default_cap") or "").strip()
+            protocol_field = (r.get("protocol") or "").strip().lower()
             table[key] = {
                 "B_I": float(r["B_I"]) if r["B_I"] != "" else None,
                 "B_I_method": r["B_I_method"] or None,
                 "L_I": float(r["L_I"]) if r["L_I"] != "" else None,
                 "default_PI": float(r["default_PI"]) if r["default_PI"] != "" else None,
                 "default_cap": int(cap_field) if cap_field else 0,
+                "protocol": protocol_field if protocol_field else "cold",
             }
     return table
 
@@ -252,13 +263,24 @@ def first_feasible_objective(result):
     return float(history[0][0]) if history else None
 
 
-def default_instance_anchors(results, B_I, n, T_I=None):
+def default_instance_anchors(results, B_I, n, T_I=None, L_I_override=None):
     """L_I + default-PI for one Eq.29 instance from a seed bank of CBQS-default runs (NORTHSTAR §6).
 
     ``L_I`` = MEDIAN first-feasible objective over the runs that reached feasibility (§6 item 1).
     ``default_PI`` = MEDIAN PI over the WHOLE seed bank — a never-feasible run contributes ``+∞``
     (§6 item 5) — each run scored against the frozen ``L_I`` with the M1 metric. ``B_I`` is the
     frozen non-CBQS frontier objective; ``T_I`` defaults to ``oracle_budget(n)``.
+
+    ``L_I_override`` (bd 8an.9): when given, KEEP this L_I (the frozen COLD first-feasible floor) as
+    the normalizer instead of recomputing it from *results*, and score ``default_PI`` against it.
+    Used by the WARM re-freeze: the warm default's PI is measured against the SAME cold L_I the cold
+    anchors used (the deliberate shared-normalizer choice — keeps the verdict comparable and
+    numerically stable; a warm L_I would be the greedy floor, often == B_I → spurious ``L_ge_B``
+    drops / near-zero denominator). This is byte-identical to ``metric._reduce_seed_bank_pi`` /
+    ``synthesize_warm_default_pi`` (same primal-integral primitive against the same L_I), so a warm
+    freeze and the live warm synthesizer re-score to the SAME value. The ``L_ge_B``/never-feasible
+    re-classification is NOT re-derived from the warm runs (the cold L_I already passed those gates);
+    an all-never-feasible warm run-set still yields a non-finite median → ``default_unreliable``.
 
     Returns a status-tagged dict ``{status, L_I, default_PI, n_runs, n_feasible_runs,
     per_run_first_feasible, per_run_PI}``; ``default_PI`` is ``None`` unless ``status == "ok"``:
@@ -281,6 +303,15 @@ def default_instance_anchors(results, B_I, n, T_I=None):
     base = {"n_runs": len(results), "n_feasible_runs": len(feasible),
             "per_run_first_feasible": first_feas, "L_I": None, "default_PI": None,
             "per_run_PI": None}
+    if L_I_override is not None:
+        # Keep the cold L_I; (re)compute only default_PI against it (bd 8an.9 warm re-freeze).
+        L_I = float(L_I_override)
+        per_run_PI = [compute_primal_integral(getattr(r, "history", None) or [], B_I, L_I, T_I)
+                      for r in results]
+        default_PI = float(statistics.median(per_run_PI))
+        if not math.isfinite(default_PI):
+            return {**base, "L_I": L_I, "per_run_PI": per_run_PI, "status": "default_unreliable"}
+        return {**base, "L_I": L_I, "default_PI": default_PI, "per_run_PI": per_run_PI, "status": "ok"}
     if not feasible:
         return {**base, "status": "never_feasible"}
     L_I = float(statistics.median(feasible))
@@ -341,8 +372,12 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
     results = []
     for seed in seeds:
         m = build_model(c1, c2, c3, vectorized=vectorized)
+        greedy_value = greedy_feasible = None
         if warm:
-            m.general_greedy()  # bd 8an.10: warm-start (greedy construction, deterministic)
+            # bd 8an.10: warm-start (greedy construction, deterministic). bd 8an.9: capture the
+            # greedy value+feasibility HERE — solve() overwrites global_opt, so it is only live
+            # in this window — to seed the faithful oracle-0 incumbent below.
+            greedy_value, greedy_feasible = m.general_greedy()
         m.seed = int(seed)
         m.set_param("M", M)
         if num_workers is not None:
@@ -351,48 +386,59 @@ def run_default_seed_bank(n, index, seeds, *, bench_root=None, M=-1, num_workers
         m.set_param("opt_sample_cap", int(opt_sample_cap))
         r = m.solve()
         if warm:
-            warm_repair_history(r)  # bd 8an.10: seed best-of-P at oracle 0 (feasible greedy)
+            warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
         results.append(r)
     return results
 
 
-def warm_repair_history(result):
-    """Repair a WARM run's best-of-portfolio history for the §6 metric (bd 8an.10). Returns
-    the repaired history (also set in place on ``result.history``).
+def warm_repair_history(result, greedy_value=None, greedy_feasible=None):
+    """Repair a WARM run's best-of-portfolio history for the §6 metric. Returns the repaired
+    history (also set in place on ``result.history``).
 
     A warm worker starts from the greedy construction, but the C history callback logs only
-    incumbent IMPROVEMENTS — so a run whose greedy start is FEASIBLE-and-never-improved has an
-    EMPTY history, which :func:`benchmarks.metric.compute_primal_integral` reads as
-    never-feasible (``+∞``), turning a feasible — often OPTIMAL — warm run into a spurious
-    feasibility LOSS (observed at 10_2: greedy lands exactly on B_I, no worker improves).
+    incumbent IMPROVEMENTS — so the greedy start's objective is never logged at oracle 0, and a
+    run whose greedy start is FEASIBLE-and-never-improved has an EMPTY history, which
+    :func:`benchmarks.metric.compute_primal_integral` reads as never-feasible (``+∞``), turning
+    a feasible — often OPTIMAL — warm run into a spurious feasibility LOSS.
 
-    Repair (the ONLY case touched): **empty history + a feasible final** → ``history =
-    [(best feasible final, 0)]``. This is provably exact even though the greedy start is NOT
-    guaranteed feasible (``initial_state_preparation`` can leave an infeasible state): all
-    workers share the SAME deterministic greedy start, and an infeasible-greedy worker that
-    later reaches feasibility logs that first-feasible incumbent as an improvement — so an
-    empty history with a feasible final can ONLY come from a FEASIBLE greedy start that no
-    worker improved on. Then every worker's final incumbent equals that greedy value, feasible
-    from oracle 0 and held across the whole budget — best-of-P ≡ ``max(feasible finals)``
-    over ``[0, T]``.
+    FAITHFUL repair (bd 8an.9 FINAL, supersedes the earlier EXPLORATORY empty-only repair):
+    ``greedy_value`` + ``greedy_feasible`` are captured in the harness BETWEEN
+    ``m.general_greedy()`` and ``m.solve()`` (returned by :meth:`cbqs.Model.Model.general_greedy`;
+    ``solve`` overwrites ``global_opt`` so the greedy value is only live in that window). When
+    supplied:
 
-    DELIBERATELY NOT REPAIRED (bd 8an.10 review): a non-empty warm history is left verbatim,
-    so ``[0, first_stamp)`` keeps the cold ``γ=1`` plateau. Earlier this branch backdated
-    ``history[0]`` to oracle 0, but that (a) credited the interval with the FIRST-IMPROVEMENT
-    value rather than the lower greedy value (optimistic) and (b) was simply WRONG when the
-    greedy start was INFEASIBLE — then ``history[0]`` is the first *feasible* incumbent and
-    ``[0, first_stamp)`` is genuinely pre-feasible. ``first_stamp`` is ~3–10 of ~1200 oracles
-    at n≤90, so the residual plateau is <1% of the integral and near-symmetric across both A/B
-    arms (the accepted EXPLORATORY gap). The faithful fix — seed the true greedy value at
-    oracle 0 only when the greedy start is feasible — needs the greedy objective + feasibility
-    exposed from the C layer; that is deferred to the 8an.9 (frozen-warm-anchor) FINAL path.
+    * **feasible greedy start** → the greedy value IS the true best-of-P incumbent at oracle 0
+      (all workers copy the SAME deterministic greedy state, ``SearchLib.pyx``), held until the
+      first logged improvement (which is strictly better, so the curve stays monotone). Anchor
+      it: empty history → ``[(greedy_value, 0)]``; non-empty starting at oracle ``k>0`` →
+      prepend ``(greedy_value, 0)``; already anchored at oracle 0 → leave verbatim.
+    * **infeasible greedy start** → ``[0, first_feasible)`` is a genuine pre-feasible ``γ=1``
+      plateau (identical to a cold run); leave the history verbatim, NEVER backdate.
+
+    LEGACY/EXPLORATORY fallback (greedy info NOT supplied, ``None``): repair only **empty
+    history + a feasible final** → ``[(max(feasible finals), 0)]``. Provably exact: an empty
+    history with a feasible final can ONLY come from a feasible greedy start no worker improved
+    on (an infeasible-greedy worker that reaches feasibility logs that first-feasible incumbent
+    as an improvement → non-empty history), so every final equals the greedy value held over
+    ``[0, T]``. A non-empty legacy history is left verbatim (cold ``γ=1`` plateau kept).
 
     A genuinely never-feasible warm run (empty history AND no feasible final) is left empty
-    (``+∞``) — that IS a feasibility loss. COLD runs (0^n start, infeasible until the search
-    finds a point) must NOT be repaired (their pre-feasible ``γ=1`` plateau is correct) — so
-    this is only ever called on the warm solve path.
+    (``+∞``) — that IS a feasibility loss. COLD runs (0^n start) must NOT be repaired (their
+    pre-feasible ``γ=1`` plateau is correct) — so this is only ever called on the warm path.
     """
     hist = list(getattr(result, "history", None) or [])
+    if greedy_feasible and greedy_value is not None:
+        # FAITHFUL: feasible greedy start is the true best-of-P at oracle 0.
+        if not hist:
+            result.history = [(greedy_value, 0)]
+        elif hist[0][1] > 0:
+            result.history = [(greedy_value, 0), *hist]
+        # else: history already anchored at oracle 0 — leave verbatim (no double-seed).
+        return result.history
+    if greedy_feasible is False:
+        # Infeasible greedy: genuine pre-feasible plateau — leave verbatim, never backdate.
+        return result.history
+    # LEGACY/EXPLORATORY (greedy info absent): seed only empty-history + feasible-final.
     if not hist:
         feas = [float(v) for (v, ok) in (getattr(result, "final_incumbents", None) or []) if ok]
         if feas:
@@ -444,7 +490,7 @@ def synthesize_warm_default_pi(frozen_table, warm_default_results):
 
 def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
                            out_path=None, sizes=None, run_fn=None, M=-1, num_workers=None,
-                           opt_sample_cap=0, vectorized=True, log=None):
+                           opt_sample_cap=0, vectorized=True, warm=False, log=None):
     """Fill L_I + default-PI in the frozen baseline table from CBQS-default seed-bank runs (bd 8an.1.16).
 
     Loads the frozen B_I table (*frozen_path*, default the committed ``baselines_frozen.csv``), runs
@@ -464,11 +510,19 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
     approximate, re-run with the cap over ALL sizes (the cap is recorded per row and surfaced by the
     M1 metric so the verdict is labeled approximate).
 
+    ``warm`` (bd 8an.9): freeze the WARM default (``general_greedy`` start, the published ``iqs``
+    protocol — now the project default) instead of the ``0^n`` cold start. Recorded per row in the
+    ``protocol`` column. GOVERNANCE (mirrors the cap guard): all ANCHORED rows in the written table
+    must share ONE protocol — this raises if a recompute would leave the table mixing warm and cold
+    anchors (a warm default is feasible from oracle 0, so its PI is not comparable to a cold anchor).
+    To switch the freeze warm, re-run with ``warm=True`` over ALL anchored sizes.
+
     Fail-loud (§2.1): raises if the frozen table is missing/empty (run ``freeze`` first), or if the
-    result would mix caps across anchored rows.
+    result would mix caps OR protocols across anchored rows.
     """
     _log = log or (lambda *_a, **_k: None)
     opt_sample_cap = int(opt_sample_cap)
+    protocol = "warm" if warm else "cold"
     frozen_path = frozen_path or os.path.join(os.path.dirname(__file__), "baselines_frozen.csv")
     if not os.path.isfile(frozen_path):
         raise FileNotFoundError(
@@ -482,26 +536,38 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
         def run_fn(n, index, _seeds):
             return run_default_seed_bank(n, index, _seeds, bench_root=bench_root,
                                          M=M, num_workers=num_workers,
-                                         opt_sample_cap=opt_sample_cap, vectorized=vectorized)
+                                         opt_sample_cap=opt_sample_cap, vectorized=vectorized,
+                                         warm=warm)
 
     out_rows = []
     summary = {"ok": [], "dropped": [], "never_feasible": [], "default_unreliable": [],
                "skipped": [], "n_processed": 0,
-               "cap": opt_sample_cap, "approximate": opt_sample_cap > 0}
+               "cap": opt_sample_cap, "approximate": opt_sample_cap > 0,
+               "protocol": protocol, "warm": bool(warm)}
     for (size, index) in sorted(table):
         row = table[(size, index)]
         B_I, method = row["B_I"], row["B_I_method"]
         if (sizes is not None and size not in sizes) or B_I is None:
             # Keep verbatim: a stratum we are not (re)computing, or one with no frontier B_I.
-            # Its recorded cap is preserved so the same-cap guard below sees the real mix.
+            # Its recorded cap+protocol are preserved so the guards below see the real mix.
             out_rows.append((size, index, B_I, method, row["L_I"], row["default_PI"],
-                             row["default_cap"]))
+                             row["default_cap"], row["protocol"]))
             if B_I is None:
                 summary["skipped"].append((size, index, "B_I None"))
             continue
+        # bd 8an.9 WARM: keep the cold L_I and recompute only default_PI against it. A row with no
+        # cold L_I was not scoreable cold (never-feasible / dropped); keep it verbatim so the warm
+        # table's scoreable instance set matches the cold one (== synthesize_warm_default_pi).
+        cold_L_I = row["L_I"] if warm else None
+        if warm and cold_L_I is None:
+            out_rows.append((size, index, B_I, method, row["L_I"], row["default_PI"],
+                             row["default_cap"], row["protocol"]))
+            summary["skipped"].append((size, index, "warm: no cold L_I"))
+            _log(f"keep  {size}_{index}: no cold L_I — not scoreable cold, kept verbatim")
+            continue
         summary["n_processed"] += 1
         results = run_fn(size, index, seeds)
-        a = default_instance_anchors(results, B_I, size)
+        a = default_instance_anchors(results, B_I, size, L_I_override=cold_L_I)
         status = a["status"]
         if status == "dropped_L_ge_B":
             summary["dropped"].append((size, index, a["L_I"]))
@@ -509,24 +575,25 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
             continue  # OMIT from the table (§6 item 1)
         if status == "never_feasible":
             summary["never_feasible"].append((size, index))
-            out_rows.append((size, index, B_I, method, None, None, opt_sample_cap))
+            out_rows.append((size, index, B_I, method, None, None, opt_sample_cap, protocol))
             _log(f"empty {size}_{index}: default never feasible over {len(seeds)} seeds")
             continue
         if status == "default_unreliable":
             summary["default_unreliable"].append((size, index, a["L_I"]))
-            out_rows.append((size, index, B_I, method, a["L_I"], None, opt_sample_cap))
+            out_rows.append((size, index, B_I, method, a["L_I"], None, opt_sample_cap, protocol))
             _log(f"warn  {size}_{index}: L_I={a['L_I']} but median PI non-finite — default_PI withheld")
             continue
-        out_rows.append((size, index, B_I, method, a["L_I"], a["default_PI"], opt_sample_cap))
+        out_rows.append((size, index, B_I, method, a["L_I"], a["default_PI"], opt_sample_cap, protocol))
         summary["ok"].append((size, index))
         cap_tag = f" cap={opt_sample_cap}(APPROX)" if opt_sample_cap > 0 else ""
-        _log(f"ok    {size}_{index}: L_I={a['L_I']} default_PI={a['default_PI']:.6f}{cap_tag}")
+        li_tag = "L_I(cold)" if warm else "L_I"
+        _log(f"ok    {size}_{index}: {li_tag}={a['L_I']} default_PI={a['default_PI']:.6f} "
+             f"[{protocol}]{cap_tag}")
 
-    # GOVERNANCE (bd 0o8, core-change gate must_fix): every ANCHORED row (one that
-    # contributes an L_I the metric consumes) must share ONE cap — else candidates would be
-    # scored against a mix of faithful (cap 0) and approximate (cap>0) anchors, silently
-    # corrupting the §6.6 verdict. Refuse to write a mixed-cap table.
-    anchored_caps = {cap for (_s, _i, _b, _m, L_I, _pi, cap) in out_rows if L_I is not None}
+    # GOVERNANCE (bd 0o8, core-change gate must_fix): every row contributing an L_I the metric
+    # consumes (L_I not None) must share ONE cap — else candidates would be scored against a mix of
+    # faithful (cap 0) and approximate (cap>0) anchors, silently corrupting the §6.6 verdict.
+    anchored_caps = {cap for (_s, _i, _b, _m, L_I, _pi, cap, _proto) in out_rows if L_I is not None}
     if len(anchored_caps) > 1:
         raise ValueError(
             f"Refusing to write a MIXED-cap anchor table (caps present: {sorted(anchored_caps)}). "
@@ -535,19 +602,39 @@ def freeze_default_anchors(*, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
             f"the SAME cap (omit --sizes, or pass every size), or use cap 0 everywhere. "
             f"(bd 0o8 freeze governance.)"
         )
+    # GOVERNANCE (bd 8an.9): every row contributing a SCORED default_PI must share ONE start
+    # protocol. A warm default_PI (general_greedy, feasible from oracle 0) and a cold one (0^n) are
+    # not comparable, so a mix silently corrupts the verdict. (Keyed on default_PI, NOT L_I: the
+    # warm freeze deliberately keeps the COLD L_I as the shared normalizer, so L_I alone no longer
+    # distinguishes the protocol — only the default_PI does. This also lets a per-size warm
+    # re-freeze fill rows one at a time without tripping the guard: not-yet-filled rows have a cold
+    # L_I but no default_PI, so they are not protocol-anchored.)
+    anchored_protocols = {proto for (_s, _i, _b, _m, _L, pi, _c, proto) in out_rows if pi is not None}
+    if len(anchored_protocols) > 1:
+        raise ValueError(
+            f"Refusing to write a MIXED-protocol anchor table (protocols present: "
+            f"{sorted(anchored_protocols)}). A warm default_PI (general_greedy, bd 8an.9) is feasible "
+            f"from oracle 0; a cold default_PI starts from 0^n — they are not comparable. Re-freeze "
+            f"ALL scored sizes at the SAME protocol (omit --sizes, or pass every size, with the same "
+            f"--warm/cold). (bd 8an.9 freeze governance.)"
+        )
     summary["anchored_cap"] = next(iter(anchored_caps)) if anchored_caps else None
+    summary["anchored_protocol"] = next(iter(anchored_protocols)) if anchored_protocols else None
 
     out_path = out_path or frozen_path
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(FROZEN_COLUMNS)
-        for (size, index, B_I, method, L_I, default_PI, cap) in out_rows:
+        for (size, index, B_I, method, L_I, default_PI, cap, proto) in out_rows:
             w.writerow([size, index,
                         _fmt_num(B_I) if B_I is not None else "",
                         method or "",
                         _fmt_num(L_I) if L_I is not None else "",
                         _fmt_num(default_PI) if default_PI is not None else "",
-                        cap if cap else ""])
+                        cap if cap else "",
+                        # cold (the default) is written as an EMPTY cell — diffable, loads back
+                        # "cold"; only "warm" is materialized.
+                        proto if proto and proto != "cold" else ""])
     summary["out_path"] = out_path
     return summary
 
@@ -592,7 +679,7 @@ PI_EPS_FALLBACK = 1e-9
 
 def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
                   num_workers=None, run_fn=None, tol=DEFAULT_CALIBRATION_TOL, vectorized=True,
-                  log=None):
+                  warm=False, log=None):
     """Sweep ``opt_sample_cap`` on ONE Eq.29 instance and report where the default anchor converges.
 
     The large-n freeze blocker (bd 0o8) is the O(n·j²) classical Grover-round sim; capping the
@@ -624,7 +711,7 @@ def calibrate_cap(n, index, *, caps, seeds=DEFAULT_SEED_BANK, bench_root=None, f
         def run_fn(_n, _i, _seeds, _cap):
             return run_default_seed_bank(_n, _i, _seeds, bench_root=bench_root,
                                          num_workers=num_workers, opt_sample_cap=_cap,
-                                         vectorized=vectorized)
+                                         vectorized=vectorized, warm=warm)
 
     rows = []
     for cap in sorted(set(int(c) for c in caps)):
@@ -656,7 +743,8 @@ FLOOR_CALIBRATION_CSV = os.path.join(os.path.dirname(__file__), "floor_calibrati
 
 
 def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_path=None,
-                    num_workers=None, run_fn=None, vectorized=True, out_path=None, log=None):
+                    num_workers=None, run_fn=None, vectorized=True, warm=False, out_path=None,
+                    log=None):
     """Measure the default's portfolio-diversity landscape per size (M1 "floor calibrated").
 
     AMENDED (bd 8an.3.8): the §8.3 verdict floor is now TAIL-QUALITY (candidate best-of-P vs the
@@ -692,7 +780,7 @@ def calibrate_floor(*, sizes, seeds=DEFAULT_SEED_BANK, bench_root=None, frozen_p
     if run_fn is None:
         def run_fn(_n, _i, _seeds):
             return run_default_seed_bank(_n, _i, _seeds, bench_root=bench_root,
-                                         num_workers=num_workers, vectorized=vectorized)
+                                         num_workers=num_workers, vectorized=vectorized, warm=warm)
 
     per_size = {}
     for n in sorted(set(int(s) for s in sizes)):
@@ -781,6 +869,11 @@ def _main(argv=None):
                    help="freeze-default/calibrate: use the O(n^2) Python build loop instead of the "
                         "vectorized matmul path (slow on dense n<1000 instances; same QCQP — for "
                         "reproducing a legacy build). Default: vectorized.")
+    p.add_argument("--warm", action="store_true",
+                   help="freeze-default/calibrate/calibrate-floor: warm-start every default solve via "
+                        "general_greedy() (the published iqs protocol, bd 8an.9 — now the project "
+                        "default). Tags the frozen rows 'warm'; all anchored rows must share one "
+                        "protocol (governance guard). Default: cold (0^n).")
     p.set_defaults(vectorized=True)
     args = p.parse_args(argv)
     seeds = (tuple(int(s) for s in args.seeds.split(",")) if args.seeds else DEFAULT_SEED_BANK)
@@ -795,12 +888,12 @@ def _main(argv=None):
                                          frozen_path=args.frozen, out_path=args.out, sizes=sizes,
                                          num_workers=args.num_workers,
                                          opt_sample_cap=args.opt_sample_cap,
-                                         vectorized=args.vectorized, log=print)
+                                         vectorized=args.vectorized, warm=args.warm, log=print)
         approx = " [APPROXIMATE]" if summary.get("approximate") else ""
         print(f"freeze-default: {len(summary['ok'])} ok, {len(summary['dropped'])} dropped, "
               f"{len(summary['never_feasible'])} never-feasible, "
-              f"{len(summary['default_unreliable'])} unreliable, cap={summary.get('cap', 0)}{approx} "
-              f"-> {summary['out_path']}")
+              f"{len(summary['default_unreliable'])} unreliable, cap={summary.get('cap', 0)}{approx}, "
+              f"protocol={summary.get('protocol', 'cold')} -> {summary['out_path']}")
     elif args.command == "calibrate":
         if args.size is None or args.index is None or not args.caps:
             p.error("calibrate requires --size, --index, and --caps")
@@ -808,7 +901,7 @@ def _main(argv=None):
         res = calibrate_cap(args.size, args.index, caps=caps, seeds=seeds,
                             bench_root=args.bench_root, frozen_path=args.frozen,
                             num_workers=args.num_workers, tol=args.tol,
-                            vectorized=args.vectorized, log=print)
+                            vectorized=args.vectorized, warm=args.warm, log=print)
         verdict = ("FAITHFUL ENOUGH" if res["converged"]
                    else "NOT CONVERGED — use a larger cap / uncapped reference / batch compute")
         print(f"calibrate ({res['n']},{res['index']}): recommended_cap={res['recommended_cap']} "
@@ -819,7 +912,7 @@ def _main(argv=None):
         floor_sizes = [int(s) for s in args.sizes.split(",")]
         res = calibrate_floor(sizes=floor_sizes, seeds=seeds, bench_root=args.bench_root,
                               frozen_path=args.frozen, num_workers=args.num_workers,
-                              vectorized=args.vectorized, out_path=args.out, log=print)
+                              vectorized=args.vectorized, warm=args.warm, out_path=args.out, log=print)
         print(f"calibrate-floor: max admissible EXPLORE_FLOOR_FRACTION = "
               f"{res['max_admissible_fraction']} -> {res['out_path']}")
 

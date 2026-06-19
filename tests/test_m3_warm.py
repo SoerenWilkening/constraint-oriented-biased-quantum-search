@@ -239,6 +239,59 @@ def test_warm_repair_noop_when_history_already_starts_at_zero():
 
 
 # --------------------------------------------------------------------------- #
+# 8an.9 FAITHFUL warm history: the TRUE greedy value at oracle 0. The greedy
+# value+feasibility are captured between general_greedy() and solve() (returned by
+# Model.general_greedy) and passed in explicitly — superseding the EXPLORATORY
+# empty-history-only repair (the "deferred to 8an.9 FINAL path" in the docstring).
+# --------------------------------------------------------------------------- #
+
+def test_warm_repair_seeds_feasible_greedy_value_at_oracle_zero():
+    # A FEASIBLE greedy start is the true best-of-P at oracle 0 (all workers copy the SAME
+    # deterministic greedy state). Prepend (greedy_value, 0) ahead of the first logged
+    # improvement — which is strictly better than the greedy value, so the curve stays monotone.
+    r = types.SimpleNamespace(history=[(900.0, 5), (950.0, 40)], seed=1,
+                              final_incumbents=[(950.0, True)])
+    h = baselines.warm_repair_history(r, greedy_value=820.0, greedy_feasible=True)
+    assert h == [(820.0, 0), (900.0, 5), (950.0, 40)]
+    assert r.history == [(820.0, 0), (900.0, 5), (950.0, 40)]
+
+
+def test_warm_repair_empty_history_uses_feasible_greedy_value():
+    # empty history + feasible greedy -> anchor the greedy value itself at oracle 0
+    # (== max(feasible finals) here, but read from the captured greedy value, not the finals).
+    r = types.SimpleNamespace(history=[], seed=1,
+                              final_incumbents=[(990.0, True), (980.0, True)])
+    h = baselines.warm_repair_history(r, greedy_value=990.0, greedy_feasible=True)
+    assert h == [(990.0, 0)] and r.history == [(990.0, 0)]
+
+
+def test_warm_repair_infeasible_greedy_left_verbatim_even_with_value():
+    # INFEASIBLE greedy start: [0, first_feasible) is a genuine pre-feasible γ=1 plateau
+    # (identical to a cold run) — NEVER seed oracle 0, regardless of any captured value.
+    r = types.SimpleNamespace(history=[(897.0, 4), (902.0, 6)], seed=1,
+                              final_incumbents=[(902.0, True)])
+    h = baselines.warm_repair_history(r, greedy_value=None, greedy_feasible=False)
+    assert h == [(897.0, 4), (902.0, 6)]
+    assert r.history[0][1] == 4   # not backdated to oracle 0
+
+
+def test_warm_repair_feasible_greedy_already_at_zero_no_double_seed():
+    # history already anchored at oracle 0 -> do NOT prepend a second oracle-0 entry.
+    r = types.SimpleNamespace(history=[(820.0, 0), (900.0, 5)], seed=1,
+                              final_incumbents=[(900.0, True)])
+    h = baselines.warm_repair_history(r, greedy_value=820.0, greedy_feasible=True)
+    assert h == [(820.0, 0), (900.0, 5)]
+
+
+def test_warm_repair_infeasible_greedy_empty_history_stays_infeasible():
+    # infeasible greedy + no worker ever feasible -> empty -> +inf (a real feasibility loss).
+    r = types.SimpleNamespace(history=[], seed=1, final_incumbents=[(0.0, False)])
+    h = baselines.warm_repair_history(r, greedy_value=None, greedy_feasible=False)
+    assert h == []
+    assert metric.compute_primal_integral(r.history, _B_I, _L_I, 1200) == float("inf")
+
+
+# --------------------------------------------------------------------------- #
 # Warm anchor synthesizer + the warm capstone (end-to-end vs the REAL metric).
 # --------------------------------------------------------------------------- #
 

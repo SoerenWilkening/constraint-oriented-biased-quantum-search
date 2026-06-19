@@ -66,3 +66,8 @@ cmake-build-debug
 
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
+
+# bd 8an.9: warm anchor re-freeze intermediates (scratch until the final swap
+# archives the cold table and promotes these to baselines_frozen.csv / floor_calibration.csv)
+benchmarks/baselines_frozen_warm.csv
+benchmarks/floor_calibration_warm.csv

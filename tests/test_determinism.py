@@ -231,6 +231,47 @@ def _make_knapsack_model(n=20):
     return m
 
 
+class TestGeneralGreedyReturn:
+    """general_greedy() returns (value, feasible) for the warm oracle-0 seed (bd 8an.9).
+
+    The greedy value is only live BEFORE solve() overwrites global_opt, so the warm harness
+    captures it from this return to seed the faithful oracle-0 incumbent
+    (benchmarks.baselines.warm_repair_history)."""
+
+    def test_returns_value_feasible_tuple_when_greedy_feasible(self):
+        m = _make_knapsack_model(20)        # generous capacity -> greedy is feasible
+        ret = m.general_greedy()
+        assert isinstance(ret, tuple) and len(ret) == 2
+        value, feasible = ret
+        assert feasible is True
+        # value is in objective_value space (tot_profit * sense), not raw tot_profit
+        assert value == m.objective_value
+        assert value is not None
+
+    def test_value_is_none_when_greedy_infeasible(self):
+        # A constraint no greedy assignment can satisfy: require >= n ones but capacity < n.
+        m = Model()
+        n = 12
+        x = m.add_variables(n)
+        m.set_objective(sum(x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum(x[i] for i in range(n)) >= n)        # need all ones
+        m.add_constraint(sum(x[i] for i in range(n)) <= n - 4)    # but at most n-4 -> infeasible
+        m.close()
+        value, feasible = m.general_greedy()
+        if not feasible:
+            assert value is None      # infeasible greedy must NOT report a (violation-sum) value
+        else:                          # if greedy happens to find feasibility, value is honest
+            assert value == m.objective_value
+
+    def test_return_is_idempotent_and_matches_objective_value(self):
+        m = _make_knapsack_model(16)
+        v1, f1 = m.general_greedy()
+        v2, f2 = m.general_greedy()         # deterministic construction -> identical
+        assert (v1, f1) == (v2, f2)
+        if f1:
+            assert v1 == m.objective_value
+
+
 class TestBranchingWeightsDeterminism:
     """Verify deterministic behavior survives across separate model lifecycles.
 
