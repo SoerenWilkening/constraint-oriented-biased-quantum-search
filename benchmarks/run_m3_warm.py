@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""benchmarks/run_m3_warm.py — the EXPLORATORY WARM M3 agent-loop driver (bd 8an.10).
+"""benchmarks/run_m3_warm.py — the WARM M3 agent-loop driver (bd 8an.10).
 
 The published CBQS (``iqs``) WARM-starts via ``general_greedy()`` (bd 8an.9); the cold
 M3 (bd 884) optimized against a ``0^n`` cold start iqs never uses. This driver re-runs
-M3 WARM (both A/B arms warm) against a freshly-solved warm default on the anchored
-``n≤90`` strata, with the §13 discipline (capstone, CV+Holm, negative control, held-out
-rescore) intact.
+M3 WARM (both A/B arms warm) against the warm default on the anchored ``n≤90`` strata,
+with the §13 discipline (capstone, CV+Holm, negative control, held-out rescore) intact.
+
+SCORING MODE (bd 8an.10, FINAL vs EXPLORATORY). 8an.9 re-FROZE the warm ``default_PI`` into
+``baselines_frozen.csv`` (``protocol==warm``), so the driver now AUTO-selects:
+
+  * **FINAL** (default when the frozen table is warm) — score candidates against the
+    COMMITTED frozen warm ``default_PI``; the default-vs-default capstone becomes a real
+    REPRODUCIBILITY gate (a freshly-solved warm default must re-score to the frozen warm
+    anchor within ``XCHECK_REL_TOL`` — bit-for-bit in practice; the warm solve is
+    deterministic at the seed bank). This is the publishable path.
+  * **EXPLORATORY** (``--exploratory``, or AUTO on a still-cold table) — replace the cold
+    frozen ``default_PI`` in an in-memory table with THIS run's warm default median PI
+    (:func:`benchmarks.baselines.synthesize_warm_default_pi`); the capstone is then
+    self-consistency, and the anchor floats per run (not reproducible/publishable).
+
+In BOTH modes the cold ``L_I`` is the shared normalizer (kept in the warm freeze too — both
+arms cancel it in the paired δ) and ``B_I`` is the protocol-independent frontier.
 
 GENOME SCOPE — a corrected finding (bd 8an.10 run + review). The task's premise was that
 a warm (feasible-from-oracle-0) start makes ``r_opt_sat`` + ``alpha_switch`` INERT, so
@@ -29,14 +44,14 @@ Warm-specific machinery:
      paired delta (the accepted EXPLORATORY gap). The capstone STILL holds: the warm
      default re-scores to exactly the synthesized warm ``default_PI`` (strict_xcheck).
 
-EXPLORATORY: a FINAL/reproducible result still needs 8an.9 (re-FROZEN warm ``default_PI``
-+ 'default := warm' governance). This driver discovers/ranks warm schedules; it does NOT
-re-freeze anchors. See ``benchmarks/M3_WARM_FINDINGS.md``.
+This driver discovers/ranks/selects warm schedules and (in FINAL mode) reproduces the
+frozen warm anchor; it does NOT re-freeze anchors (that is 8an.9). See
+``benchmarks/M3_WARM_FINDINGS.md``.
 
 Usage:
   CBQS_BENCHMARKS_DIR=<clone> python -m benchmarks.run_m3_warm [--generations G]
-      [--pop-size P] [--n-offspring K] [--n-init-random R] [--seed S]
-      [--out-dir DIR] [--bench-root DIR] [--no-rescore] [--warm-live-only] [--max-per-size N]
+      [--pop-size P] [--n-offspring K] [--n-init-random R] [--seed S] [--out-dir DIR]
+      [--bench-root DIR] [--no-rescore] [--warm-live-only] [--exploratory] [--max-per-size N]
 """
 import argparse
 import json
@@ -53,6 +68,20 @@ from benchmarks.run_m3 import (  # noqa: E402  (genome-agnostic helpers reused v
     SELECTION_SIZES, HOLDOUT_INSTANCES, RESCORE_SEEDS,
     selection_instances, _guard_candidate_genome, _fitness_dict,
 )
+
+# --------------------------------------------------------------------------- #
+# The cold-M3 (bd 884) winners as FULL 5-gene genomes (r_opt_sat, r_opt, alpha_switch,
+# theta_amp, theta_feature). theta_feature is the float index into m3_proposer.FEATURES
+# (['none','pii_z',...]); pii_z==1 → 1.5, none==0 → 0.5. Seeded into the warm search (opt-in,
+# bd 8an.10) so the cross-stratum §13 verdict EVALUATES the known winners directly rather than
+# relying on the evolutionary search to rediscover cand_16's boundary lever (r_opt_sat=8 at the
+# [1.5,8] bound) — they WIN warm at n=90 (§13 W=+9) but small-n cross-stratum survival is the
+# open question. Holm controls FWER over the whole family regardless of a member's origin.
+# --------------------------------------------------------------------------- #
+COLD_WINNER_GENOMES = {
+    "seed_cand_16": (8.0, 4.409916944894315, 0.012044790907040026, 0.28884412462871306, 1.5),  # feat=pii_z
+    "seed_cand_23": (5.164074159795587, 4.428165071164998, 0.0, 0.34053296197047567, 0.5),      # feat=none
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -98,7 +127,7 @@ def _subset_per_size(instances, max_per_size):
 
 def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
         n_init_random, num_workers=None, do_rescore=True, max_per_size=None,
-        warm_live_only=False, log=print):
+        warm_live_only=False, final_mode=None, seed_cold_winners=False, log=print):
     """Solve the WARM default once, synthesize the warm anchor table, run the warm
     population search, then the §13 selection (vs the warm default).
 
@@ -127,7 +156,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     instances = selection_instances(frozen)  # scoreable n≤90 (cold default_PI present == B_I/L_I ok)
     instances = _subset_per_size(instances, max_per_size)  # fast exploratory subset (bd 8an.10)
     seeds = baselines.DEFAULT_SEED_BANK
-    log(f"[run_m3_warm] WARM exploratory M3 (bd 8an.10): {len(instances)} anchored "
+    log(f"[run_m3_warm] WARM M3 (bd 8an.10): {len(instances)} anchored "
         f"instances over sizes {SELECTION_SIZES}; seed bank {seeds}; rng seed {seed}; "
         f"genome={'WARM_SPEC (live-only)' if warm_live_only else 'FULL 5-gene'} {spec.genes}")
 
@@ -167,39 +196,83 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
         f"{time.time() - t0:.0f}s)")
 
     # ------------------------------------------------------------------ #
-    # 2) WARM anchor table: replace the (cold) frozen default_PI with the warm
-    #    default's median PI; keep B_I/L_I. The §6 metric reads default_PI from THIS
-    #    table as the authoritative gate reference (bd 8an.10).
+    # 2) WARM anchor table — FINAL (frozen-direct) vs EXPLORATORY (synthesize).
+    #
+    #    8an.9 re-FROZE the warm default_PI into baselines_frozen.csv (protocol==warm), so a
+    #    FINAL/publishable warm M3 scores candidates against that COMMITTED warm anchor (cold L_I
+    #    kept as the shared normalizer — both arms cancel it in the paired δ). On a still-COLD table
+    #    (pre-8an.9) fall back to the EXPLORATORY in-memory synthesis: replace the cold frozen
+    #    default_PI with THIS run's warm default median PI (anchor floats per run → not publishable).
+    #    `final_mode` defaults to AUTO: FINAL iff every scoreable frozen row is already warm.
     # ------------------------------------------------------------------ #
-    warm_baselines = baselines.synthesize_warm_default_pi(frozen, default_results)
-    n_warm_anchored = sum(1 for k in instances
-                          if warm_baselines.get(k, {}).get("default_PI") is not None)
-    log(f"[run_m3_warm] synthesized warm default_PI for {n_warm_anchored}/{len(instances)} "
-        f"instances (B_I/L_I kept cold).")
-    if n_warm_anchored == 0:
-        raise SystemExit("[run_m3_warm] no instance got a warm default_PI — the warm default "
-                         "is never reliably feasible? (cannot score). Aborting.")
+    scoreable_protocols = {frozen[k].get("protocol") for k in instances
+                           if frozen.get(k, {}).get("default_PI") is not None}
+    table_is_warm = scoreable_protocols == {"warm"}
+    if final_mode is None:
+        final_mode = table_is_warm
+    if final_mode and not table_is_warm:
+        raise SystemExit(
+            f"[run_m3_warm] FINAL mode requires a WARM frozen table (protocol==warm on every "
+            f"scoreable row), but baselines_frozen.csv scoreable protocols are "
+            f"{scoreable_protocols or '(none)'}. Re-freeze warm (bd 8an.9: freeze_default_anchors "
+            f"--warm) or pass --exploratory for the in-memory synthesize path.")
+
+    if final_mode:
+        # FINAL: score against the COMMITTED frozen warm anchors directly (reproducible/publishable).
+        warm_baselines = frozen
+        n_warm_anchored = sum(1 for k in instances
+                              if frozen.get(k, {}).get("default_PI") is not None)
+        log(f"[run_m3_warm] FINAL mode: scoring vs the FROZEN warm default_PI (8an.9) for "
+            f"{n_warm_anchored}/{len(instances)} warm-anchored instances (cold L_I shared).")
+    else:
+        # EXPLORATORY: warm default_PI from THIS run; B_I/L_I kept cold (pre-8an.9 fallback).
+        warm_baselines = baselines.synthesize_warm_default_pi(frozen, default_results)
+        n_warm_anchored = sum(1 for k in instances
+                              if warm_baselines.get(k, {}).get("default_PI") is not None)
+        log(f"[run_m3_warm] EXPLORATORY mode: synthesized warm default_PI for "
+            f"{n_warm_anchored}/{len(instances)} instances (B_I/L_I kept cold).")
+        if n_warm_anchored == 0:
+            raise SystemExit("[run_m3_warm] no instance got a warm default_PI — the warm default "
+                             "is never reliably feasible? (cannot score). Aborting.")
 
     # ------------------------------------------------------------------ #
-    # 3) CAPSTONE (landmine #2 / M1 lesson): default-vs-default strict-xcheck against
-    #    the WARM table. The warm default re-scores to exactly the synthesized warm
-    #    default_PI, so this MUST pass — a breach means the warm run-set and the warm
-    #    table diverged (a coding bug), not a stale freeze.
+    # 3) CAPSTONE (landmine #2 / M1 lesson): default-vs-default strict-xcheck against the
+    #    active WARM table.
+    #    FINAL: the freshly-solved warm default MUST re-score to the FROZEN warm default_PI
+    #    within XCHECK_REL_TOL — a real reproducibility gate (bit-for-bit in practice; the warm
+    #    solve is deterministic at the seed bank). A breach = 8an.9-freeze drift / a wrong/
+    #    non-reproducible warm default → refuse to publish a FINAL verdict.
+    #    EXPLORATORY: the table IS this run's warm default, so the xcheck is self-consistency
+    #    (a synthesis-bug guard), not a freeze-reproducibility check.
     # ------------------------------------------------------------------ #
     try:
         cap = metric.score_verdict(default_results, default_results, warm_baselines,
                                    strict_xcheck=True, require_largest_n=False)
     except ValueError as exc:
+        # score_verdict raises for TWO distinct reasons: a strict_xcheck REPRODUCIBILITY breach
+        # (message prefixed "strict_xcheck:") vs an aggregation failure (e.g. a degenerate per-stratum
+        # PI spread when a stratum has too few instances). Only the former is a freeze/reproducibility
+        # problem — don't over-claim "non-reproducible anchor" for the latter.
+        if "strict_xcheck" in str(exc):
+            detail = ("The freshly-solved warm default does NOT reproduce the FROZEN warm default_PI "
+                      "(8an.9-freeze drift or a non-deterministic warm solve) — refusing to publish a "
+                      "FINAL verdict against a non-reproducible anchor."
+                      if final_mode else
+                      "The warm anchor table and the warm default run-set are inconsistent — a "
+                      "synthesis bug, not a stale freeze. Refusing to score against a poisoned reference.")
+        else:
+            detail = ("score_verdict could not AGGREGATE the capstone (e.g. a degenerate per-stratum "
+                      "PI spread — too few instances per size? use more instances, not --max-per-size 1). "
+                      "This is NOT a reproducibility breach.")
         raise SystemExit(
             f"[run_m3_warm] CAPSTONE FAILED: warm default-vs-default strict-xcheck raised ({exc}). "
-            f"The warm anchor table and the warm default run-set are inconsistent — a synthesis bug, "
-            f"not a stale freeze. Refusing to score candidates against a poisoned reference.")
+            f"{detail}")
     if not cap["overall_pass"] or (cap.get("default_xcheck_failures") or []):
         raise SystemExit(
             f"[run_m3_warm] CAPSTONE FAILED: warm default-vs-default overall_pass="
             f"{cap['overall_pass']}, xcheck_failures={len(cap.get('default_xcheck_failures') or [])}.")
-    log(f"[run_m3_warm] capstone OK: warm default-vs-default strict-xcheck exact "
-        f"({len(cap['default_PI'])} warm-anchored instances).")
+    log(f"[run_m3_warm] capstone OK ({'FINAL: fresh warm default == FROZEN warm anchor' if final_mode else 'EXPLORATORY: self-consistent'}) "
+        f"strict-xcheck exact ({len(cap['default_PI'])} warm-anchored instances).")
 
     # ------------------------------------------------------------------ #
     # 4) Evaluator: per-candidate out_dir isolation + DETERMINISTIC §10 gate +
@@ -236,7 +309,8 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
         num_workers=num_workers, opt_sample_cap=0, scale_check=True, warm=True)
 
     # ------------------------------------------------------------------ #
-    # 5) Init population = the spec's baseline genome + R random genomes.
+    # 5) Init population = the spec's baseline genome + R random genomes
+    #    (+ the cold-M3 winners when --seed-cold-winners, full genome only).
     # ------------------------------------------------------------------ #
     init_pop = [m3.Candidate(
         factory=spec.to_factory(spec.baseline),
@@ -248,6 +322,22 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
             factory=spec.to_factory(g),
             genome=tuple(float(x) for x in g),
             meta={"id": f"init_rand_{i}", "op": "seed"}))
+    if seed_cold_winners:
+        if warm_live_only:
+            raise SystemExit(
+                "[run_m3_warm] --seed-cold-winners needs the FULL 5-gene genome (the cold winners are "
+                "5-gene); it is incompatible with --warm-live-only.")
+        for cid, g in COLD_WINNER_GENOMES.items():
+            if len(g) != len(spec.genes):
+                raise SystemExit(
+                    f"[run_m3_warm] seeded genome {cid} has {len(g)} genes but spec has "
+                    f"{len(spec.genes)} — refusing to mis-map a stale genome onto a different layout.")
+            init_pop.append(m3.Candidate(
+                factory=spec.to_factory(g),
+                genome=tuple(float(x) for x in g),
+                meta={"id": cid, "op": "seed"}))
+        log(f"[run_m3_warm] seeded the cold-M3 winners {list(COLD_WINNER_GENOMES)} into the "
+            f"init population (evaluated cross-stratum under warm scoring).")
 
     # ------------------------------------------------------------------ #
     # 6) Run the WARM population search (NORTHSTAR §10).
@@ -351,7 +441,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
     # ------------------------------------------------------------------ #
     summary = _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
                          evaluated, result, sel, neg, final, winner_id, admitted,
-                         warm_baselines, genome_dict, warm_live_only)
+                         warm_baselines, genome_dict, warm_live_only, final_mode)
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(summary, fh, indent=2)
     _print_report(log, summary)
@@ -364,7 +454,7 @@ def run(*, out_dir, bench_root, seed, generations, pop_size, n_offspring,
 
 def _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
                evaluated, result, sel, neg, final, winner_id, admitted, warm_baselines,
-               genome_dict, warm_live_only):
+               genome_dict, warm_live_only, final_mode=False):
     candidates = {}
     for cid, ind in evaluated.items():
         rec = sel.per_candidate.get(cid, {})
@@ -384,7 +474,10 @@ def _summarize(out_dir, seed, generations, pop_size, n_offspring, instances,
                        for k in instances if warm_baselines.get(k, {}).get("default_PI") is not None}
     return {
         "bead": "constraint-oriented-biased-quantum-search-8an.10",
-        "protocol": "WARM (general_greedy; exploratory — cold L_I/B_I anchors, warm default_PI)",
+        "protocol": ("WARM (general_greedy; FINAL — frozen warm default_PI [bd 8an.9], shared cold L_I)"
+                     if final_mode else
+                     "WARM (general_greedy; EXPLORATORY — synthesized warm default_PI, cold L_I/B_I)"),
+        "final": bool(final_mode),
         "config": {"seed": seed, "generations": generations, "pop_size": pop_size,
                    "n_offspring": n_offspring, "n_instances": len(instances),
                    "sizes": list(SELECTION_SIZES),
@@ -419,6 +512,7 @@ def _print_report(log, s):
     log("=" * 72)
     c = s["config"]
     log(f"protocol: {s['protocol']}")
+    log(f"mode: {'FINAL (frozen warm anchors — publishable)' if s.get('final') else 'EXPLORATORY (synthesized warm default_PI)'}")
     log(f"config: seed={c['seed']} gens={c['generations']} pop={c['pop_size']} "
         f"n_offspring={c['n_offspring']} | {c['n_instances']} instances over {c['sizes']}")
     log(f"genome scope: {c['genome']} ({'WARM_SPEC live-only' if c['genome']=='warm_live' else 'FULL 5-gene — opt_sat/switch LIVE at n<=90'})")
@@ -446,7 +540,8 @@ def _print_report(log, s):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="WARM exploratory M3 driver (bd 8an.10).")
+    p = argparse.ArgumentParser(description="WARM M3 driver (bd 8an.10): FINAL (frozen warm "
+                                "anchors, default) or EXPLORATORY (--exploratory).")
     p.add_argument("--out-dir", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "artifacts", "m3_run_warm_8an10"))
     p.add_argument("--bench-root", default=os.environ.get("CBQS_BENCHMARKS_DIR"))
@@ -465,6 +560,16 @@ def main(argv=None):
                    help="search only the 3-gene warm-live space {r_opt, theta} (WARM_SPEC). "
                         "Default is the FULL 5-gene genome — at n<=90 the warm greedy is often "
                         "INFEASIBLE so opt_sat_radius/switch are LIVE and dominant (bd 8an.10).")
+    p.add_argument("--exploratory", dest="force_exploratory", action="store_true",
+                   help="force the EXPLORATORY in-memory synthesize path (warm default_PI from THIS "
+                        "run) even when the frozen table is already warm. Default (AUTO) scores vs the "
+                        "FROZEN warm default_PI (8an.9) when the table is warm — the FINAL/publishable "
+                        "path — and falls back to synthesize on a still-cold table.")
+    p.add_argument("--seed-cold-winners", action="store_true",
+                   help="seed the cold-M3 (bd 884) winners cand_16/cand_23 into the init population so "
+                        "the cross-stratum §13 verdict evaluates the known winners directly (they WIN "
+                        "warm at n=90; small-n cross-stratum survival is the open question). Full "
+                        "genome only; Holm controls FWER over the whole family.")
     p.set_defaults(do_rescore=True)
     args = p.parse_args(argv)
     if not args.bench_root:
@@ -477,7 +582,8 @@ def main(argv=None):
         generations=args.generations, pop_size=args.pop_size, n_offspring=args.n_offspring,
         n_init_random=args.n_init_random, num_workers=args.num_workers,
         do_rescore=args.do_rescore, max_per_size=args.max_per_size,
-        warm_live_only=args.warm_live_only)
+        warm_live_only=args.warm_live_only, seed_cold_winners=args.seed_cold_winners,
+        final_mode=(False if args.force_exploratory else None))
 
 
 if __name__ == "__main__":

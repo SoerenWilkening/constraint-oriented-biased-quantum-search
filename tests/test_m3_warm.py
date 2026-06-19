@@ -448,3 +448,109 @@ def test_cold_run_m3_refuses_warm_baselines(monkeypatch, tmp_path):
     with pytest.raises(SystemExit, match="WARM"):
         run_m3.run(out_dir=str(tmp_path), bench_root=None, seed=1, generations=1,
                    pop_size=1, n_offspring=1, n_init_random=1)
+
+
+# --------------------------------------------------------------------------- #
+# bd 8an.10: run_m3_warm FINAL (frozen-direct) vs EXPLORATORY (synthesize) mode
+# selection. Stub the heavy bits (no real solves) and assert which anchor table the
+# §6.6 metric is handed: FINAL => the FROZEN warm table; EXPLORATORY => the synthesized
+# one; FINAL on a still-cold table fails loud. Guards the new scoreable_protocols /
+# table_is_warm auto-detect branch the review flagged as untested.
+# --------------------------------------------------------------------------- #
+
+def _stub_warm_run(monkeypatch, frozen_table, *, synthesized_sentinel=None):
+    """Patch run_m3_warm's solve/evolve/select seams to no-ops; return a dict that records
+    the anchor table the capstone scored against and the final_mode that reached _summarize."""
+    import benchmarks.run_m3_warm as rw
+    instances = sorted(frozen_table)
+    rec = {}
+    monkeypatch.setattr(rw.baselines, "load_frozen_baselines", lambda p: frozen_table)
+    monkeypatch.setattr(rw, "selection_instances", lambda t: list(instances))
+    monkeypatch.setattr(rw.m2, "run_sweep", lambda *a, **k: None)
+    stub_default = {k: [types.SimpleNamespace(seed=s, history=[(1.0, 0)],
+                                              final_incumbents=[(1.0, True)]) for s in (1, 2, 3)]
+                    for k in instances}
+    monkeypatch.setattr(rw.m2, "load_run_set_dir", lambda d: stub_default)
+    if synthesized_sentinel is not None:
+        monkeypatch.setattr(rw.baselines, "synthesize_warm_default_pi",
+                            lambda frozen, results: synthesized_sentinel)
+
+    def fake_score_verdict(cand, dflt, baselines, **kw):
+        rec["capstone_baselines"] = baselines  # capture the table identity, then pass
+        return {"overall_pass": True, "default_xcheck_failures": [],
+                "default_PI": {k: frozen_table[k].get("default_PI") for k in instances}}
+    monkeypatch.setattr(rw.metric, "score_verdict", fake_score_verdict)
+
+    best = types.SimpleNamespace(gated_out=False, fitness=Fitness.gated_out(),
+                                 candidate=types.SimpleNamespace(genome=(4., 4., 0.1, 0., 0.)))
+    monkeypatch.setattr(rw.m3, "evolve", lambda *a, **k: types.SimpleNamespace(best=best))
+    monkeypatch.setattr(rw.m3_select, "select_significant",
+                        lambda *a, **k: types.SimpleNamespace(survivors=[], per_candidate={}))
+    monkeypatch.setattr(rw.m3_select, "negative_control",
+                        lambda *a, **k: types.SimpleNamespace(any_significant=False))
+    # _summarize captures final_mode (its last positional arg); skip the heavy report build.
+    monkeypatch.setattr(rw, "_summarize",
+                        lambda *a, **k: rec.update(final_mode=a[-1]) or {"final": bool(a[-1])})
+    monkeypatch.setattr(rw, "_print_report", lambda *a, **k: None)
+    return rec
+
+
+def _warm_row(default_PI=0.3, protocol="warm"):
+    return {"B_I": 100.0, "L_I": 50.0, "default_PI": default_PI,
+            "default_cap": 0, "protocol": protocol}
+
+
+def test_warm_run_auto_selects_final_on_warm_table(monkeypatch, tmp_path):
+    import benchmarks.run_m3_warm as rw
+    frozen = {(10, i): _warm_row() for i in range(3)}
+    rec = _stub_warm_run(monkeypatch, frozen)
+    summary = rw.run(out_dir=str(tmp_path), bench_root="x", seed=1, generations=1,
+                     pop_size=1, n_offspring=1, n_init_random=0)  # final_mode=None => AUTO
+    assert summary["final"] is True
+    assert rec["final_mode"] is True
+    # FINAL: the capstone (and thus candidate scoring) uses the FROZEN warm table itself.
+    assert rec["capstone_baselines"] is frozen
+
+
+def test_warm_run_exploratory_flag_uses_synthesized_table(monkeypatch, tmp_path):
+    import benchmarks.run_m3_warm as rw
+    frozen = {(10, i): _warm_row() for i in range(3)}
+    sentinel = {(10, i): _warm_row(default_PI=0.25) for i in range(3)}  # a DIFFERENT table object
+    rec = _stub_warm_run(monkeypatch, frozen, synthesized_sentinel=sentinel)
+    summary = rw.run(out_dir=str(tmp_path), bench_root="x", seed=1, generations=1,
+                     pop_size=1, n_offspring=1, n_init_random=0, final_mode=False)
+    assert summary["final"] is False
+    assert rec["final_mode"] is False
+    # EXPLORATORY: the capstone scores against the SYNTHESIZED table, not the frozen one.
+    assert rec["capstone_baselines"] is sentinel
+    assert rec["capstone_baselines"] is not frozen
+
+
+def test_warm_run_final_on_cold_table_fails_loud(monkeypatch, tmp_path):
+    import benchmarks.run_m3_warm as rw
+    cold = {(10, i): _warm_row(protocol="cold") for i in range(3)}
+    _stub_warm_run(monkeypatch, cold)
+    with pytest.raises(SystemExit, match="FINAL mode requires a WARM frozen table"):
+        rw.run(out_dir=str(tmp_path), bench_root="x", seed=1, generations=1,
+               pop_size=1, n_offspring=1, n_init_random=0, final_mode=True)
+
+
+def test_warm_run_auto_falls_back_to_exploratory_on_cold_table(monkeypatch, tmp_path):
+    import benchmarks.run_m3_warm as rw
+    cold = {(10, i): _warm_row(protocol="cold") for i in range(3)}
+    sentinel = {(10, i): _warm_row(default_PI=0.25) for i in range(3)}
+    rec = _stub_warm_run(monkeypatch, cold, synthesized_sentinel=sentinel)
+    summary = rw.run(out_dir=str(tmp_path), bench_root="x", seed=1, generations=1,
+                     pop_size=1, n_offspring=1, n_init_random=0)  # AUTO on a cold table
+    assert summary["final"] is False           # AUTO => EXPLORATORY (table not warm)
+    assert rec["capstone_baselines"] is sentinel
+
+
+def test_warm_run_seed_cold_winners_rejected_with_warm_live_only(monkeypatch, tmp_path):
+    import benchmarks.run_m3_warm as rw
+    frozen = {(10, i): _warm_row() for i in range(3)}
+    _stub_warm_run(monkeypatch, frozen)
+    with pytest.raises(SystemExit, match="seed-cold-winners"):
+        rw.run(out_dir=str(tmp_path), bench_root="x", seed=1, generations=1,
+               pop_size=1, n_offspring=1, n_init_random=0,
+               warm_live_only=True, seed_cold_winners=True)
