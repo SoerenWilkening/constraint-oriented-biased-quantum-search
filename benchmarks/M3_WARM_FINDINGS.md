@@ -1,14 +1,26 @@
 # M3-WARM — re-scoping + re-running M3 for the warm-started algorithm (bd 8an.10)
 
-**Status:** warm M3 machinery landed + adversarially reviewed; exploratory run done.
+**Status:** **COMPLETE.** Warm M3 machinery landed + adversarially reviewed; the FINAL
+full-genome, full-88-instance run against the **frozen warm anchors** (bd 8an.9) is done.
 **Protocol:** WARM (`general_greedy()`), the published CBQS (`iqs`) protocol — **not** the cold
-`0^n` start the original M3 (bd 884) optimized against.
+`0^n` start the original M3 (bd 884) optimized against. **Mode:** FINAL/publishable — candidates
+scored against the COMMITTED frozen warm `default_PI` (8an.9), cold `L_I` shared.
 
-## TL;DR (the headline finding)
+## TL;DR (the headline FINAL verdict)
 
-1. **Improved warm strategies DO exist at n=90** — the schedule with a **broad `opt_sat`
-   radius + early switch** (the full cand_16 genome) beats the warm default by **§13 W=+9 /
-   +23 % mean-PI**. The figures are at `logs/m3_n90_warm/*.png` (`plot_m3_n90 --warm`).
+0. **FINAL cross-stratum §13 verdict: NO warm schedule beats the warm default on n≤90 under the
+   Holm-controlled §13 — 0 survivors of 41 candidates** (incl. the cold-M3 winners cand_16/cand_23
+   seeded directly + 30 evolved). The warm default is **unbeaten** on the anchored n≤90 strata.
+   The warm advantage of cand_16 is **real but n=90-concentrated**: cross-stratum it falls to
+   `pi_rank=+0.198` (cand_16) / `+0.212` (cand_23) — *positive on average but CV-fail* (does not
+   clear BOTH the n=10–50 train and n=60–90 validate folds). Best evolved candidate `pi_rank=+0.422`,
+   still CV-fail. This is the deliverable's reframed outcome ("squeeze the small/mid-n warm headroom"
+   — and at small-n the headroom is too thin for a *cross-stratum* win). Run:
+   `benchmarks/artifacts/m3_run_warm_8an10_final/` (gitignored; key numbers in §8 below).
+1. **Improved warm strategies DO exist at n=90 (targeted)** — the schedule with a **broad `opt_sat`
+   radius + early switch** (the full cand_16 genome) beats the warm default at n=90 by **§13 W=+9 /
+   +23 % mean-PI** (targeted single-stratum analysis; `logs/m3_n90_warm/*.png`, `plot_m3_n90 --warm`).
+   §8's cross-stratum FINAL verdict shows this n=90 win does **not** generalize to the full n≤90 fold.
 2. **The task's "KEY INSIGHT" is empirically FALSE at n≤90.** The premise was that a warm
    (feasible-from-oracle-0) start makes `opt_sat`/`switch` inert, leaving a warm-live space
    `{r_opt, θ}`. But the **greedy start is frequently INFEASIBLE** — 4/9 n=90 instances
@@ -49,20 +61,25 @@ must keep `opt_sat_radius` + `switch`. The reduced `WARM_SPEC` (`{r_opt, θ}`,
 A **scheduled / convergence-aware** opt radius is still not searched (needs a new oracle-indexed C
 lever = a core change) — deferred to **bd 71e** (M5).
 
-## 3. Scoring a warm candidate (the harness)
+## 3. Scoring a warm candidate (the harness) — FINAL vs EXPLORATORY
 
-`score_verdict` reads `default_PI` from the frozen **table** as the §6.6 gate reference — and that
-column is **cold**. To compare warm-vs-warm we hand the metric an in-memory table from
-`baselines.synthesize_warm_default_pi(frozen, warm_default_runset)`:
+`score_verdict` reads `default_PI` from the frozen **table** as the §6.6 gate reference. Since
+**8an.9 re-FROZE the warm `default_PI`** into `baselines_frozen.csv` (`protocol==warm`), the driver
+(`run_m3_warm.py`) now AUTO-selects between two modes:
 
-* `default_PI` ← the **freshly-solved warm default**'s median PI;
-* `B_I` (frontier) ← kept (protocol-independent); `L_I` (cold first-feasible floor) ← kept as the
-  shared normalizer (both arms use the *same* cold `L_I`, so the offset cancels in the paired δ —
-  the accepted exploratory gap).
+* **FINAL (default when the frozen table is warm)** — score candidates against the **committed
+  frozen warm `default_PI`** directly. The default-vs-default capstone becomes a real
+  **reproducibility gate**: a freshly-solved warm default must re-score to the frozen warm anchor
+  within `metric.XCHECK_REL_TOL=1e-3` — verified **bit-for-bit** (rel_drift = 0.0; the warm solve is
+  deterministic at the 7-seed bank). This is the publishable path the §8 verdict uses.
+* **EXPLORATORY (`--exploratory`, or AUTO on a still-cold table)** — replace the cold frozen
+  `default_PI` in an in-memory table with THIS run's warm default median PI
+  (`baselines.synthesize_warm_default_pi`); the capstone is then self-consistency and the anchor
+  floats per run (not reproducible). This was the only path available before 8an.9.
 
-The capstone holds: the warm default re-scores to *exactly* the synthesized `default_PI`
-(`strict_xcheck=True` passes). Both A/B arms are warm; the negative control (`{}` solved warm) is
-byte-identical to the warm default → no survivor.
+In BOTH modes the cold `L_I` is the shared normalizer (kept in the warm freeze too — both arms
+cancel it in the paired δ) and `B_I` is the protocol-independent frontier. Both A/B arms are warm;
+the negative control (`{}` solved warm) is byte-identical to the warm default → no survivor.
 
 ### Warm trajectory repair (`warm_repair_history`)
 A warm worker feasible at the greedy value from oracle 0 logs only *improvements*, so a
@@ -76,11 +93,15 @@ legitimate `γ=1` plateau that must survive (an earlier backfill wrongly erased 
 
 ## 4. Faithfulness / what is and isn't claimed
 
-* §1.4 allow-list, §1.6 legal-lever-only, scale-invariance + θ radius-neutrality gates: enforced.
-  Equal-`T(n)` A/B (both arms `M=-1`, exact sampler, matched 7-seed bank).
-* **EXPLORATORY**: cold `L_I`/`B_I` with a warm `default_PI`. A FINAL/publishable result needs
-  **bd 8an.9** (re-frozen *warm* anchors + `default := warm` governance + warm capstone). 8an.10
-  discovers/ranks; it does not re-freeze.
+* §1.4 allow-list, §1.6 legal-lever-only, scale-invariance + θ radius-neutrality gates: enforced
+  (the FINAL run gated out 1/41 candidates on the §1.5 radius-fidelity check — θ coupling into the
+  realized radius — the gate working). Equal-`T(n)` A/B (both arms `M=-1`, exact sampler, matched
+  7-seed bank).
+* **FINAL / publishable** (this run): warm `default_PI` from the **frozen** 8an.9 anchors; cold
+  `L_I`/`B_I` shared (by design — `L_I` is the cancel-in-δ normalizer, kept cold in the warm freeze
+  too; `B_I` is protocol-independent). The capstone proves the fresh warm default reproduces the
+  frozen warm anchor. This is no longer an exploratory gap — 8an.9 (re-frozen warm anchors +
+  `default := warm` governance + warm capstone) is **done**, and 8an.10 scores against it.
 
 ## 5. Adversarial review outcome (bd 8an.10 review workflow)
 
@@ -117,12 +138,13 @@ m3_parsimonious **+22.7 %** vs warm default — wins concentrated on the infeasi
 cand_16's cold strengths — so the cold-selected schedule *also* wins warm at n=90, and the warm
 search must keep those levers. The signed-rank `W=+9` shows a real n=90 win; whether the FULL
 genome clears the *cross-stratum* §13 selection (both folds, incl small-n where headroom is thinner)
-is the open question for a full run.
+was the open question for a full run — **now answered in §8: it does NOT** (the n=90 win does not
+generalize across n≤90; cross-stratum cand_16 falls to `pi_rank=+0.198`, CV-fail).
 
-**Caveats:** (1) the reduced run searched the wrong space and is underpowered — a full-genome,
-full-88-instance run is needed for a definitive cross-stratum verdict; (2) exploratory anchors
-(cold `L_I`/`B_I`); (3) the faithful warm history (true greedy value at oracle 0, gated on greedy
-feasibility) is deferred to 8an.9.
+**Caveats (resolved by §8):** (1) the reduced run searched the wrong space and was underpowered —
+the **§8 FINAL run** is full-genome, full-88-instance, and definitive; (2) the §8 run scores against
+the **FROZEN warm anchors** (8an.9), not exploratory cold-`default_PI` ones; (3) the faithful warm
+history (true greedy value at oracle 0, gated on greedy feasibility) landed in 8an.9.
 
 ### n=3000 — M3 WINS at the faithful oracle budget (corrected 2026-06-19)
 
@@ -166,11 +188,49 @@ confirm it generalizes. (Figures: `compare_n3000_warm_budget.png`, `*_history_lo
 ## 7. Reproduce
 
 ```bash
-# full-genome warm search (the corrected scope) — n≤90, ~3.5 h for the full instance set:
+# THE FINAL run (publishable): full-genome, full-88-instance, scored vs the FROZEN warm anchors
+# (8an.9), with the cold-M3 winners cand_16/cand_23 seeded into the population. ~3.2 h.
 CBQS_BENCHMARKS_DIR=<clone> python -m benchmarks.run_m3_warm \
-    --out-dir benchmarks/artifacts/m3_run_warm_8an10 --seed 20260618 \
-    --generations 5 --pop-size 8 --n-offspring 6 --n-init-random 6        # add --max-per-size 4 for a fast pass
+    --out-dir benchmarks/artifacts/m3_run_warm_8an10_final --seed 20260620 \
+    --generations 5 --pop-size 8 --n-offspring 6 --n-init-random 8 --seed-cold-winners
+#   FINAL mode is auto-selected (the frozen table is warm); --exploratory forces the old
+#   in-memory synthesize path; --max-per-size N for a fast subset pass (needs >=2/stratum for the
+#   per-stratum PI spread the §6.6 aggregate requires).
 
-# n=90 competitors-vs-default figures (full cand_16 / cand_23 warm):
+# n=90 competitors-vs-default figures (full cand_16 / cand_23 warm; single-stratum, targeted):
 CBQS_BENCHMARKS_DIR=<clone> python -m benchmarks.plot_m3_n90 --warm        # -> logs/m3_n90_warm/*.png
 ```
+
+## 8. FINAL cross-stratum §13 verdict (bd 8an.10, 2026-06-20)
+
+The publishable run: `run_m3_warm --seed-cold-winners` (FINAL mode, frozen warm anchors 8an.9),
+seed 20260620, 5 generations, full 5-gene genome, all **88 anchored n≤90 instances**, 7-seed bank.
+Artifacts at `benchmarks/artifacts/m3_run_warm_8an10_final/` (gitignored; numbers preserved here).
+
+**RESULT: 0 survivors of 41 candidates** (40 admitted, 1 §1.5-gated). No warm schedule passes the
+cross-stratum §13 (CV over BOTH folds train{10–50}/validate{60–90} **AND** Holm FWER ≤ 0.05).
+**The warm default is unbeaten on the anchored n≤90 strata.** Negative control passed (no warm
+baseline-equivalent survivor). The full-scale FINAL capstone passed bit-for-bit (a fresh warm
+default re-scored to the frozen warm `default_PI` on all 88 instances).
+
+| candidate | genome | `pi_rank` (n≤90) | gate | CV (both folds) |
+|---|---|---|---|---|
+| **seed_cand_16** (cold winner) | r_opt_sat=8, r_opt=4.41, α=0.012, θ=pii_z | **+0.198** | ✗ | ✗ |
+| **seed_cand_23** (cold winner) | r_opt_sat=5.16, r_opt=4.43, α=0, θ off | **+0.212** | ✗ | ✗ |
+| cand_23 (best evolved) | r_opt_sat=2.71, r_opt=3.63, α=0.003, θ_amp=0.46 off | **+0.422** | ✗ | ✗ |
+| cand_16 / cand_28 / cand_25 (evolved) | (broad-opt / small-r variants) | +0.41 / +0.41 / +0.39 | ✗ | ✗ |
+
+**Interpretation.** Every top candidate is *better-on-average* warm (positive `pi_rank`, negative =
+better `pi_median` ≈ −0.07..−0.09) but **none clears the §6.6 gate or the cross-stratum CV**. The
+cold-M3 winner's big n=90 edge (W=+9 / +23 %, §6/§1 targeted) **does not generalize**: scored across
+all of n≤90 it collapses to `pi_rank ≈ +0.20` and CV-fails because the small-n (n=10–50) warm
+headroom is too thin for consistent significance across both folds. Cf. the COLD M3 (bd 884) where
+cand_16 scored `pi_rank=+0.875`, gate=True — the gap (+0.875 cold → +0.198 warm) is exactly the
+"warm start already captures most of the small-n headroom" effect.
+
+**This is the deliverable's reframed conclusion** (per the task: warm headroom is small/mid-n only,
+n=90 ≈28 %, n=3000 ≈0 %; "squeeze the small/mid-n warm headroom"): a *cross-stratum* warm schedule
+that beats the warm default under the full §13 does **not** exist in the searched space — the warm
+advantage is **real but n=90-concentrated** (see §6 targeted n=90 and the §6 n=3000 at-budget lead).
+A scheduled / convergence-aware opt radius (a new oracle-indexed C lever, not in this genome) is the
+remaining untested avenue — deferred to **bd 71e** (M5).
