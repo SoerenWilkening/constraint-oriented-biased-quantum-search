@@ -234,3 +234,30 @@ that beats the warm default under the full §13 does **not** exist in the search
 advantage is **real but n=90-concentrated** (see §6 targeted n=90 and the §6 n=3000 at-budget lead).
 A scheduled / convergence-aware opt radius (a new oracle-indexed C lever, not in this genome) is the
 remaining untested avenue — deferred to **bd 71e** (M5).
+
+## 9. Large-n anchoring: the B_I-PI metric is DEGENERATE at n≥1000 (bd 8an.4.8, 2026-06-21)
+
+A spot-check during the large-n anchor freeze (8an.4.8, extending warm anchors past n=500) found the
+**primal-gap-to-`B_I` metric breaks down at n≥1000** — a *fundamental* limit, not a compute one. The
+M1–M3 metric normalizes progress by `(B_I − L_I)`: from a first-feasible floor `L_I` *up to* the
+classical frontier `B_I`. But warm CBQS reaches feasibility **at or above `B_I`** at scale:
+
+| n | greedy feasible? | first-feasible vs `B_I` | metric |
+|---|---|---|---|
+| ≤90 | often infeasible | `< B_I` (real headroom; default_PI > 0) | works |
+| 500 | mixed | mostly `< B_I`, but **2/8 default_PI < 0** (500_3, 500_6 — warm already beats `B_I`) | works (onset) |
+| 1000 | 2/9 feasible **== `B_I` exactly** (1000_0/1, gurobi); 7/9 infeasible | `≥ B_I` | **degenerate** |
+| 3000 | 9/9 infeasible | first-feasible(3000_0) `> B_I` (22.688e9 vs 22.656e9), final beats hexaly, `verify=True` | **degenerate** |
+
+At n≥1000, `L_I ≥ B_I` → `(B_I − L_I) ≤ 0` → every instance drops as `L_ge_B`; the primal integral
+toward `B_I` is ill-defined once the solver meets/beats `B_I`. **NOTABLE — likely the headline at
+scale: warm-started CBQS appears to BEAT classical SOTA (gurobi/hexaly) at n≥1000** (verified-feasible
+objectives above the best-known frontier). Also: a faithful warm n=3000 solve is **~32 min** (~33 h /
+9-instance stratum); n=1000 is fast (114 s, full `T(1000)=2176`).
+
+**Decision (user, 2026-06-21): freeze tops out at n=500.** `baselines_frozen.csv` is warm-anchored
+through **n=500** (8/9; 500_8 has no cold `L_I`); n≥1000 is **NOT** PI-anchorable and is documented as
+degenerate (do not freeze). **M4 (n=3000 generalization) is reframed off the B_I-PI verdict** to a
+**direct objective A/B** (warm candidate vs warm default, objective-at-budget, paired Wilcoxon + neg
+control — the §6 n=3000 method) → tracked as a new bead. M3's "largest-n strict gate_A" exit inherits
+the same reframe. See memory `largen-warm-beats-bi-metric-degenerate` and bd 8an.4.8.

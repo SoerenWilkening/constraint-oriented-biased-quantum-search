@@ -329,6 +329,14 @@ A change to any of these must be deliberate, justified in the `bd` issue, and up
   cold one (feasible from oracle 0), so `freeze_default_anchors` enforces a **single-protocol** guard. The
   canonical M3 driver is `run_m3_warm.py`; the cold `run_m3.py` fails loud against the warm table. To
   reproduce the cold M1 baselines, restore the `*_cold.csv` archive (or `m2 … --cold`).
+- **Warm PI freeze tops out at n=500 — n≥1000 is DEGENERATE (bd 8an.4.8, 2026-06-21).** At n≥1000 warm
+  CBQS reaches feasibility **at or above** the classical frontier `B_I` (greedy `== B_I` exactly on
+  n=1000_0/1; n=3000 first-feasible+final beat hexaly, `verify=True`), so `L_I ≥ B_I` → the primal-gap-to-`B_I`
+  normalizer collapses (every instance drops as `L_ge_B`). The onset shows at n=500 (2/8 default_PI < 0).
+  So `baselines_frozen.csv` is warm-anchored **only through n=500**; do **not** attempt an L_I/default_PI
+  freeze at n≥1000. **M4 (n=3000) is scored by a DIRECT objective A/B**, not a B_I-anchored PI verdict
+  (warm CBQS likely beats classical SOTA at scale — see `benchmarks/M3_WARM_FINDINGS.md` §9, memory
+  `largen-warm-beats-bi-metric-degenerate`). A faithful warm n=3000 solve is also ~32 min (≈33 h/stratum).
 - **Determinism:** fixed seed + single worker → identical objective **and** solution array
   (`test_determinism.py`). The M0 per-worker PRNG decorrelation must keep single-worker determinism intact
   and only change *multi-worker* trajectory divergence. Never "fix" a failing determinism assert by
