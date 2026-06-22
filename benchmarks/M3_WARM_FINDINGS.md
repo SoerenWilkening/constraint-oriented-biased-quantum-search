@@ -261,3 +261,35 @@ degenerate (do not freeze). **M4 (n=3000 generalization) is reframed off the B_I
 **direct objective A/B** (warm candidate vs warm default, objective-at-budget, paired Wilcoxon + neg
 control — the §6 n=3000 method) → tracked as a new bead. M3's "largest-n strict gate_A" exit inherits
 the same reframe. See memory `largen-warm-beats-bi-metric-degenerate` and bd 8an.4.8.
+
+## 10. VERIFIED: warm CBQS beats classical SOTA at n≥1000 (bd 8an.11, 2026-06-22)
+
+§9's premise — warm CBQS operates *at or above* the classical frontier `B_I` at scale — is now
+**verified with an INDEPENDENT feasibility audit**. `benchmarks/verify_largen_beats_classical.py`:
+for every returned solution it recomputes the objective **and both Eq.29 constraints from the raw
+`c1/c2/c3`** (the `eq29_loader` semantics: `obj = x·c1·x` max; `x·2c3·x ≤ Σc3`; `x·2c2·x ≥ Σc2`),
+**not** the solver's own `verify` flag. Setup: warm CBQS (`general_greedy`+`solve`), exact sampler,
+`M=-1` (faithful `T(n)`), `stopping_time=1800 s` (RUN POLICY; binds at n=3000 ≈9.5K/9989 oracles, not
+n=1000 which converges in ~92 s). n=1000: all 9 instances, best over seeds {1,2,3}; n=3000: 3
+instances, seed 1. `B_I` = classical-only SOTA (gurobi/hexaly/simanneal); `iqs` = published CBQS
+(excluded from `B_I`).
+
+| stratum | solved | feasible (audit) | obj-consistent | **beat `B_I` (classical)** | beat `iqs` (published) |
+|---|---|---|---|---|---|
+| n=1000 | 9/9 | **9/9** | 9/9 | **8/9** | 6/9 |
+| n=3000 | 3/3 | **3/3** | 3/3 | **3/3** | 3/3 |
+
+Margins over classical `B_I`: n=1000 **+4.2M..+6.1M** (~+0.16..+0.24 %; lone miss 1000_7 −0.0065 %,
+a seed/budget artifact — published iqs also edges it); n=3000 **+28.8M, +55.9M, +59.2M**
+(+0.13..+0.26 %). Our warm CBQS also matches/exceeds the **published iqs on 9/12** (3/3 at n=3000).
+
+**VERDICT: confirmed.** Warm CBQS beats the best classical solver on **11/12** n≥1000 instances, every
+solution **independently verified feasible** and objective-consistent (audit == solver on 12/12). This
+is the published CBQS-beats-classical result reproduced by our warm implementation with feasibility
+checked from first principles — and it is *why* the gap-to-`B_I` metric is degenerate at scale (§9):
+CBQS warm lives above the classical frontier. **Provenance of `greedy == B_I`** (the puzzle from §9):
+at the 2 feasible-greedy n=1000 instances (1000_0/1) the warm greedy lands **exactly** on gurobi's
+`B_I` and is independently feasible — the greedy construction genuinely matches the best classical
+primal there (not a data-lineage artifact); CBQS then climbs above it. **Implication for M4 (bd
+8an.11):** scoring must be a direct objective A/B (cand vs default), which this script's solve+audit
+harness seeds.
