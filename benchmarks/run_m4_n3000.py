@@ -150,52 +150,80 @@ def _paired(indices, obj_at, arm):
     return pairs, dropped
 
 
-def _verdict(indices, recs, obj_at, T):
-    cand_results = {}
-    pvals = {}
-    for arm in CANDIDATES:
-        pairs, dropped = _paired(indices, obj_at, arm)
-        deltas = [a - d for (_i, d, a) in pairs]
-        pcts = [100.0 * (a - d) / d for (_i, d, a) in pairs]
-        n_pos = sum(1 for x in deltas if x > 0)
-        n_neg = sum(1 for x in deltas if x < 0)
-        # one-sided Wilcoxon: candidate > default. Needs ≥1 nonzero delta.
-        if any(x != 0 for x in deltas):
-            try:
-                W, p = ss.wilcoxon(deltas, alternative="greater", zero_method="wilcox")
-            except ValueError:
-                W, p = None, 1.0
-        else:
+def _obj_at_common(indices, recs, T):
+    """obj at the per-instance COMMON budget B = min over arms of `oracle_calls` (capped at T):
+    the largest oracle budget where EVERY arm has a MEASURED value (it actually ran those oracles
+    — a stall just adds no history entry). Assumption-free (no stall extrapolation), so this is the
+    faithful equal-oracle-cost read; conservative for a still-climbing candidate (the default is the
+    bottleneck). Returns (obj_at dict, {idx: B})."""
+    obj_at, budgets = {}, {}
+    for idx in indices:
+        rs = {arm: recs.get((idx, arm)) for arm in ARMS}
+        if any(r is None for r in rs.values()):
+            continue
+        B = min(min(int(r.get("oracle_calls", 0)) for r in rs.values()), T)
+        budgets[idx] = B
+        for arm, r in rs.items():
+            obj_at[(idx, arm)] = obj_at_budget(r["history"], B)
+    return obj_at, budgets
+
+
+def _candidate_stats(pairs, arm):
+    """Per-candidate paired stats vs default: deltas, one-sided Wilcoxon (cand>default), median+CI."""
+    deltas = [a - d for (_i, d, a) in pairs]
+    pcts = [100.0 * (a - d) / d for (_i, d, a) in pairs]
+    if any(x != 0 for x in deltas):
+        try:
+            W, p = ss.wilcoxon(deltas, alternative="greater", zero_method="wilcox")
+        except ValueError:
             W, p = None, 1.0
-        med = float(np.median(deltas)) if deltas else None
-        med_pct = float(np.median(pcts)) if pcts else None
-        # bootstrap 95% CI of the median delta (deterministic via fixed indices resample seed)
-        ci = _boot_ci_median(deltas) if len(deltas) >= 3 else None
-        cand_results[arm] = {
-            "n_pairs": len(pairs), "dropped": dropped, "n_pos": n_pos, "n_neg": n_neg,
-            "median_delta": med, "median_pct": med_pct, "ci95_median_delta": ci,
+    else:
+        W, p = None, 1.0
+    return {"n_pairs": len(pairs), "n_pos": sum(1 for x in deltas if x > 0),
+            "n_neg": sum(1 for x in deltas if x < 0),
+            "median_delta": (float(np.median(deltas)) if deltas else None),
+            "median_pct": (float(np.median(pcts)) if pcts else None),
+            "ci95_median_delta": (_boot_ci_median(deltas) if len(deltas) >= 3 else None),
             "wilcoxon_W": (float(W) if W is not None else None), "p_value": float(p),
             "per_instance": [{"index": i, "default": d, arm: a, "delta": a - d,
-                              "pct": 100.0 * (a - d) / d} for (i, d, a) in pairs],
-        }
-        pvals[arm] = float(p)
-    # Holm-Bonferroni over the candidate family
-    holm = _holm(pvals, alpha=0.05)
-    # negative control: (negctl - default) obj@T must be ≡0 (identical schedule, matched seed)
-    nc_pairs, nc_dropped = _paired(indices, obj_at, "negctl")
+                              "pct": 100.0 * (a - d) / d} for (i, d, a) in pairs]}
+
+
+def _block(indices, obj_at):
+    """A full candidate-family verdict at one obj_at read: per-candidate stats + Holm-FWER."""
+    cand, pvals = {}, {}
+    for arm in CANDIDATES:
+        pairs, dropped = _paired(indices, obj_at, arm)
+        st = _candidate_stats(pairs, arm); st["dropped"] = dropped
+        cand[arm] = st; pvals[arm] = st["p_value"]
+    return {"candidates": cand, "holm": _holm(pvals, alpha=0.05)}
+
+
+def _verdict(indices, recs, obj_at_T, T):
+    # PRIMARY: obj@T(n) — the designed faithful budget. The default is read as its stalled value
+    # (it does not improve in [reached, T]; per-run stall + §6: default flat until ~43M oracles).
+    at_T = _block(indices, obj_at_T)
+    # CORROBORATION: obj@common — assumption-free equal-oracle-cost read (min oracle_calls/arm).
+    obj_common, budgets = _obj_at_common(indices, recs, T)
+    at_common = _block(indices, obj_common)
+    at_common["budgets"] = budgets
+    # negative control: (negctl - default) obj@T must be ≡0 (identical schedule, matched seed).
+    nc_pairs, nc_dropped = _paired(indices, obj_at_T, "negctl")
     nc_deltas = [a - d for (_i, d, a) in nc_pairs]
-    nc_all_zero = all(x == 0 for x in nc_deltas)
-    neg = {"n_pairs": len(nc_pairs), "dropped": nc_dropped, "deltas": nc_deltas,
-           "all_zero": nc_all_zero,
+    neg = {"n_pairs": len(nc_pairs), "dropped": nc_dropped,
+           "all_zero": all(x == 0 for x in nc_deltas),
            "max_abs_delta": (max(abs(x) for x in nc_deltas) if nc_deltas else 0)}
-    # feasibility-at-T audit per arm
-    feas = {arm: sum(1 for idx in indices if obj_at.get((idx, arm)) is not None)
-            for arm in ARMS}
+    feas = {arm: sum(1 for idx in indices if obj_at_T.get((idx, arm)) is not None) for arm in ARMS}
+    # M4-PASS: Holm-reject at the designed budget T AND a positive median at the faithful common
+    # budget (the win is not a wall/oracle-count artifact) AND the negative control is clean.
+    survivors = [a for a in CANDIDATES
+                 if at_T["holm"][a]["reject"]
+                 and (at_common["candidates"][a]["median_delta"] or 0) > 0
+                 and neg["all_zero"]]
     return {"bead": "constraint-oriented-biased-quantum-search-8an.11", "N": N, "T": T,
             "n_instances": len(indices), "indices": list(indices),
-            "candidates": cand_results, "holm": holm, "negative_control": neg,
-            "feasible_at_T": feas,
-            "survivors": [a for a in CANDIDATES if holm[a]["reject"]]}
+            "at_T": at_T, "at_common": at_common, "negative_control": neg,
+            "feasible_at_T": feas, "survivors": survivors}
 
 
 def _boot_ci_median(deltas, B=2000):
@@ -218,6 +246,22 @@ def _holm(pvals, alpha):
     return out
 
 
+def _block_report(log, block, label, N, show_instances=True):
+    log(f"\n--- {label} ---")
+    for arm, r in block["candidates"].items():
+        h = block["holm"][arm]
+        tag = "  <== Holm-reject" if h["reject"] else ""
+        md = r["median_delta"]
+        log(f"[{arm}] pairs={r['n_pairs']} (+{r['n_pos']}/-{r['n_neg']}) "
+            f"median Δ={md:+,.0f} ({r['median_pct']:+.4f}%) CI95={r['ci95_median_delta']}"
+            if md is not None else f"[{arm}] no pairs")
+        log(f"        Wilcoxon p={r['p_value']:.4g}  Holm thr={h['holm_threshold']:.4g} "
+            f"reject={h['reject']}{tag}")
+        if show_instances:
+            for pi in r["per_instance"]:
+                log(f"          {N}_{pi['index']}: Δ={pi['delta']:+,.0f} ({pi['pct']:+.4f}%)")
+
+
 def _report(log, s):
     log("\n" + "=" * 72)
     log("M4 — n=3000 DIRECT OBJECTIVE A/B (bd 8an.11)")
@@ -227,22 +271,21 @@ def _report(log, s):
     nc = s["negative_control"]
     log(f"negative control (baseline-equiv vs default): n={nc['n_pairs']} all_zero={nc['all_zero']} "
         f"max|Δ|={nc['max_abs_delta']}")
-    log("")
-    for arm, r in s["candidates"].items():
-        tag = "  <== SURVIVOR" if s["holm"][arm]["reject"] else ""
-        log(f"[{arm}] pairs={r['n_pairs']} (+{r['n_pos']}/-{r['n_neg']}) "
-            f"median Δ={r['median_delta']} ({r['median_pct']:+.4f}%) CI95={r['ci95_median_delta']}")
-        log(f"        Wilcoxon p={r['p_value']:.4g}  Holm thr={s['holm'][arm]['holm_threshold']:.4g} "
-            f"reject={s['holm'][arm]['reject']}{tag}")
-        for pi in r["per_instance"]:
-            log(f"          {s['N']}_{pi['index']}: Δ={pi['delta']:+,.0f} ({pi['pct']:+.4f}%)")
+    _block_report(log, s["at_T"], "PRIMARY: objective @ T(n) (designed budget; default read as stalled)",
+                  s["N"], show_instances=True)
+    _block_report(log, s["at_common"],
+                  "CORROBORATION: objective @ common budget min(oracle_calls) (assumption-free, equal oracle cost)",
+                  s["N"], show_instances=False)
+    if s["at_common"].get("budgets"):
+        log(f"   common budgets per instance: {s['at_common']['budgets']}")
     log("")
     if s["survivors"]:
-        log(f"M4 VERDICT: schedule(s) {s['survivors']} beat the warm default at n=3000 "
-            f"(objective@T(n), Holm-FWER≤0.05). Generalization CONFIRMED.")
+        log(f"M4 VERDICT: schedule(s) {s['survivors']} BEAT the warm default at n=3000 — Holm-FWER≤0.05 "
+            f"at the designed budget T(n) AND a positive median at the faithful equal-oracle budget, "
+            f"negative control clean. Generalization CONFIRMED.")
     else:
-        log("M4 VERDICT: NO schedule beats the warm default at n=3000 under objective@T(n) "
-            "(Holm-controlled). Generalization NOT established.")
+        log("M4 VERDICT: NO schedule passes both the designed-budget Holm gate and the faithful "
+            "equal-oracle corroboration. Generalization NOT established.")
     log("=" * 72)
 
 
