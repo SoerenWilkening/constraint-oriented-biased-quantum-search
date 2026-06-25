@@ -1,0 +1,1 @@
+{"arm": "negctl", "index": 6, "seed": 20260624, "wall_s": 900.8473298549652, "objective": 22696173159, "feasible": true, "oracle_calls": 2704, "greedy_value": null, "greedy_feasible": false, "history": [[22693732433.0, 1], [22696173159.0, 1]]}

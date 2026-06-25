@@ -1,0 +1,1 @@
+{"arm": "default", "index": 5, "seed": 20260624, "wall_s": 901.4569449424744, "objective": 22702271726, "feasible": true, "oracle_calls": 1570, "greedy_value": null, "greedy_feasible": false, "history": [[22698094854.0, 2], [22700368803.0, 5], [22702271726.0, 11]]}
