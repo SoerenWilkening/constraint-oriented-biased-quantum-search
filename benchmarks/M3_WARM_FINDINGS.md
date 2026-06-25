@@ -293,3 +293,43 @@ at the 2 feasible-greedy n=1000 instances (1000_0/1) the warm greedy lands **exa
 primal there (not a data-lineage artifact); CBQS then climbs above it. **Implication for M4 (bd
 8an.11):** scoring must be a direct objective A/B (cand vs default), which this script's solve+audit
 harness seeds.
+
+## 11. M4 VERDICT — generalization to n=3000 CONFIRMED (bd 8an.11 / 8an.5, 2026-06-25)
+
+The reframed M4 (NORTHSTAR §12/§13): `benchmarks/run_m4_n3000.py` — a matched-seed warm A/B over
+the **9 untouched n=3000 instances** (fresh seed 20260624, disjoint from the n≤90 selection banks),
+`M=M_BIG` + 900 s wall cap, exact sampler, 4 workers. The discovered schedules **cand_16** (M3
+winner) and **cand_23** (parsimonious) vs the **warm default**, plus a baseline-equivalent
+**negative control**. Scored by the DIRECT objective (the B_I-PI metric is degenerate here, §9/§10)
+at TWO budgets:
+
+* **PRIMARY — objective @ the designed budget T(n)=9989** (the default is read at its stalled value;
+  it reaches first-feasibility ~oracle 55 and never improves — confirmed per-run + §6 to ~43 M);
+* **CORROBORATION — objective @ the per-instance equal-oracle budget** `min(oracle_calls)` (the
+  largest budget where EVERY arm has a MEASURED value — assumption-free, equal oracle *cost*, so the
+  win is not a wall-time or oracle-count artifact).
+
+| arm | PRIMARY obj@T(n) | CORROBORATION obj@equal-oracle |
+|---|---|---|
+| **cand_16** | **9/9 win**, median Δ **+19.6 M (+0.086 %)**, Wilcoxon p=0.00195, **Holm-reject** | 8/9 win, +10.0 M (+0.044 %), p=0.0195, **Holm-reject** |
+| **cand_23** | **9/9 win**, median Δ **+19.3 M (+0.085 %)**, p=0.00195, **Holm-reject** | 8/9 win, +11.7 M (+0.052 %), p=0.0059, **Holm-reject** |
+| negative control | 9/9 **Δ≡0** (clean) | — |
+
+All four arms feasible-at-T on all 9 instances. Per-instance PRIMARY Δ ranges **+0.027 %..+0.155 %**
+(cand_16) / **+0.048 %..+0.155 %** (cand_23). Bootstrap CI95 of the median Δ excludes 0 on both
+budgets for both candidates.
+
+**VERDICT: generalization CONFIRMED.** Both agent-discovered schedules beat the warm default at the
+n=3000 target scale — Holm-FWER≤0.05 at the designed budget AND a positive Holm-significant median at
+the faithful equal-oracle budget, with a clean negative control. **Mechanism:** the warm default
+stalls at its first-feasible incumbent (the warm start sits at the classical frontier, §10), while
+the discovered schedules keep improving — they start ~6 M *below* the default's first-feasible but
+cross it by oracle ~176–214 and pull away. **Scale picture (reconciling §8):** the schedules' edge is
+**headroom-gated** — null across small-n cross-stratum (n=10–50 warm is near-optimal, §8) but real at
+n=90 (targeted) and now n=3000 (where the default stalls and leaves headroom the schedule exploits).
+At n=3000 **cand_23 ≈ cand_16** (parsimonious ties the broad-opt_sat winner), the reverse of n=90.
+
+**Caveats (honest):** single fresh seed, pairing over the 9 instances (a multi-seed run would add
+within-instance power); the run is wall-bound (RUN POLICY waives oracle-faithfulness) but the
+equal-oracle corroboration removes the cost-axis confound. Artifacts:
+`benchmarks/artifacts/m4_n3000/` (gitignored; `summary.json` + numbers preserved here).
