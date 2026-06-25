@@ -41,6 +41,8 @@ but **cross it by oracle ~176–214 and pull away** (cand_16 on `3000_0`: 128 hi
 start is already near-optimal (small n), real where the default stalls and leaves headroom (n=90 targeted,
 n=3000).
 
+*Objective-vs-oracle trajectories (per-instance and aggregate): `benchmarks/artifacts/m4_n3000/obj_over_oracles_3000_all.png` (all 9 instances) and `obj_gain_vs_default_3000_average.png` (mean gain vs default, ±1σ) — regenerate with `python -m benchmarks.plot_m4_n3000 --mode all`.*
+
 **Companion finding (independently audited, bd `8an.11` §10).** Warm CBQS beats the best *classical*
 solver (`B_I` = gurobi/hexaly/simanneal) on **11/12 n≥1000 instances** (n=1000 8/9, +4.2..6.1 M; n=3000
 3/3, +28.8 M / +55.9 M / +59.2 M = +0.13..0.26 %), **every** solution feasibility-audited from the raw
