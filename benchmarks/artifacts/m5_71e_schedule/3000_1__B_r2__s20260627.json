@@ -1,0 +1,1 @@
+{"arm": "B_r2", "n": 3000, "index": 1, "seed": 20260627, "wall_s": 903.0344922542572, "params": {"opt_sat_branching_radius": 8.0, "opt_branching_radius": 2.0, "opt_switch_oracles": 1498}, "objective": 22649568246, "feasible": true, "oracle_calls": 1489, "greedy_feasible": false, "history": [[22649568246.0, 43]]}
