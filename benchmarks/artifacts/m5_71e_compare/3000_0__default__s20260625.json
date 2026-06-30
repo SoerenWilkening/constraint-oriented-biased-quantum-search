@@ -1,0 +1,1 @@
+{"key": "default", "n": 3000, "index": 0, "seed": 20260625, "wall_s": 300.9806299209595, "overrides": {}, "objective": 22687988420, "feasible": true, "oracle_calls": 920, "greedy_feasible": false, "history": [[22687848929.0, 97], [22687988420.0, 125]]}
