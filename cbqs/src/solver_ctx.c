@@ -122,6 +122,11 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->opt_forced = 0;
     ctx->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim) */
     ctx->deadline_ns = 0;     /* bd 0o8.3: 0 == OFF; armed by ctg from stopping_time */
+    /* bd w29 (M5 / 71e): opt-radius decay schedule OFF by default (static lever). */
+    ctx->opt_radius_schedule.enabled = 0;
+    ctx->opt_radius_schedule.r_start = 0.0;
+    ctx->opt_radius_schedule.r_end = 0.0;
+    ctx->opt_radius_schedule.gamma = 1.0;
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */
@@ -312,6 +317,40 @@ void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor) 
 void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor) {
     if (ctx == NULL) { return; }
     ctx->branching_stats_opt.look_ahead_factor = factor;
+}
+
+/* ============================================================
+ * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
+ * ============================================================ */
+
+void solver_ctx_set_opt_radius_schedule(solver_ctx_t *ctx, int enabled,
+                                        double r_start, double r_end, double gamma) {
+    if (ctx == NULL) { return; }
+    ctx->opt_radius_schedule.enabled = enabled;
+    ctx->opt_radius_schedule.r_start = r_start;
+    ctx->opt_radius_schedule.r_end = r_end;
+    ctx->opt_radius_schedule.gamma = gamma;
+}
+
+double opt_radius_schedule_eval(const opt_radius_schedule_t *s, double ratio) {
+    /* Bit-for-bit constant degeneracy: when the endpoints coincide the schedule
+     * IS the constant lever — return r_start with no arithmetic (so the bias
+     * matches radius_to_bias(n, r_start) exactly and the pow() below is never
+     * exercised on a degenerate spec). This is the negative-control guarantee. */
+    if (s->r_start == s->r_end) {
+        return s->r_start;
+    }
+    /* Normalized oracle fraction t in [0,1]. ctg passes total_oracles/mod->M,
+     * which the loop guard keeps in [0,1); clamp defensively so a raw-API caller
+     * (or the terminal in-progress round) can never push the shape out of range. */
+    double t = ratio;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    /* r(t) = r_end + (r_start - r_end) * (1 - t)^gamma:
+     *   t=0 -> r_start (broad), t=1 -> r_end (tight). For gamma>0 and t in [0,1]
+     *   the factor (1-t)^gamma is in [0,1], so r stays within [min,max] of the
+     *   two positive endpoints — always > 0 (radius_to_bias never divides by 0). */
+    return s->r_end + (s->r_start - s->r_end) * pow(1.0 - t, s->gamma);
 }
 
 /* ============================================================

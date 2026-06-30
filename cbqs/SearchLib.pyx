@@ -331,6 +331,22 @@ cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	if param_look_factor is not None:
 		solver_ctx_set_look_ahead_factor(ctx, param_look_factor)
 
+	# bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule.
+	# Runtime data (NORTHSTAR §1.6) — opt-phase-only, propagated via THIS route
+	# (no second propagation path, §2.7). Armed iff BOTH endpoints are set; ctg
+	# then recomputes the opt bias BETWEEN rounds from total_oracles/mod->M
+	# (faithful between-round classical write; inner sampler byte-unchanged).
+	# r_start == r_end reproduces the static opt_branching_radius lever
+	# bit-for-bit. Disabled (the default) leaves the static lever untouched.
+	sched_r_start = params.get('opt_radius_schedule_r_start')
+	sched_r_end = params.get('opt_radius_schedule_r_end')
+	if sched_r_start is not None and sched_r_end is not None:
+		sched_gamma = params.get('opt_radius_schedule_gamma')
+		if sched_gamma is None:
+			sched_gamma = 1.0
+		solver_ctx_set_opt_radius_schedule(
+			ctx, 1, <double> sched_r_start, <double> sched_r_end, <double> sched_gamma)
+
 	# Variable ordering: set from priorities if available, else default.
 	# solver_ctx_set_variable_order sets all three phases at once.
 	# Use the first non-None priorities found (phase-specific or unprefixed).

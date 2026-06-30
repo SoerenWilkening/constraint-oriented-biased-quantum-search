@@ -37,6 +37,30 @@
  *
  * Note: Using named struct 'solver_ctx' to match forward declaration in Branching.h
  */
+
+/** bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule spec.
+ *  A FAITHFUL between-round schedule of the opt-phase state-prep angle: the
+ *  opt-phase scalar-bias radius is recomputed BETWEEN Grover rounds (a classical
+ *  write of stats->bias via ctg) from a non-quantum-internal, T(n)-normalized key
+ *  (total_oracles / mod->M in [0,1]) and held CONSTANT through every round's
+ *  Grover iterations. The inner sampler (Branching.h / quantum_search.c /
+ *  approximate_state_sampler.c) is BYTE-UNCHANGED — BranchingFunction still only
+ *  READS stats->bias. Mirrors opt_switch_oracles (round(alpha*T(n))). The schedule
+ *  shape is r(t) = r_end + (r_start - r_end) * (1 - t)^gamma for t in [0,1]:
+ *    t=0 -> r_start (broad, opt-phase start);  t=1 -> r_end (tight, near T(n)).
+ *    gamma == 1 linear; gamma > 1 tightens EARLY (steep early, gentle near t=1);
+ *    gamma < 1 stays broad longer then drops (gentle early, steep near t=1).
+ *    r_start == r_end degenerates to
+ *    the CONSTANT static lever bit-for-bit (opt_radius_schedule_eval early-returns
+ *    r_start, so the bias matches radius_to_bias(n, r_start) exactly). enabled == 0
+ *    is the strict no-op default (the existing static opt_branching_radius path). */
+typedef struct {
+    int    enabled;   /* 0 == OFF (static lever path; the default). */
+    double r_start;   /* target radius at t=0 (broad). > 0 when enabled. */
+    double r_end;     /* target radius at t=1 (tight). > 0 when enabled. */
+    double gamma;     /* decay-shape exponent. > 0 when enabled (1.0 == linear). */
+} opt_radius_schedule_t;
+
 struct solver_ctx {
     /** Phase-specific branching statistics */
     BranchingStats_t branching_stats_sat;
@@ -170,6 +194,14 @@ struct solver_ctx {
      *  once per worker from the read-only mod->stopping_time then read -- the
      *  same race-free pattern as opt_sample_cap (no shared mod-> writes). */
     uint64_t deadline_ns;
+
+    /** bd w29 (M5 / 71e): per-worker continuous opt-radius DECAY schedule.
+     *  enabled == 0 is the strict no-op default (static lever path). When
+     *  enabled, ctg recomputes ctx->branching_stats_opt.bias BETWEEN rounds in
+     *  the opt phase from this spec (see opt_radius_schedule_t). Per-worker write
+     *  at propagation time, then read between rounds — race-free, like
+     *  opt_sample_cap (no shared mod-> writes on the hot path). */
+    opt_radius_schedule_t opt_radius_schedule;
 
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
@@ -348,6 +380,41 @@ void solver_ctx_set_opt_bias_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor);
+
+/* ============================================================
+ * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
+ * ============================================================ */
+
+/**
+ * @brief Install the continuous opt-radius decay schedule on this context.
+ *
+ * Runtime data (NORTHSTAR §1.6), propagated once per worker via
+ * _propagate_phase_params. When @p enabled != 0, ctg recomputes the opt-phase
+ * bias BETWEEN Grover rounds from this spec (faithful between-round classical
+ * write; the inner sampler is byte-unchanged). enabled == 0 is the strict no-op
+ * (the static opt_branching_radius lever path). r_start/r_end/gamma must be > 0
+ * when enabled (validated at the Python set-time boundary).
+ *
+ * @param ctx     Solver context (NULL is a no-op).
+ * @param enabled Non-zero to arm the schedule; 0 to leave the static lever.
+ * @param r_start Target radius at oracle fraction t=0 (broad).
+ * @param r_end   Target radius at oracle fraction t=1 (tight).
+ * @param gamma   Decay-shape exponent (1.0 == linear).
+ */
+void solver_ctx_set_opt_radius_schedule(solver_ctx_t *ctx, int enabled,
+                                        double r_start, double r_end, double gamma);
+
+/**
+ * @brief Pure evaluator: target radius at normalized oracle fraction @p ratio.
+ *
+ * r(t) = r_end + (r_start - r_end) * (1 - clamp(t,0,1))^gamma. Deterministic and
+ * side-effect-free (depends only on @p s and @p ratio) — this purity is what
+ * makes the radius CONSTANT within a Grover round (it is evaluated only at the
+ * top of the between-round ctg loop). When r_start == r_end it returns r_start
+ * EXACTLY (no arithmetic), so the schedule degenerates to the constant lever
+ * bit-for-bit. @p s must be non-NULL.
+ */
+double opt_radius_schedule_eval(const opt_radius_schedule_t *s, double ratio);
 
 /* ============================================================
  * Consolidated Parameter Setter

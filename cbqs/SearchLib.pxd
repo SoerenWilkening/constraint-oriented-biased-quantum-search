@@ -67,6 +67,10 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_opt_sat_bias_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_opt_bias_factor(solver_ctx_t* ctx, double factor)
 
+	# bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule
+	void solver_ctx_set_opt_radius_schedule(solver_ctx_t* ctx, int enabled,
+	                                        double r_start, double r_end, double gamma)
+
 	# Variable ordering (M4/M5)
 	void solver_ctx_set_variable_order(solver_ctx_t* ctx, const double* priorities, int n)
 	void solver_ctx_set_default_order(solver_ctx_t* ctx, int n)

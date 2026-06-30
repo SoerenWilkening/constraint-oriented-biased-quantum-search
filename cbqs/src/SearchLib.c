@@ -194,6 +194,41 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 			return 0;
 		}
 
+		/* bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY lever.
+		 * A FAITHFUL between-round classical write of the opt-phase state-prep
+		 * angle: evaluated HERE (top of the between-round loop, BEFORE the 2j+1
+		 * charge below) and held CONSTANT through the round's Grover iterations
+		 * (the inner sampler reads stats->bias only; Branching.h /
+		 * quantum_search.c / approximate_state_sampler.c are byte-unchanged).
+		 * Keyed ONLY on the non-quantum-internal, T(n)-normalized between-round
+		 * signal total_oracles/mod->M in [0,1] (NORTHSTAR §1.5; mirrors
+		 * opt_switch_oracles = round(alpha*T(n))) — NEVER on a per-candidate /
+		 * sample / rejected-candidate count (that would be an unpriced uncharged
+		 * angle and change the inner sampler). Applies ONLY in the opt phase
+		 * (stage == 3, where ctx->active_stats == &ctx->branching_stats_opt and
+		 * the bias IS the realized-radius lever); sat/opt_sat biases are
+		 * untouched. enabled == 0 is the strict no-op (the static lever path).
+		 * When r_start == r_end the eval returns r_start exactly => bias ==
+		 * radius_to_bias(n, r_start), reproducing the static arm bit-for-bit. The
+		 * 2j+1 oracle charge below NEVER reads stats->bias, so both A/B arms run
+		 * to the identical T(n) cap and the lever is priced by the equal-T(n)
+		 * A/B by construction (CLAUDE.md §1.1/§1.2). */
+		if (ctx->opt_radius_schedule.enabled && stage == 3) {
+			/* ratio is the fraction of the TOTAL T(n) budget (it counts the
+			 * sat/opt_sat oracles spent before opt began), so r_start is fully
+			 * realized only on a WARM start (the canonical default, where opt is
+			 * reached at ratio~0); the realized decay range is reduced by the
+			 * n/instance-dependent pre-opt consumption on a cold start. Run the
+			 * A/B warm (run_w29_decay_probe seeds general_greedy). */
+			double ratio = (double) total_oracles / (double) mod->M;
+			double r = opt_radius_schedule_eval(&ctx->opt_radius_schedule, ratio);
+			/* radius_to_bias(n,r): bit-identical IEEE-double arithmetic to the
+			 * Python harness (phase_params.radius_to_bias, SearchLib.pyx) — the
+			 * r_start==r_end bit-for-bit negative control is the cross-language
+			 * drift guard (tests/test_opt_radius_schedule.{c,py}). */
+			ctx->branching_stats_opt.bias = (double) n / r - 2.0;
+		}
+
 		/* bd 8an.1.17: cap the Grover iteration count to the REMAINING oracle
 		 * budget BEFORE charging, so 2*j+1 <= remaining and the cumulative count
 		 * lands at <= mod->M (== T(n) for a stage-3 terminal round) instead of

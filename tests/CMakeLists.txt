@@ -395,6 +395,28 @@ add_cmocka_test(test_deadline_interrupt
     ${CBQS_SRC_DIR}/arena.c
 )
 
+# --- bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY lever ---
+# Drives ctg (mirrors test_searchlib's source list) for the bit-for-bit negative
+# control + liveness, plus pure-evaluator unit tests.
+add_cmocka_test(test_opt_radius_schedule
+    test_opt_radius_schedule.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
 # --- M1: Phase-specific BranchingStats in solver_ctx_t ---
 add_cmocka_test(test_solver_ctx_phases
     test_solver_ctx_phases.c
