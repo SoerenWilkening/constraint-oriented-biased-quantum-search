@@ -143,6 +143,31 @@ worsened with headroom; grow (tight→broad) is null vs the best constant. The s
 right answer, now confirmed against both monotone schedule directions by direct measurement. (Driver:
 `run_w29_grow_probe.py`; artifacts `benchmarks/artifacts/m5_w29_grow/`.)
 
+### 7a. "But cand_16 was the best — wouldn't beating it beat all?" — decomposition (n=90)
+
+A natural objection: cand_16 was the M4 winner, the bare best constant couldn't beat it, and
+`K_grow2to4.41` beats cand_16 (+6,305) — so isn't the growing schedule the new best? Resolved by adding
+the missing arm `C_r2_theta` (cand_16's exact θ=z(p_ii)·0.288 at the *bare-optimal* radius r=2):
+
+| n=90, median Δ vs bare C_r2 | Δ | split |
+|-----------------------------|------|-------|
+| C_r2_theta (const r=2 + θ)  | +0     | 4+/4− |
+| K_grow2to4.41 (θ + grow 2→4.41) | +2,950 | 5+/4− |
+| K_const4.41 (cand_16)       | −6,390 | 3+/5− |
+| C_r4.41                     | −11,185 | 1+/8− |
+| C_r6                        | −23,901 | 0+/9− |
+
+Decisive: `K_grow2to4.41 vs C_r2_theta` = **+0 (4+/4−)** — the growing *schedule* TIES the *constant*
+r=2 + θ; and `C_r2_theta vs C_r2` = +0 (θ near-null at r=2, matching M2f). **The premise was wrong:
+cand_16 is NOT the ceiling — bare r=2 beats it (−6,390)**, because 4.41 is too broad. `K_grow` beats
+cand_16 only because growing from 2 spends its early oracles at the better tight radius; it *recovers*
+cand_16's deficit and lands at ≈r=2, the schedule adding nothing beyond "be near r=2." Everything
+collapses to: **the cluster {bare r=2, r=2+θ, K_grow} is statistically tied at the top** (broad configs
+clearly below) → **constant r≈2 is the ceiling and no schedule exceeds it.** (At n=60 θ even slightly
+hurts — C_r2_theta −3,557 vs bare r=2.) Residual open thread, distinct from w29's radius schedule:
+whether **θ at the right radius (r=2)** helps *at n=3000* (neutral at n≤90) — that is the Phase-2 θ
+lever (bd 8an.6), a constant, not a schedule.
+
 **Drivers:** `benchmarks/run_w29_decay_probe.py` (decay A/B; `--budget-mult` faithful mode for small-n),
 `benchmarks/run_w29_grow_probe.py` (grow direction + constant sweep), `benchmarks/run_w29_noise_audit.py`
 (§5 prerequisite). **Tests:** `tests/test_opt_radius_schedule.{c,py}`.

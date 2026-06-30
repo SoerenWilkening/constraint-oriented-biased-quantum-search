@@ -47,7 +47,9 @@ DEFAULT_SEEDS = (20260630, 20260701, 20260702)
 M_BIG = 100_000_000
 
 ARMS = ["C_r2", "C_r4.41", "C_r6", "G_2to4.41", "G_2to4.41_steep", "neg_2to2",
-        "K_const4.41", "K_grow2to4.41"]
+        "K_const4.41", "K_grow2to4.41",
+        # bd w29 decomposition (does the best config = constant r=2 + theta, no schedule?):
+        "C_r2_theta", "C_r3_theta"]
 CONST_ARMS = ["C_r2", "C_r4.41", "C_r6"]
 
 
@@ -74,6 +76,13 @@ def arm_params(arm, n, c1, c2, c3):
         p = dict(genome_to_factory(CAND16)(n, c1, c2, c3))         # keep theta + opt_sat + switch
         p["opt_radius_schedule_r_start"] = 2.0; p["opt_radius_schedule_r_end"] = R4
         return p
+    # Decomposition: cand_16's theta (z(p_ii)*0.288) at the BARE-optimal radius (constant, no
+    # schedule). If this beats both bare C_r2 and K_grow, the "schedule" edge was just theta at the
+    # right radius — ship a constant r=2 + theta, no lever.
+    if arm == "C_r2_theta":
+        return dict(genome_to_factory((R_OPT_SAT, 2.0, ALPHA, CAND16[3], CAND16[4]))(n, c1, c2, c3))
+    if arm == "C_r3_theta":
+        return dict(genome_to_factory((R_OPT_SAT, 3.0, ALPHA, CAND16[3], CAND16[4]))(n, c1, c2, c3))
     raise ValueError(arm)
 
 
