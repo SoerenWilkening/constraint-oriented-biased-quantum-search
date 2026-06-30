@@ -77,17 +77,27 @@ ARMS = ["A_r2", "neg_r2", "D_4to2", "D_8to2", "D_8to2_steep"]
 D_ARMS = ["D_4to2", "D_8to2", "D_8to2_steep"]   # the real-decay family (Holm over these)
 
 
-def solve_arm(arm, n, idx, seed, wall, workers, bench_root):
+def solve_arm(arm, n, idx, seed, wall, workers, bench_root, budget_mult=None):
     c1, c2, c3 = load_eq29(n, idx, bench_root)
     resolved = _resolve(arm, n)
     m = build_model(c1, c2, c3, vectorized=True)
     greedy_value, greedy_feasible = m.general_greedy()
     m.seed = int(seed)
-    m.set_param("M", M_BIG)
+    # Two modes. WALL (budget_mult is None): the n=3000 RUN POLICY — huge M +
+    # wall cap; obj@common is the faithful read (obj@T is wall-depth-confounded).
+    # FAITHFUL (budget_mult set, for the small-n insight sweep): terminate on the
+    # ORACLE budget M = round(mult * T(n)) with NO wall cap (stopping_time=-1).
+    # Faithful = fast + REPRODUCIBLE at small n (no wall-truncation noise floor),
+    # so obj@T(n)/obj@common is the clean, unconfounded read.
+    if budget_mult is not None:
+        m.set_param("M", int(round(budget_mult * metric.oracle_budget(n))))
+        m.set_param("stopping_time", -1.0)
+    else:
+        m.set_param("M", M_BIG)
+        m.set_param("stopping_time", float(wall))
     m.set_param("num_workers", workers)
     m.set_param("verify", True)
     m.set_param("opt_sample_cap", 0)
-    m.set_param("stopping_time", float(wall))
     m.set_param("track_history", True)
     for k, v in resolved.items():
         m.set_param(k, v)
@@ -195,18 +205,23 @@ def _verdict(n, recs, indices, seeds, T):
                                if (i, s) in budgets}}
 
 
-def run(*, n, out_dir, seeds, wall, workers, indices, bench_root, report_only=False, log=print):
+def run(*, n, out_dir, seeds, wall, workers, indices, bench_root, budget_mult=None,
+        report_only=False, log=print):
     os.makedirs(out_dir, exist_ok=True)
     T = metric.oracle_budget(n)
+    mode = "faithful" if budget_mult is not None else "wall"
     cfg = {"N": n, "seeds": list(seeds), "wall_s": float(wall), "workers": int(workers),
-           "indices": list(indices), "M_BIG": M_BIG, "T": T, "arms": ARMS,
-           "alpha_switch": ALPHA_SWITCH, "r_opt_sat": R_OPT_SAT, "r_star": R_STAR}
+           "indices": list(indices), "M_BIG": M_BIG, "T": T, "arms": ARMS, "mode": mode,
+           "budget_mult": budget_mult, "alpha_switch": ALPHA_SWITCH,
+           "r_opt_sat": R_OPT_SAT, "r_star": R_STAR}
     cfg_path = os.path.join(out_dir, "run_config.json")
     if os.path.exists(cfg_path):
         prev = json.load(open(cfg_path))
-        for k in ("N", "wall_s", "workers", "M_BIG"):
+        for k in ("N", "workers", "mode", "budget_mult"):
             if prev.get(k) != cfg[k]:
                 raise SystemExit(f"[w29] CONFIG MISMATCH on {k}: {prev.get(k)} != {cfg[k]} — fresh --out-dir.")
+        if mode == "wall" and prev.get("wall_s") != cfg["wall_s"]:
+            raise SystemExit(f"[w29] CONFIG MISMATCH on wall_s — fresh --out-dir.")
     else:
         json.dump(cfg, open(cfg_path, "w"), indent=2)
 
@@ -219,8 +234,10 @@ def run(*, n, out_dir, seeds, wall, workers, indices, bench_root, report_only=Fa
                     rp = os.path.join(out_dir, f"{n}_{idx}__{arm}__s{s}.json")
                     if os.path.exists(rp):
                         log(f"[w29] ({done}/{total}) skip {n}_{idx} {arm} s={s} (done)"); continue
-                    log(f"[w29] ({done}/{total}) solve {n}_{idx} {arm} s={s} wall={wall}s ...")
-                    rec = solve_arm(arm, n, idx, s, wall, workers, bench_root)
+                    _budget = (f"M={int(round(budget_mult*metric.oracle_budget(n)))}(={budget_mult}xT)"
+                               if budget_mult is not None else f"wall={wall}s")
+                    log(f"[w29] ({done}/{total}) solve {n}_{idx} {arm} s={s} {_budget} ...")
+                    rec = solve_arm(arm, n, idx, s, wall, workers, bench_root, budget_mult=budget_mult)
                     json.dump(rec, open(rp, "w"))
                     log(f"[w29]   -> obj@T={obj_at_budget(rec['history'],T)} feas={rec['feasible']} "
                         f"oracles={rec['oracle_calls']} wall={rec['wall_s']:.0f}s hist={len(rec['history'])}")
@@ -285,6 +302,9 @@ def main(argv=None):
     p.add_argument("--wall", type=float, default=900.0)
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--indices", default=None)
+    p.add_argument("--budget-mult", type=float, default=None,
+                   help="FAITHFUL mode (small-n insight): terminate on M=round(mult*T(n)) oracles, "
+                        "NO wall cap (reproducible, no wall-noise). Omit for the n=3000 wall mode.")
     p.add_argument("--report-only", action="store_true")
     args = p.parse_args(argv)
     if not args.bench_root:
@@ -292,7 +312,8 @@ def main(argv=None):
     indices = ([int(x) for x in args.indices.split(",")] if args.indices else list(DEFAULT_INDICES))
     seeds = [int(x) for x in args.seeds.split(",")]
     run(n=args.n, out_dir=args.out_dir, seeds=seeds, wall=args.wall, workers=args.workers,
-        indices=indices, bench_root=args.bench_root, report_only=args.report_only)
+        indices=indices, bench_root=args.bench_root, budget_mult=args.budget_mult,
+        report_only=args.report_only)
 
 
 if __name__ == "__main__":
