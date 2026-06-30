@@ -109,5 +109,40 @@ via the existing static `opt_branching_radius` lever** (the free win 71e already
 - **Faithful large-budget at small n hits the O(n·j²) Grover-sim wall** (`mult≳8`). Use `opt_sample_cap`
   or a wall cap if a large-budget faithful probe is ever needed; the n=3000 RUN POLICY already wall-caps.
 
-**Drivers:** `benchmarks/run_w29_decay_probe.py` (A/B; `--budget-mult` faithful mode for small-n),
-`benchmarks/run_w29_noise_audit.py` (§5 prerequisite). **Tests:** `tests/test_opt_radius_schedule.{c,py}`.
+## 7. Follow-up — the OPPOSITE direction: GROW tight→broad (refine-then-explore)
+
+User hypothesis (after the decay null): with a warm start, a TIGHT radius early refines the
+near-optimal warm solution, then BROADENING late escapes local optima — the inverse of the falsified
+"explore-then-exploit" decay. Target endpoint = the M4 winner cand_16's opt radius r=4.41 (NB θ-coupled:
+cand_16 = `r_opt=4.41 + θ=z(p_ii)·0.288`; the *bare*-radius 71e optimum is r≈2). `run_w29_grow_probe.py`,
+faithful (M=T(n), no wall), n∈{60,90}, 9 instances × 3 seeds. Arms share opt_sat=8 + cand_16's early
+switch; radius-only (θ off) AND cand_16-regime (θ on). `neg_2to2 == C_r2` Δ=0 everywhere (harness exact).
+
+**Constant sweep resolves the 2-vs-4.41 tension — r≈2 is robustly the best constant:**
+
+| vs C_r2 | C_r4.41 | C_r6 |
+|---------|---------|------|
+| n=60    | −4,753 (p=0.88) | −7,552 (p=0.72) |
+| n=90    | −11,185 (p=1.0) | −23,901 (p=1.0) |
+
+So cand_16's 4.41 is **not** a better bare radius (it was θ-coupled); constant r=2 beats it at n=60/90
+(consistent with 71e's n=3000 r\*≈2). A 1-instance smoke fluke had suggested 4.41 > 2; the 9×3 sweep
+overturns it.
+
+**Growing tight→broad does NOT beat the best constant r=2** (the decisive test, `G_2to4.41 vs C_r2` at
+n=90): Δ=0, +4/−4, **p=0.68**, not seed-robust. n=60 likewise null/negative.
+
+**The apparent positives are artifacts of r=4.41 being a suboptimal constant**, NOT schedule wins:
+`G_2to4.41 vs C_r4.41` = +10,323 (p=0.014) and `K_grow2to4.41 vs K_const4.41` (cand_16 regime, θ on) =
++6,305 (p=0.027) — but these beat only the *inferior* r=4.41 constant, because the growing path spends
+its early oracles at the *better* tight radius. That re-confirms "tighter is better," not "schedule
+helps." Neither clears Holm (family of 3; smallest p=0.027 > 0.05/3) nor is seed-robust (3/9 all-pos).
+
+**Conclusion: the best constant r≈2 dominates BOTH schedule directions** — decay (broad→tight) lost and
+worsened with headroom; grow (tight→broad) is null vs the best constant. The static-radius lever is the
+right answer, now confirmed against both monotone schedule directions by direct measurement. (Driver:
+`run_w29_grow_probe.py`; artifacts `benchmarks/artifacts/m5_w29_grow/`.)
+
+**Drivers:** `benchmarks/run_w29_decay_probe.py` (decay A/B; `--budget-mult` faithful mode for small-n),
+`benchmarks/run_w29_grow_probe.py` (grow direction + constant sweep), `benchmarks/run_w29_noise_audit.py`
+(§5 prerequisite). **Tests:** `tests/test_opt_radius_schedule.{c,py}`.
