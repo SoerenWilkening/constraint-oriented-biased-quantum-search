@@ -49,7 +49,9 @@ M_BIG = 100_000_000
 ARMS = ["C_r2", "C_r4.41", "C_r6", "G_2to4.41", "G_2to4.41_steep", "neg_2to2",
         "K_const4.41", "K_grow2to4.41",
         # bd w29 decomposition (does the best config = constant r=2 + theta, no schedule?):
-        "C_r2_theta", "C_r3_theta"]
+        "C_r2_theta", "C_r3_theta",
+        # CBQS default (bias=n/4) for the comparison figure:
+        "default"]
 CONST_ARMS = ["C_r2", "C_r4.41", "C_r6"]
 
 
@@ -59,6 +61,7 @@ def _base(n):
 
 
 def arm_params(arm, n, c1, c2, c3):
+    if arm == "default":  return {}     # CBQS default: close() auto-sets bias=n/4, switch=0.1*M
     if arm == "C_r2":     return {**_base(n), "opt_branching_radius": 2.0}
     if arm == "C_r4.41":  return {**_base(n), "opt_branching_radius": R4}
     if arm == "C_r6":     return {**_base(n), "opt_branching_radius": 6.0}
