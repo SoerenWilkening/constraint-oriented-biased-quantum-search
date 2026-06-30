@@ -83,17 +83,18 @@ def solve_arm(arm, n, idx, seed, wall, workers, bench_root, budget_mult=None):
     m = build_model(c1, c2, c3, vectorized=True)
     greedy_value, greedy_feasible = m.general_greedy()
     m.seed = int(seed)
-    # Two modes. WALL (budget_mult is None): the n=3000 RUN POLICY — huge M +
-    # wall cap; obj@common is the faithful read (obj@T is wall-depth-confounded).
-    # FAITHFUL (budget_mult set, for the small-n insight sweep): terminate on the
-    # ORACLE budget M = round(mult * T(n)) with NO wall cap (stopping_time=-1).
-    # Faithful = fast + REPRODUCIBLE at small n (no wall-truncation noise floor),
-    # so obj@T(n)/obj@common is the clean, unconfounded read.
+    # Two modes. WALL (budget_mult is None): the n>=1000 RUN POLICY — M=T(n) + wall
+    # cap; obj@common is the faithful read (obj@T is wall-depth-confounded). NB M
+    # MUST be T(n), NOT M_BIG: the opt-radius schedule keys on total_oracles/mod->M,
+    # so M_BIG would pin the schedule at r_start (ratio~0). The wall is the early
+    # terminator. FAITHFUL (budget_mult set, for the small-n insight sweep):
+    # terminate on the ORACLE budget M = round(mult * T(n)) with NO wall cap
+    # (stopping_time=-1) — fast + REPRODUCIBLE at small n (no wall-truncation noise).
     if budget_mult is not None:
         m.set_param("M", int(round(budget_mult * metric.oracle_budget(n))))
         m.set_param("stopping_time", -1.0)
     else:
-        m.set_param("M", M_BIG)
+        m.set_param("M", int(metric.oracle_budget(n)))
         m.set_param("stopping_time", float(wall))
     m.set_param("num_workers", workers)
     m.set_param("verify", True)

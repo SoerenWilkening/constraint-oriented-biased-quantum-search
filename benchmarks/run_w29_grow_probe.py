@@ -86,14 +86,23 @@ def arm_params(arm, n, c1, c2, c3):
     raise ValueError(arm)
 
 
-def solve_arm(arm, n, idx, seed, budget_mult, workers, bench_root):
+def solve_arm(arm, n, idx, seed, budget_mult, workers, bench_root, wall=None):
     c1, c2, c3 = load_eq29(n, idx, bench_root)
     resolved = arm_params(arm, n, c1, c2, c3)
     m = build_model(c1, c2, c3, vectorized=True)
     greedy_value, greedy_feasible = m.general_greedy()
     m.seed = int(seed)
-    m.set_param("M", int(round(budget_mult * metric.oracle_budget(n))))
-    m.set_param("stopping_time", -1.0)   # FAITHFUL: oracle-budget termination, reproducible
+    if wall and wall > 0:
+        # WALL mode (n>=1000 RUN POLICY): M=T(n) (NOT M_BIG!) so the schedule keys correctly on
+        # total_oracles/mod->M = total/T(n) in [0,1] — with M_BIG the ratio is ~0 and the schedule
+        # is PINNED at r_start (never moves). The wall cap is the early terminator (mid-round
+        # deadline interrupts giant O(n*j^2) rounds); obj@common is the faithful read.
+        m.set_param("M", int(metric.oracle_budget(n)))
+        m.set_param("stopping_time", float(wall))
+    else:
+        # FAITHFUL mode (small-n): oracle-budget termination, reproducible (no wall noise).
+        m.set_param("M", int(round(budget_mult * metric.oracle_budget(n))))
+        m.set_param("stopping_time", -1.0)
     m.set_param("num_workers", workers)
     m.set_param("verify", True)
     m.set_param("opt_sample_cap", 0)
@@ -193,17 +202,23 @@ def _verdict(n, recs, indices, seeds, T):
             "grow_beats_best_const": grow_wins, "k_grow_beats_k_const": k_grow_wins}
 
 
-def run(*, n, out_dir, seeds, budget_mult, workers, indices, bench_root, report_only=False, log=print):
+def run(*, n, out_dir, seeds, budget_mult, workers, indices, bench_root, wall=None,
+        report_only=False, log=print):
     os.makedirs(out_dir, exist_ok=True)
     T = metric.oracle_budget(n)
+    mode = "wall" if (wall and wall > 0) else "faithful"
     cfg = {"N": n, "seeds": list(seeds), "budget_mult": budget_mult, "workers": int(workers),
-           "indices": list(indices), "arms": ARMS}
+           "indices": list(indices), "arms": ARMS, "mode": mode, "wall_s": (float(wall) if wall else None)}
     cfg_path = os.path.join(out_dir, "run_config.json")
     if os.path.exists(cfg_path):
         prev = json.load(open(cfg_path))
-        for k in ("N", "workers", "budget_mult"):
+        for k in ("N", "workers", "mode"):
             if prev.get(k) != cfg[k]:
                 raise SystemExit(f"[w29-grow] CONFIG MISMATCH on {k}: {prev.get(k)} != {cfg[k]} — fresh --out-dir.")
+        if mode == "wall" and prev.get("wall_s") != cfg["wall_s"]:
+            raise SystemExit(f"[w29-grow] CONFIG MISMATCH on wall_s — fresh --out-dir.")
+        if mode == "faithful" and prev.get("budget_mult") != cfg["budget_mult"]:
+            raise SystemExit(f"[w29-grow] CONFIG MISMATCH on budget_mult — fresh --out-dir.")
     else:
         json.dump(cfg, open(cfg_path, "w"), indent=2)
 
@@ -217,7 +232,7 @@ def run(*, n, out_dir, seeds, budget_mult, workers, indices, bench_root, report_
                     if os.path.exists(rp):
                         log(f"[w29-grow] ({done}/{total}) skip {n}_{idx} {arm} s={s}"); continue
                     t0 = time.time()
-                    rec = solve_arm(arm, n, idx, s, budget_mult, workers, bench_root)
+                    rec = solve_arm(arm, n, idx, s, budget_mult, workers, bench_root, wall=wall)
                     json.dump(rec, open(rp, "w"))
                     log(f"[w29-grow] ({done}/{total}) {n}_{idx} {arm} s={s}: obj@T={obj_at_budget(rec['history'],T)} "
                         f"feas={rec['feasible']} oracles={rec['oracle_calls']} {time.time()-t0:.1f}s")
@@ -276,21 +291,35 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="bd w29 grow (tight->broad) probe vs constant.")
     p.add_argument("--n", type=int, default=90)
     p.add_argument("--budget-mult", type=float, default=1.0)
+    p.add_argument("--wall", type=float, default=None,
+                   help="WALL mode (n>=1000): huge M + this wall-clock cap (s); obj@common read. "
+                        "Omit for FAITHFUL small-n mode (M=budget_mult*T(n), no wall).")
     p.add_argument("--out-dir", default=None)
     p.add_argument("--bench-root", default=os.environ.get("CBQS_BENCHMARKS_DIR"))
     p.add_argument("--seeds", default=",".join(str(x) for x in DEFAULT_SEEDS))
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--indices", default=None)
+    p.add_argument("--arms", default=None,
+                   help="comma-separated subset of arms to SOLVE+score (default all). "
+                        "Absent arms' comparisons report as None (no crash).")
     p.add_argument("--report-only", action="store_true")
     args = p.parse_args(argv)
     if not args.bench_root:
         raise SystemExit("CBQS_BENCHMARKS_DIR (or --bench-root) is required.")
+    if args.arms:
+        global ARMS
+        sub = [a.strip() for a in args.arms.split(",")]
+        unknown = [a for a in sub if a not in ARMS]
+        if unknown:
+            raise SystemExit(f"unknown arm(s): {unknown}; known: {ARMS}")
+        ARMS = sub
+    tag = (f"n{args.n}_wall{int(args.wall)}" if args.wall else f"n{args.n}_m{args.budget_mult}")
     out_dir = args.out_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           "artifacts", "m5_w29_grow", f"n{args.n}_m{args.budget_mult}")
+                                           "artifacts", "m5_w29_grow", tag)
     indices = ([int(x) for x in args.indices.split(",")] if args.indices else list(DEFAULT_INDICES))
     seeds = [int(x) for x in args.seeds.split(",")]
     run(n=args.n, out_dir=out_dir, seeds=seeds, budget_mult=args.budget_mult, workers=args.workers,
-        indices=indices, bench_root=args.bench_root, report_only=args.report_only)
+        indices=indices, bench_root=args.bench_root, wall=args.wall, report_only=args.report_only)
 
 
 if __name__ == "__main__":
