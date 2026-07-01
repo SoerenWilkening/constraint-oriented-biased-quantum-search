@@ -92,13 +92,60 @@ def plot_single(index, seed):
     return out
 
 
+def plot_grid(seed):
+    """3x3 grid of all 9 instances (obj vs oracles), non-default arms; default per instance
+    reused from the M4 artifacts. Titles show GROW's obj@common delta vs bare r=2."""
+    from benchmarks.run_m4_n3000 import obj_at_budget
+    nd = [a for a in ARMS if a != "default"]
+    fig, axes = plt.subplots(3, 3, figsize=(15, 11), sharex=True)
+    for i in range(9):
+        ax = axes[i // 3][i % 3]
+        recs = {arm: _load(arm, i, seed) for arm in ARMS}
+        dflt = recs["default"]["history"][-1][0] if recs["default"]["history"] else None
+        for arm in ARMS:
+            h = recs[arm]["history"]
+            if not h:
+                continue
+            xs = [o for (_, o) in h] + [T]
+            ys = [v for (v, _) in h] + [h[-1][0]]
+            ax.plot(xs, ys, drawstyle="steps-post", lw=1.4, color=STYLE[arm]["color"])
+        if dflt is not None:
+            ax.axhline(dflt, color="#444444", ls=":", lw=0.8, alpha=0.7)
+        ax.set_xscale("log")
+        B = min(int(recs[a]["oracle_calls"]) for a in nd)
+        g = obj_at_budget(recs["K_grow2to4.41"]["history"], B) - obj_at_budget(recs["C_r2"]["history"], B)
+        ax.set_title(f"3000_{i}  (GROW vs r=2: {g/1e6:+.2f}M @obj@common)", fontsize=9)
+        ax.ticklabel_format(axis="y", style="plain")
+        ax.tick_params(labelsize=7)
+        ax.grid(True, which="both", ls=":", alpha=0.3)
+    for ax in axes[2]:
+        ax.set_xlabel("cumulative oracle calls", fontsize=8)
+    for r in range(3):
+        axes[r][0].set_ylabel("objective", fontsize=8)
+    handles = [plt.Line2D([], [], color=STYLE[a]["color"], lw=2, label=STYLE[a]["label"]) for a in ARMS]
+    fig.legend(handles=handles, loc="upper center", ncol=3, fontsize=8, framealpha=0.9)
+    fig.suptitle("n=3000 — objective vs oracles, 9 instances (bd w29 grow probe, 900s wall)\n"
+                 "GROW/θ do NOT robustly beat constant r=2 across instances (instance 0 was a favorable draw)",
+                 y=0.997, fontsize=11)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    out = os.path.join(W29_DIR, "obj_over_oracles_w29_3000_grid.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["single", "grid", "all"], default="single")
     ap.add_argument("--index", type=int, default=0)
     ap.add_argument("--seed", type=int, default=20260630)
     args = ap.parse_args()
-    out = plot_single(args.index, args.seed)
-    print("\nwrote:", out)
+    written = []
+    if args.mode in ("single", "all"):
+        written.append(plot_single(args.index, args.seed))
+    if args.mode in ("grid", "all"):
+        written.append(plot_grid(args.seed))
+    print("\nwrote:", *written)
 
 
 if __name__ == "__main__":

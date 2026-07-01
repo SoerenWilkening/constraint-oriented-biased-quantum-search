@@ -157,6 +157,43 @@ the missing arm `C_r2_theta` (cand_16's exact θ=z(p_ii)·0.288 at the *bare-opt
 | C_r4.41                     | −11,185 | 1+/8− |
 | C_r6                        | −23,901 | 0+/9− |
 
+### 7b. Direct n=3000 test (user-requested): grow + θ@r=2 at scale — instance-0 tease did NOT replicate
+
+The small-n decomposition left one thread open: does θ at the right radius (r=2), or the grow schedule,
+help *at n=3000* (cand_16's home turf)? Tested directly, wall-capped 900 s (the proven 71e regime;
+5-min was too short — a 20 s smoke reached only 76 oracles / 1 % of T(n), still infeasible).
+`run_w29_grow_probe --n 3000 --wall 900`, 9 instances × 1 seed, 4 arms (bare r=2, r=2+θ, cand_16
+r=4.41+θ, GROW r=2→4.41+θ). **All 9 instances feasible.**
+
+**Instance 0 teased a win** (obj@common Δ vs bare r=2): GROW **+3.94M**, θ@r=2 +0.29M, cand_16 −4.78M —
+so GROW looked like the best arm and θ looked scale-dependent. **The other 8 instances did NOT
+replicate it** (obj@common, 9 instances):
+
+| comparison | median Δ | sign | p (Wilcoxon) |
+|---|---|---|---|
+| θ@r=2 vs bare r=2 | −490,939 | 4+/5− | 0.50 |
+| **GROW vs bare r=2** (decisive) | −679,486 | 4+/5− | 0.46 |
+| GROW vs const r=2+θ | +21,437 | 5+/4− | 0.54 |
+| cand_16 (r=4.41) vs bare r=2 | −3,650,317 | 1+/8− | 0.998 |
+| GROW vs cand_16 | +2,915,149 | 9+/0− | 0.002 |
+
+- **θ@r=2 is null at n=3000** (median −491K, 4/5) — the instance-0 +1.16M was a favorable draw; θ does
+  NOT robustly help at scale either. The last residual thread is closed.
+- **GROW does NOT beat the bare best constant r=2** (median −679K, 4/5, p=0.46). Per-instance GROW-vs-r=2:
+  +3.94, −1.06, −0.68, −1.29, +1.66, −1.98, +0.36, +2.14, −0.74 (M). By **mean** grow/θ look marginally
+  positive (+261K/+240K) but that is skewed by 2 instances (0, 7); the robust **median/sign** test says no.
+- **GROW adds nothing over constant r=2+θ** (+21K, 5/4) — the schedule ≈ the constant, as at small-n.
+- **cand_16 (r=4.41) robustly loses to r=2** (8/9) and **GROW beats cand_16 9/9** — the same artifact:
+  growing from 2 beats sitting at the inferior 4.41 because it passes through the better tight radius.
+
+**Verdict (n=3000, direct): the best constant r≈2 is the ceiling at scale too; neither the grow schedule
+nor θ@r=2 robustly beats it, and the schedule adds nothing over the constant.** The single-instance feel
+was misleading — a textbook case for why the multi-instance run was needed. Figures:
+`obj_over_oracles_w29_3000_0.png` (instance 0) and `..._grid.png` (all 9). w29 WON'T-DO stands, now
+confirmed by direct measurement at n=3000 as well as faithful small-n.
+
+---
+
 Decisive: `K_grow2to4.41 vs C_r2_theta` = **+0 (4+/4−)** — the growing *schedule* TIES the *constant*
 r=2 + θ; and `C_r2_theta vs C_r2` = +0 (θ near-null at r=2, matching M2f). **The premise was wrong:
 cand_16 is NOT the ceiling — bare r=2 beats it (−6,390)**, because 4.41 is too broad. `K_grow` beats
