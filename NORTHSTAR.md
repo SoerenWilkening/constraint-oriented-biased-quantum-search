@@ -89,6 +89,23 @@ Admissible **iff** the QTG can implement the bias within the oracle-cost model, 
 `T(n)` A/B test**. Static per-qubit angles add zero *gate* cost; the `2j+1` oracle charge is
 bias-independent, so biasing only redistributes the budget — the A/B test measures the redistribution.
 
+> **Qualifier — the SYNTHESIS axis (bd a0w, 2026-08-28).** "Zero gate cost" is exact for the *number*
+> of rotations (one `R_y(θ_i)` per variable per state preparation, bias-independent) but not for their
+> *T-count*: a static angle still has to be synthesized, and Ross-Selinger / gridsynth reaches an
+> absolute accuracy `ε` at `≈3·log₂(1/ε)` T-gates, i.e. `≈3n·log₂(1/ε)` T per QTG application. That is
+> a **second, independent cost axis inside the oracle**, and it is **reported alongside the oracle
+> count, NEVER folded into the equal-`T(n)` oracle pricing** — folding it in would let a schedule buy
+> objective with unpriced circuit cost. Consequences: (a) the axis is a **harness/run-level** knob, not
+> a candidate lever (`candidate_gate._UNPRICED_AXIS_SUFFIXES` rejects `angle_precision_*` from the M3
+> lever surface for exactly this reason); (b) precision *does* move the measured oracle count, because
+> coarser angles perturb the sampling distribution — that shows up on the ordinary oracle axis and is
+> measured there. The requirement is set only by how far the sampling distribution may shift before
+> the objective degrades — **not** by a union bound over rotations: with `A` synthesized once and
+> reused for `A†`, `Ã S₀ Ã†` is the *exact* reflection about `|ψ̃⟩ = Ã|0⟩`, so the algorithm is exactly
+> Grover on a perturbed initial distribution with **zero error accumulation in `j`**. Measured in
+> `benchmarks/ANGLE_PRECISION_FINDINGS.md`. This is the *static*-angle synthesis cost; the
+> **conditional**-rotation oracle-cost model remains Phase 2 (§7).
+
 - **`variable_order` is a priced search lever, not a free relabel.** Reordering changes the realized
   feasible set / forced-vs-free classification / `total_prob`. **Confirmed by the author: variable
   ordering genuinely affects performance** — so it is a first-class static lever whose gain is
@@ -144,6 +161,11 @@ best-of-portfolio running-max trajectory.* Per instance `I`:
    stratum must not regress.
 
 ## 7. (Reserved — Phase-2 oracle-cost model for conditional rotations; see §14.)
+
+*Partially addressed for STATIC angles by bd a0w (2026-08-28):* the synthesis (T-count) axis of the
+static per-qubit rotations is now defined and measured — see the §5 qualifier and
+`benchmarks/ANGLE_PRECISION_FINDINGS.md`. The reserved Phase-2 model here is the *conditional*-rotation
+case (dynamic/marginal bias), which additionally charges extra **oracle** cost and is still open.
 
 ## 8. Anti-greedy defenses (for the schedule)
 
@@ -285,6 +307,9 @@ best-of-portfolio running-max trajectory.* Per instance `I`:
   (equal-`T(n)` A/B) static lever (§5). Look-ahead prefix-consistency with the order: DONE (bd h8d,
   2026-06-10 — it was a prerequisite, not a nicety; see §5). Pending: a fresh equal-`T(n)` A/B run of
   the order schedules before M3 includes the lever.
-- Phase-2 QTG cost model for conditional rotations (§7).
+- Phase-2 QTG cost model for conditional rotations (§7). *Static*-angle synthesis cost is DONE
+  (bd a0w, 2026-08-28): the Ross-Selinger T-count axis is defined in the §5 qualifier, measured in
+  `benchmarks/ANGLE_PRECISION_FINDINGS.md`, and excluded from the candidate lever surface. The
+  conditional/dynamic-rotation oracle charge remains open.
 - Compute budget for the agent loop — set from M0's measured per-solve cost (inner loop small/mid n;
   large n only at the validation gate and the M4 test-once).

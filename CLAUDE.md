@@ -212,12 +212,16 @@ Each entry: **location → why dangerous → how to detect.** These are the land
 - **Param propagation is runtime-only.** `set_predicted_params` (Python, `SearchLib.pyx:533`) only writes
   the `mod._params` dict; live propagation is `_propagate_phase_params` (`SearchLib.pyx:223`) → per-phase
   setters. The C `solver_ctx_set_predicted_params` is **dead** from this path — don't assume it runs.
-- **CI's C-test filter still has holes (verified 2026-06-10).** The `ctest -R` filter (test.yml) now
-  matches **22 of the 23 registered** cmocka targets; the holes are: `test_opt_sample_cap` (registered,
-  compiles under `-Werror`, but **never executes in CI**) and `test_predicted_params.c` (exists in
-  `tests/` but is **not registered in CMakeLists at all** — never even built; it targets the dead C
-  `set_predicted_params` path above). → **Always run the full local suite** (`ctest` with no `-R`)
-  before touching those modules. The history-schema and eq29-RHS baselines are likewise only checked
+- **CI's C-test filter (re-audited 2026-08-28, bd a0w).** The `ctest -R` filter (test.yml, 3 job
+  copies) had silently drifted to **23 of the 27 registered** cmocka targets: `test_opt_sample_cap`,
+  `test_opt_radius_schedule`, `test_deadline_interrupt` and `test_angle_precision` matched no
+  alternative and **never executed in CI**. All four are now in the filter (27/27). The remaining
+  hole is `test_predicted_params.c` — it exists in `tests/` but is **not registered in CMakeLists at
+  all**, so it is never even built (it targets the dead C `set_predicted_params` path above).
+  Note the whole workflow is currently `workflow_dispatch`-only (auto-CI disabled on push/PR), so
+  the filter gates nothing until that is restored. → **Always run the full local suite** (`ctest`
+  with no `-R`) before touching those modules; a new `add_cmocka_test` must be added to the filter
+  in all three places by hand. The history-schema and eq29-RHS baselines are likewise only checked
   locally (the latter needs `CBQS_BENCHMARKS_DIR`). A *skipped* test is "unverified," not "passed."
 
 ---
