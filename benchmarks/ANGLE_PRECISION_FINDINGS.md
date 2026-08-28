@@ -178,6 +178,9 @@ objective loss stays inside the seed-noise floor, **and for which every finer ε
 ## 6. Results
 
 **2 970 solves**: 3 sizes × 22 arms × 9 instances × 5 seeds, faithful (`M = T(n)`, no wall).
+(The n=90 `summary.json` was initially written by a stray 3-seed analysis pass; it has been
+recomputed over all 5 seeds — analysis only, no re-solving — and the table below is the 5-seed
+result. `--report-only` regenerates any summary from the stored per-cell records.)
 Harness control passed at every `n`: `negctl` (ε=1e-12) reproduced `exact` with **median Δ = 0
 exactly**, 9/9 instances.
 
@@ -186,7 +189,7 @@ exactly**, 9/9 instances.
 | n | θ (rad) | seed-noise floor | ε\*<sub>sys</sub> | b\*<sub>sys</sub> | T/rot | ε\*<sub>dit</sub> | b\*<sub>dit</sub> | T per QTG app |
 |---|---------|------------------|-------------------|-------------------|-------|-------------------|-------------------|---------------|
 | 60  | 0.3672 | 0.158% | 0.25  | **2.65** | 6 | 0.5   | 1.65 | ~360 |
-| 90  | 0.2993 | 0.062% | 0.25  | **2.65** | 6 | 0.125 | 3.65 | ~540 |
+| 90  | 0.2993 | 0.093% | 0.25  | **2.65** | 6 | 0.25  | 2.65 | ~540 |
 | 150 | 0.2315 | 0.117% | 0.125 | **3.65** | 9 | 0.125 | 3.65 | ~1 350 |
 
 **≈3 bits, ≈6–9 T-gates per rotation.** The bead predicted 6.5–7 bits (18–19 T/rot) from the
@@ -228,20 +231,22 @@ monotonically, at every ε:
 
 | ε (dithered) | n=60 | n=90 | n=150 |
 |---|---|---|---|
-| 0.5   | −0.122% (r 1.66×) | −0.190% (r 2.11×) | −0.452% (r 2.65×) |
-| 0.25  | −0.017% (r 1.23×) | −0.087% (r 1.37×) | −0.273% (r 1.53×) |
-| 0.125 | +0.000% (r 1.09×) | −0.005% (r 1.13×) | −0.046% (r 1.16×) |
+| 0.5   | −0.122% (r 1.66×) | −0.207% (r 2.11×) | −0.452% (r 2.65×) |
+| 0.25  | −0.017% (r 1.23×) | −0.087% (r 1.36×) | −0.273% (r 1.53×) |
+| 0.125 | +0.000% (r 1.09×) | +0.000% (r 1.13×) | −0.046% (r 1.16×) |
 
-Both the objective loss and the radius inflation grow with `n` at fixed ε — 3/3 at each ε, 9/9
-overall. **Dither does not buy flatness in n.**
+The **radius inflation grows with `n` at every ε — 3/3 at each of the three, 9/9 overall** — and
+the objective loss follows it wherever the loss is resolvable above the noise floor (ε = 0.5 and
+0.25; at ε = 0.125 the n=60 and n=90 losses are both 0, i.e. below the floor, and only n=150 is
+resolved). **Dither does not buy flatness in n.**
 
 Nor did it buy the predicted constant ~2.7-bit advantage *at these sizes*: measured ε\* is
-0.5/0.125/0.125 (dithered) vs 0.25/0.25/0.125 (systematic) — dither wins by 1 bit at n=60, **loses**
-by 1 bit at n=90, and ties at n=150. On a factor-2 ε grid with a ~0.1% noise floor that is scatter
-around a sub-grid effect, not a measured gain. Two reasons the theoretical advantage does not show
-up here: (i) the systematic arm's only real failure mode is the collapse, and at ε just below θ its
-*lattice* happens to land on a usable angle; (ii) the dithered arm pays the second-order bias early,
-which at these small `n` costs roughly what the coherent first-order error costs.
+0.5/0.25/0.125 (dithered) vs 0.25/0.25/0.125 (systematic) — dither wins by **one grid step at n=60
+and ties at n=90 and n=150**. On a factor-2 ε grid with a ~0.1% noise floor, a ≤1-step difference is
+not a resolved gain. Two reasons the theoretical advantage does not show up here: (i) the systematic
+arm's only real failure mode is the collapse, and at ε just below θ its *lattice* happens to land on
+a usable angle; (ii) the dithered arm pays the second-order bias early, which at these small `n`
+costs roughly what the coherent first-order error costs.
 
 **Practical consequence: prefer the COHERENT (one-circuit) model.** It is the cheaper compilation
 (one circuit description, not `n`), it is what the shipped uniform-angle schedule naturally produces,
