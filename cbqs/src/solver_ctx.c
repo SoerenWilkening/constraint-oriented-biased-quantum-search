@@ -27,6 +27,10 @@ static void branching_stats_init_defaults(BranchingStats_t *stats) {
     stats->variable_order = NULL;
     stats->num_vars = 0;
     stats->variable_rank = NULL;
+    /* bd a0w (M5): angle-precision lever OFF by default (exact angles) -- the
+     * pre-a0w BranchingFunction path, bit-for-bit. */
+    stats->angle_precision_eps = 0.0;
+    stats->angle_precision_dither = 0;
 }
 
 static void branching_stats_free_weights(BranchingStats_t *stats) {
@@ -322,6 +326,35 @@ void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor) {
 /* ============================================================
  * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
  * ============================================================ */
+
+/* ============================================================
+ * bd a0w (M5): angle-precision (Ross-Selinger / gridsynth) setters
+ * ============================================================ */
+
+void solver_ctx_set_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    solver_ctx_set_sat_angle_precision(ctx, eps, dither);
+    solver_ctx_set_opt_sat_angle_precision(ctx, eps, dither);
+    solver_ctx_set_opt_angle_precision(ctx, eps, dither);
+}
+
+void solver_ctx_set_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.angle_precision_eps = eps;
+    ctx->branching_stats_sat.angle_precision_dither = dither ? 1 : 0;
+}
+
+void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.angle_precision_eps = eps;
+    ctx->branching_stats_opt_sat.angle_precision_dither = dither ? 1 : 0;
+}
+
+void solver_ctx_set_opt_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.angle_precision_eps = eps;
+    ctx->branching_stats_opt.angle_precision_dither = dither ? 1 : 0;
+}
 
 void solver_ctx_set_opt_radius_schedule(solver_ctx_t *ctx, int enabled,
                                         double r_start, double r_end, double gamma) {

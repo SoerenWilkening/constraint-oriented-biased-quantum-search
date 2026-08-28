@@ -261,6 +261,19 @@ cdef _set_phase_bias_factor(solver_ctx_t *ctx, str phase, double factor):
 	else:
 		solver_ctx_set_opt_bias_factor(ctx, factor)
 
+cdef _set_phase_angle_precision(solver_ctx_t *ctx, str phase, double eps, int dither):
+	"""Set the angle-precision lever (bd a0w) for a specific phase.
+
+	``eps`` is the Ross-Selinger / gridsynth absolute angle accuracy in radians;
+	<= 0 is the OFF switch (exact angles, the pre-a0w path bit-for-bit).
+	"""
+	if phase == 'sat':
+		solver_ctx_set_sat_angle_precision(ctx, eps, dither)
+	elif phase == 'opt_sat':
+		solver_ctx_set_opt_sat_angle_precision(ctx, eps, dither)
+	else:
+		solver_ctx_set_opt_angle_precision(ctx, eps, dither)
+
 cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
 	"""Set branching_weights for a specific phase on the solver context."""
 	cdef double *bw_ptr = NULL
@@ -279,7 +292,7 @@ cdef _set_phase_weights(solver_ctx_t *ctx, str phase, weights, int n):
 cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 	"""Resolve and propagate phase-specific parameters to the solver context.
 
-	Uses PhaseParamResolver to resolve all 18 phase-specific parameters
+	Uses PhaseParamResolver to resolve all 24 phase-specific parameters
 	with fallback: phase-specific > unprefixed > built-in default.
 	Sets per-phase bias, weights, and factors via phase-specific C setters.
 	A per-phase branching_radius (if set) takes precedence over branching_bias
@@ -325,6 +338,17 @@ cdef _propagate_phase_params(solver_ctx_t *ctx, Model mod, int n):
 		weights = p['branching_weights']
 		if weights is not None:
 			_set_phase_weights(ctx, phase, weights, n)
+
+		# bd a0w (M5): angle precision (Ross-Selinger / gridsynth). Runtime data
+		# on the SAME propagation route (§2.7) -- eps is the absolute R_y angle
+		# accuracy in radians; None/<=0 leaves the phase on exact angles, which
+		# is the pre-a0w path bit-for-bit. `dither` picks the synthesis model
+		# (0 = one reused circuit => systematic; 1 = per-variable synthesis).
+		ap_eps = p['angle_precision_eps']
+		if ap_eps is not None:
+			_set_phase_angle_precision(
+				ctx, phase, <double> ap_eps,
+				1 if p['angle_precision_dither'] else 0)
 
 	# look_ahead_factor is not phase-specific; propagate from unprefixed param
 	param_look_factor = params.get('look_ahead_factor')

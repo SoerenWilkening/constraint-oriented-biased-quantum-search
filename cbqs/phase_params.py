@@ -10,6 +10,8 @@ Example:
     If nothing is set, the built-in default is used.
 """
 
+import math
+
 import numpy as np
 
 
@@ -22,6 +24,9 @@ PHASE_PARAM_SUFFIXES = (
     'branching_bias',
     'branching_radius',
     'variable_priorities',
+    # bd a0w (M5): angle-precision lever (Ross-Selinger / gridsynth).
+    'angle_precision_eps',
+    'angle_precision_dither',
 )
 
 # Built-in defaults for each suffix (unprefixed fallback values).
@@ -32,6 +37,46 @@ DEFAULTS = {
     'branching_bias': 5.0,
     'branching_radius': None,
     'variable_priorities': None,
+    'angle_precision_eps': None,      # None/<=0 == exact angles == lever OFF
+    'angle_precision_dither': False,  # False == systematic grid rounding
+}
+
+def strict_bool(value):
+    """Strict bool coercion for flag params (CLAUDE.md §2.1 fail loud).
+
+    Plain ``bool`` maps every non-empty string to True, so
+    ``set_param('angle_precision_dither', 'false')`` would silently ARM the
+    flag -- here that switches which PHYSICAL synthesis model an arm runs, which
+    would corrupt a whole sweep with no error. Accept only real booleans and the
+    integers 0/1 (numpy bools/ints included); reject everything else loudly.
+
+    Args:
+        value: the user-supplied value.
+
+    Returns:
+        bool.
+
+    Raises:
+        ValueError: for anything that is not a bool or 0/1.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        if value in (0, 1):
+            return bool(value)
+        raise ValueError(f"expected a boolean (True/False or 0/1), got {value!r}")
+    raise ValueError(
+        f"expected a boolean (True/False or 0/1), got {value!r} of type "
+        f"{type(value).__name__} -- strings are NOT accepted ('false' is truthy)")
+
+
+# Per-suffix coercion for the generated phase params. Everything not listed
+# coerces to float (the historical behaviour); ``None`` means "no coercion"
+# and is used for the array-valued suffixes, which validate separately.
+COERCERS = {
+    'branching_weights': None,
+    'variable_priorities': None,
+    'angle_precision_dither': strict_bool,
 }
 
 
@@ -71,6 +116,10 @@ _VALIDATORS = {
     'branching_radius': (
         lambda v: v > 0,
         'branching_radius must be > 0',
+    ),
+    'angle_precision_eps': (
+        lambda v: v > 0,
+        'angle_precision_eps must be > 0',
     ),
     'branching_factor': (
         lambda v: v >= 0,
@@ -128,7 +177,7 @@ def validate_priorities(value, n_vars):
 
 
 def make_phase_param_defs():
-    """Generate parameter definition entries for all 18 phase-specific params.
+    """Generate parameter definition entries for all 24 phase-specific params.
 
     Returns:
         dict: mapping 'phase_suffix' -> {'default': ..., 'coerce': ..., 'validate': ...}
@@ -144,7 +193,7 @@ def make_phase_param_defs():
                 coerce = None
                 validate = 'special'
             else:
-                coerce = float
+                coerce = COERCERS.get(suffix, float)
                 validate = None
 
             description = (
@@ -236,7 +285,7 @@ class PhaseParamResolver:
 
         Returns:
             dict: {'sat_branching_bias': 5.0, 'opt_branching_factor': 1.0, ...}
-                with exactly 18 keys (3 phases x 6 suffixes).
+                with exactly 24 keys (3 phases x 8 suffixes).
         """
         resolved = self.resolve_all()
         flat = {}
@@ -244,3 +293,66 @@ class PhaseParamResolver:
             for suffix in PHASE_PARAM_SUFFIXES:
                 flat[f"{phase}_{suffix}"] = resolved[phase][suffix]
         return flat
+
+
+# --------------------------------------------------------------------------- #
+# bd a0w (M5): angle-precision REPORTING helpers.
+#
+# The lever's input is always the gridsynth accuracy ``eps`` (radians) -- the
+# quantity Ross-Selinger actually takes. Bits and T-counts are derived for
+# READING the results and are never an input to the solver.
+# --------------------------------------------------------------------------- #
+
+def angle_precision_bits(eps):
+    """Equivalent uniform-grid bits for a synthesis accuracy ``eps`` (radians).
+
+    A ``b``-bit uniform grid over the R_y angle range ``[0, pi]`` has spacing
+    ``pi/2**b`` and hence max rounding error ``pi/2**(b+1)``; matching that to
+    ``eps`` gives ``b = log2(pi / (2*eps))``.
+
+    Args:
+        eps: absolute angle accuracy in radians (> 0).
+
+    Returns:
+        float equivalent bits (may be fractional; ``eps`` is continuous).
+
+    Raises:
+        ValueError: if ``eps <= 0``.
+    """
+    if eps is None or eps <= 0:
+        raise ValueError(f"angle_precision_eps must be > 0 to report bits, got {eps}")
+    return math.log2(math.pi / (2.0 * eps))
+
+
+def t_count_per_rotation(eps):
+    """Ross-Selinger T-count to synthesize one R_y to accuracy ``eps``.
+
+    The Ross-Selinger / gridsynth cost is ``~3*log2(1/eps)`` T-gates per
+    rotation (the leading term; the additive constant is implementation
+    dependent and deliberately not modelled here).
+
+    Args:
+        eps: absolute angle accuracy in radians (0 < eps < 1).
+
+    Returns:
+        float T-gates per rotation.
+
+    Raises:
+        ValueError: if ``eps <= 0``.
+    """
+    if eps is None or eps <= 0:
+        raise ValueError(f"angle_precision_eps must be > 0 to report a T-count, got {eps}")
+    return 3.0 * math.log2(1.0 / eps)
+
+
+def t_count_per_qtg_application(eps, n):
+    """Ross-Selinger T-count for one QTG state preparation over ``n`` variables.
+
+    One R_y per variable, so ``n * t_count_per_rotation(eps)``. This is the
+    INSIDE-the-oracle cost axis (bd a0w) -- it is reported ALONGSIDE the oracle
+    count and never folded into the equal-``T(n)`` oracle pricing (NORTHSTAR
+    §1.1/§5).
+    """
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}")
+    return n * t_count_per_rotation(eps)

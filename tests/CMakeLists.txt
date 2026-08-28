@@ -160,6 +160,20 @@ add_cmocka_test(test_branching
     ${CBQS_SRC_DIR}/intarray.c
 )
 
+# bd a0w (M5): angle-precision lever -- Ross-Selinger/gridsynth theta quantization
+# inside BranchingFunction. Same source list as test_branching (header-only lever
+# + the solver_ctx setters).
+add_cmocka_test(test_angle_precision
+    test_angle_precision.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
 # --- Plan 01-03 tests: solver, searchlib, integration ---
 
 add_cmocka_test(test_solver

@@ -32,6 +32,7 @@ from .state cimport sw_tstbit
 from .phase_params import (
 	make_phase_param_defs, PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS,
 	PHASES as _PHASES, PHASE_PARAM_SUFFIXES as _PHASE_SUFFIXES,
+	strict_bool as _strict_bool,
 )
 
 
@@ -122,6 +123,12 @@ _PARAM_DEFS = {
 	'opt_radius_schedule_gamma':   {'default': None, 'coerce': float,       'validate': lambda v: v > 0,
 	                             'validate_msg': 'opt_radius_schedule_gamma must be > 0',
 	                             'description': 'bd w29 (M5/71e): decay-shape exponent of the opt-radius schedule. 1.0 (the default when the schedule is armed) = linear; >1 tightens EARLY (steep early, gentle near t=1); <1 stays broad longer (gentle early, steep near t=1). Range: > 0 or None. Default: None (=> 1.0 when armed). Set before solve.'},
+	# --- bd a0w (M5): angle-precision lever (Ross-Selinger / gridsynth) ---
+	'angle_precision_eps':      {'default': None,  'coerce': float,        'validate': lambda v: v > 0,
+	                             'validate_msg': 'angle_precision_eps must be > 0',
+	                             'description': 'bd a0w (M5): absolute accuracy (radians) to which the QTG per-variable rotation R_y(theta_i) is synthesized, as Ross-Selinger/gridsynth would at ~3*log2(1/eps) T-gates. The branching decision quantizes THETA (theta = 2*asin(sqrt(1-value)), p_flip = sin^2(theta/2)) -- never the probability -- to |theta_q - theta| <= eps, then re-clamps so bounded decisions (NORTHSTAR §1.7) hold by construction. Per-phase variants (sat_/opt_sat_/opt_) supported. None (or <= 0) means EXACT angles: the lever is OFF and the solve is bit-for-bit the default. Range: > 0 or None. Default: None. Set before solve.'},
+	'angle_precision_dither':   {'default': False, 'coerce': _strict_bool,  'validate': None,
+	                             'description': 'bd a0w (M5): synthesis model for angle_precision_eps. False (default) = ONE rotation circuit compiled once and reused for all n variables, so grid rounding is SYSTEMATIC and the realized-radius error adds coherently (~n*dtheta). True = n independently synthesized circuits, i.e. a deterministic per-variable pseudorandom residual within eps, so the radius error averages (~sqrt(n)*dtheta). The offsets are a pure function of the variable index, so determinism under a fixed seed is unaffected. Ignored when angle_precision_eps is unset. Per-phase variants supported. Default: False. Set before solve.'},
 	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special',
 	                             'description': 'Per-variable SIGNED logit offsets (theta_i) for the branching formula: value = sigma(logit(base) + branching_factor*theta_i). Must be a 1D finite numpy array of length n (no normalization, no non-negativity; M0f). None disables per-variable weighting. Default: None. Set before solve.'},
 	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
@@ -138,7 +145,7 @@ _PARAM_DEFS = {
 	                             'description': 'Hard timeout in seconds; overrides stopping_time if set. None means use stopping_time instead. Range: > 0 or None. Default: None. Set before solve.'},
 }
 
-# Merge phase-specific parameter definitions (18 params: 3 phases x 6 suffixes)
+# Merge phase-specific parameter definitions (24 params: 3 phases x 8 suffixes)
 _phase_defs = make_phase_param_defs()
 # Add validation rules to scalar phase params
 _PHASE_VALIDATORS = {
@@ -146,6 +153,7 @@ _PHASE_VALIDATORS = {
 	'branching_radius': (lambda v: v > 0, 'branching_radius must be > 0'),
 	'branching_factor': (lambda v: v >= 0, 'branching_factor must be non-negative'),
 	'bias_factor': (lambda v: v >= 0, 'bias_factor must be non-negative'),
+	'angle_precision_eps': (lambda v: v > 0, 'angle_precision_eps must be > 0'),
 }
 for _phase in _PHASES:
 	for _suffix in _PHASE_SUFFIXES:
@@ -370,8 +378,8 @@ cdef class Model:
 	def _resolve_phase_params(self):
 		"""Resolve phase-specific parameters with fallback to unprefixed defaults.
 
-		Uses PhaseParamResolver to resolve all 18 phase-specific parameters
-		(3 phases x 6 suffixes) with the resolution order:
+		Uses PhaseParamResolver to resolve all 24 phase-specific parameters
+		(3 phases x 8 suffixes) with the resolution order:
 		    phase-specific > unprefixed > built-in default
 
 		Returns

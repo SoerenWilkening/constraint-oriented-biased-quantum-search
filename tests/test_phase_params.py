@@ -22,9 +22,9 @@ from cbqs.phase_params import (
 
 class TestParameterDefinitions:
     def test_all_phase_params_defined(self):
-        """18 phase-specific params exist (3 phases x 6 suffixes)."""
+        """24 phase-specific params exist (3 phases x 8 suffixes; bd a0w added 2)."""
         defs = make_phase_param_defs()
-        assert len(defs) == 18
+        assert len(defs) == 24
 
     def test_phase_param_names_follow_convention(self):
         """All keys follow sat_*, opt_sat_*, opt_* naming."""
@@ -39,16 +39,16 @@ class TestParameterDefinitions:
                         prefix_found = True
             assert prefix_found, f"Key {key} does not follow convention"
 
-    def test_each_phase_has_6_params(self):
-        """Each phase has exactly 6 parameter entries."""
+    def test_each_phase_has_8_params(self):
+        """Each phase has exactly 8 parameter entries (bd a0w added 2)."""
         defs = make_phase_param_defs()
         for phase in PHASES:
             phase_keys = [
                 k for k in defs
                 if any(k == f"{phase}_{s}" for s in PHASE_PARAM_SUFFIXES)
             ]
-            assert len(phase_keys) == 6, (
-                f"Phase {phase} has {len(phase_keys)} params, expected 6"
+            assert len(phase_keys) == 8, (
+                f"Phase {phase} has {len(phase_keys)} params, expected 8"
             )
 
 
@@ -236,12 +236,12 @@ class TestSerialization:
         finally:
             os.unlink(tmp_path)
 
-    def test_to_ctx_kwargs_all_18_keys(self):
-        """to_ctx_kwargs produces exactly 18 keys (3 phases x 6 suffixes)."""
+    def test_to_ctx_kwargs_all_24_keys(self):
+        """to_ctx_kwargs produces exactly 24 keys (3 phases x 8 suffixes)."""
         store = {}
         resolver = PhaseParamResolver(store, DEFAULTS)
         ctx = resolver.to_ctx_kwargs()
-        assert len(ctx) == 18
+        assert len(ctx) == 24
 
 
 class TestRadiusToBias:

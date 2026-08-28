@@ -382,6 +382,38 @@ void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
+ * bd a0w (M5): angle-precision (Ross-Selinger / gridsynth)
+ * ============================================================ */
+
+/**
+ * @brief Set the R_y synthesis accuracy consumed by BranchingFunction.
+ *
+ * Runtime data (NORTHSTAR §1.6), propagated per worker via
+ * _propagate_phase_params -> these per-phase setters. @p eps is the ABSOLUTE
+ * angle accuracy in radians that Ross-Selinger / gridsynth would buy with
+ * ~3*log2(1/eps) T-gates; @p eps <= 0 is the OFF switch (exact angles) and the
+ * default, and leaves the solve BIT-FOR-BIT on the pre-a0w path.
+ *
+ * @p dither picks the ERROR STRUCTURE: 0 (the conservative default) = COHERENT
+ * displacement, a shared grid snap -- exactly "one circuit synthesized once and
+ * reused" for the shipped uniform-angle schedule (theta_i == 0), and the
+ * coherent worst case otherwise; non-zero = INCOHERENT, an independent zero-mean
+ * per-variable residual, which physically requires n separately synthesized
+ * circuits even when the target angles coincide. The dither offsets are a pure
+ * function of the variable index, so determinism under a fixed seed is
+ * unaffected (NORTHSTAR §8). See Branching.h for the full scoping.
+ *
+ * `solver_ctx_set_angle_precision` writes all three phases; the three variants
+ * write one phase each (note `ctx->branching_stats` is a compatibility macro
+ * for `branching_stats_opt`, so the opt setter covers it). NULL @p ctx is a
+ * no-op.
+ */
+void solver_ctx_set_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_opt_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+
+/* ============================================================
  * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
  * ============================================================ */
 

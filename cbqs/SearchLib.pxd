@@ -68,6 +68,12 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_opt_bias_factor(solver_ctx_t* ctx, double factor)
 
 	# bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule
+	# bd a0w (M5): angle-precision lever (Ross-Selinger / gridsynth)
+	void solver_ctx_set_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_sat_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_opt_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+
 	void solver_ctx_set_opt_radius_schedule(solver_ctx_t* ctx, int enabled,
 	                                        double r_start, double r_end, double gamma)
 

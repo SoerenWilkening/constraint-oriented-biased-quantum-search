@@ -2,7 +2,7 @@
 
 Validates that phase-specific parameter definitions from ml.phase_params
 are integrated into Model._PARAM_DEFS, that set_param/get_param works
-for all 18 phase-specific params, and that _resolve_phase_params()
+for all 24 phase-specific params, and that _resolve_phase_params()
 correctly resolves with fallback logic.
 """
 import numpy as np
@@ -33,24 +33,24 @@ def _make_small_model():
 
 
 class TestPhaseParamDefsPresent:
-    """Verify all 18 phase-specific params are in _PARAM_DEFS."""
+    """Verify all 24 phase-specific params are in _PARAM_DEFS."""
 
     def test_all_phase_params_in_param_defs(self):
-        """All 18 phase-specific param keys exist in _PARAM_DEFS."""
+        """All 24 phase-specific param keys exist in _PARAM_DEFS."""
         for phase in PHASES:
             for suffix in PHASE_PARAM_SUFFIXES:
                 key = f"{phase}_{suffix}"
                 assert key in _PARAM_DEFS, f"Missing {key} in _PARAM_DEFS"
 
     def test_all_phase_params_in_known_params(self):
-        """All 18 phase-specific param keys exist in _KNOWN_PARAMS."""
+        """All 24 phase-specific param keys exist in _KNOWN_PARAMS."""
         for phase in PHASES:
             for suffix in PHASE_PARAM_SUFFIXES:
                 key = f"{phase}_{suffix}"
                 assert key in _KNOWN_PARAMS, f"Missing {key} in _KNOWN_PARAMS"
 
     def test_phase_param_count(self):
-        """Exactly 18 phase-specific params are added (3 phases x 6 suffixes).
+        """Exactly 24 phase-specific params are added (3 phases x 8 suffixes).
 
         Match the exact ``{phase}_{suffix}`` pattern rather than a bare
         ``startswith(phase + '_')`` -- the latter would also count unrelated
@@ -60,7 +60,7 @@ class TestPhaseParamDefsPresent:
             f"{p}_{s}" for p in PHASES for s in PHASE_PARAM_SUFFIXES
         }
         count = sum(1 for key in _PARAM_DEFS if key in phase_keys)
-        assert count == 18
+        assert count == 24
 
 
 # =============================================================================
@@ -189,7 +189,7 @@ class TestResolvePhaseParams:
         assert set(resolved.keys()) == {'sat', 'opt_sat', 'opt'}
 
     def test_resolve_each_phase_has_6_params(self):
-        """Each phase in resolved dict has all 6 suffixes."""
+        """Each phase in resolved dict has all 8 suffixes."""
         m = Model()
         resolved = m._resolve_phase_params()
         for phase in PHASES:

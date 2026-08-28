@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 #include "intarray.h"
 //#include "SearchLib.h"
 #include "definitions.h"
@@ -55,6 +56,33 @@ typedef struct {
      * keeps the default path on the exact pre-h8d code path bit-for-bit.
      * Invariant: variable_order non-identity  =>  variable_rank != NULL. */
     int *variable_rank;
+
+    /* bd a0w (M5): ANGLE-PRECISION lever -- Ross-Selinger / gridsynth synthesis
+     * of the QTG's per-variable rotation R_y(theta_i) to absolute accuracy
+     * `eps` radians (T-count ~ 3*log2(1/eps)). <= 0 is the OFF switch and the
+     * default, and leaves BranchingFunction BIT-FOR-BIT on the pre-a0w path.
+     *
+     * `dither` picks the ERROR STRUCTURE, which is what the physics turns on:
+     *   0 (default) = COHERENT. Every variable's angle is displaced the same
+     *       way, so the realized-radius error adds coherently (~ n*dtheta).
+     *       This is the conservative model, and the exact one for the shipped
+     *       uniform-angle schedule (theta_i == 0 => all n angles identical =>
+     *       ONE synthesized circuit, reused, with ONE shared residual). It is
+     *       implemented as a shared grid snap, which for a per-variable
+     *       theta_i (branching_weights set) is a common-lattice model rather
+     *       than literally one circuit -- still the coherent worst case.
+     *   1 = INCOHERENT. Each variable gets an independent zero-mean residual in
+     *       [-eps, eps), so the FIRST-ORDER radius error averages (~sqrt(n)).
+     *       Physically this needs n SEPARATELY synthesized circuits even when
+     *       the target angles coincide (a real compiler would reuse one), and
+     *       it assumes the gridsynth residual is zero-mean and ~uniform within
+     *       eps. Note a second-order coherent bias survives the averaging:
+     *       E[sin^2((theta+eps*u)/2)] = (1 - cos(theta)*sinc(eps))/2 > p.
+     * The SYSTEMATIC arm is therefore the headline for the shipped schedule;
+     * the dithered arm prices an explicit engineering choice. See
+     * branch_quantize_angle and benchmarks/ANGLE_PRECISION_FINDINGS.md. */
+    double angle_precision_eps;
+    int angle_precision_dither;
 } BranchingStats_t;
 
 /* Global BranchingStats removed in v2.0 -- all state lives in solver_ctx_t.branching_stats */
@@ -69,6 +97,68 @@ static inline double branch_clamp(double v){
     if (v < BRANCH_EPS)       return BRANCH_EPS;
     if (v > 1.0 - BRANCH_EPS) return 1.0 - BRANCH_EPS;
     return v;
+}
+
+/*
+ * branch_dither_u -- deterministic per-variable rounding offset in [-1, 1).
+ *
+ * Models the residual synthesis error of gridsynth when each variable's
+ * rotation is synthesized separately: bounded by eps but pseudorandom within
+ * it, not snapped to a shared grid. A PURE function of the variable index
+ * (splitmix64 finalizer) -- it touches neither the solver PRNG stream nor any
+ * global state, so a fixed seed still reproduces a solve bit-for-bit
+ * (NORTHSTAR §8 determinism baseline) and the offsets are stable across
+ * workers, phases and Grover rounds, exactly as a compiled circuit would be.
+ */
+static inline double branch_dither_u(int index){
+    uint64_t z = (uint64_t)(uint32_t)index + 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z =  z ^ (z >> 31);
+    /* top 53 bits -> [0,1) exactly representable -> [-1, 1) */
+    return (double)(z >> 11) * (2.0 / 9007199254740992.0) - 1.0;
+}
+
+/*
+ * branch_quantize_angle -- apply finite R_y synthesis accuracy to a decision.
+ *
+ * The physical knob is the ANGLE, not the probability: the QTG prepares each
+ * variable with R_y(theta_i) whose FLIP amplitude is sin(theta/2), so
+ *
+ *     p_flip = 1 - value = sin^2(theta/2),   theta = 2*asin(sqrt(1 - value)).
+ *
+ * Quantizing `value` on a uniform grid instead would be unfaithful and far too
+ * coarse near p ~ 0 -- which is exactly where CBQS operates (p_flip = r/n, so
+ * theta ~ 2*sqrt(r/n) shrinks like 1/sqrt(n)).
+ *
+ *   systematic (dither == 0): theta_q = 2*eps * round(theta / (2*eps))
+ *                             -- a grid of spacing 2*eps, so |dtheta| <= eps.
+ *   dithered   (dither != 0): theta_q = theta + eps * u(index),  |u| < 1
+ *                             -- the same accuracy bound, zero-mean per variable.
+ *
+ * Both satisfy the Ross-Selinger contract |theta_q - theta| <= eps, which is
+ * what a T-count of ~3*log2(1/eps) buys. sin^2(theta/2) is even and bounded, so
+ * a negative or over-rotated theta_q is still a valid probability (no folding
+ * needed); branch_clamp then keeps the result strictly inside (0,1) so BOUNDED
+ * DECISIONS (NORTHSTAR §1.7) hold BY CONSTRUCTION even for a grid so coarse it
+ * rounds theta to 0 -- the case that would otherwise force deterministic greedy.
+ */
+static inline double branch_quantize_angle(double value, double eps,
+                                           int dither, int index){
+    double p = 1.0 - value;
+    if (p < 0.0)      p = 0.0;
+    else if (p > 1.0) p = 1.0;
+
+    double theta = 2.0 * asin(sqrt(p));
+    double theta_q;
+    if (dither) {
+        theta_q = theta + eps * branch_dither_u(index);
+    } else {
+        double delta = 2.0 * eps;
+        theta_q = delta * round(theta / delta);
+    }
+    double s = sin(0.5 * theta_q);
+    return branch_clamp(1.0 - s * s);
 }
 
 /*
@@ -146,6 +236,14 @@ static inline double BranchingFunction(int index, int bit_S, int bit_T, int diff
     } else {
         double z = log(base / (1.0 - base)) + offset;
         value = branch_clamp(1.0 / (1.0 + exp(-z)));
+    }
+
+    /* bd a0w (M5): finite R_y synthesis accuracy. eps <= 0 (the default) skips
+     * this entirely, so the whole pre-a0w path -- including the NORTHSTAR §8
+     * golden 6/7 at bias=5 -- is recovered BIT-FOR-BIT. */
+    if (stats->angle_precision_eps > 0.0) {
+        value = branch_quantize_angle(value, stats->angle_precision_eps,
+                                      stats->angle_precision_dither, index);
     }
 
     /* Apply bit_S / bit_T branching logic */
