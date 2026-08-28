@@ -322,7 +322,23 @@ several seeds.
    advantage narrows with `n`, since b\* grows like ½·log₂n while double precision stays at 53).
    Still extrapolated: ~9 bits at n=10⁶, i.e. ~27 T-gates per rotation against ~159.
 
-5. **Assumption (b) of §1a is load-bearing and is NOT tested here.** All of this holds only if `A`
+5. **The `½·log₂n` law is CONDITIONAL on `r* ≈ 2` holding as `n` grows.** Since
+   `θ = 2·arcsin√(r/n)`, a radius that itself scaled with `n` (`r ∝ n^α`) would give
+   `b* = (1−α)/2 · log₂n + c` — slower growth, and at `α = 1` a **flat** requirement. So the
+   O(log n) conclusion is really "O(log n) *given a constant optimal radius*". `r* ≈ 2` is
+   established only up to n=3000 (71e / w29 / kyg all landed there); if it drifted upward at
+   n ≳ 10⁵ the precision requirement would begin to saturate. That — not the shrinking absolute
+   `Δθ` — is the thing that would overturn this section.
+
+   (Worth stating because the absolute change *does* vanish and invites the opposite intuition:
+   from n=10⁹ to 10¹² the whole requirement moves by 0.00009 rad. But cost is `3·log₂(1/ε)`, and
+   the logarithm converts that geometric shrinkage into a *constant* increment: **every doubling
+   of `n` costs +0.50 bits / +1.5 T-gates per rotation, at every scale**. Measured slope of `b*`
+   vs `log₂n` over n=60→3000 is 0.555, against 0.500 in theory. The margin over double precision
+   erodes accordingly: 12.4× at n=3000, 6.3× at 10⁶, 2.9× at 10¹²; `b*` only reaches 53 bits at
+   n ≈ 10³².)
+
+6. **Assumption (b) of §1a is load-bearing and is NOT tested here.** All of this holds only if `A`
    and `A†` are the *same* synthesized circuit. If they are independently synthesized, errors
    accumulate and the requirement tightens to `ε ≲ 1/j` — a different regime entirely.
 
