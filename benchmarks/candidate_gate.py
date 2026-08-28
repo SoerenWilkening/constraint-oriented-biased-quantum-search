@@ -5,8 +5,10 @@ anchored strata), it must clear the §10 pre-scoring gate. This module composes
 that gate into one :func:`admit` returning a :class:`GateResult`:
 
   (i)   **param / lever allow-list** (PURE) — the candidate may set ONLY faithful
-        runtime levers (the 6 phase-aware suffixes × {unprefixed, sat_, opt_sat_,
-        opt_} plus ``opt_switch_oracles``). Overriding the budget/cost/termination
+        runtime levers (the 6 ORACLE-PRICED phase-aware suffixes × {unprefixed,
+        sat_, opt_sat_, opt_} plus ``opt_switch_oracles``; the a0w
+        ``angle_precision_*`` suffixes are phase-aware but priced on the T-count
+        axis, so they are excluded — see ``_UNPRICED_AXIS_SUFFIXES``). Overriding the budget/cost/termination
         model (``M``, ``num_workers``, ``opt_sample_cap``, …) is a faithfulness
         breach: it would void the equal-``T(n)`` A/B price (NORTHSTAR §5/§1.6).
         For the parametric proposer the §1.4 feature allow-list also holds BY
@@ -34,22 +36,45 @@ solves.
 """
 import math
 
+#: Mirror of ``cbqs.phase_params.DEFAULTS`` for the flat-layout fallback below.
+#: ``tests/test_candidate_gate.py`` pins the two in sync — if they drift, a flat
+#: import silently computes a DIFFERENT legal lever surface than a package one.
+_FALLBACK_DEFAULTS = {
+    "branching_weights": None, "branching_factor": 1.0, "bias_factor": 1.0,
+    "branching_bias": 5.0, "branching_radius": None, "variable_priorities": None,
+    "angle_precision_eps": None, "angle_precision_dither": False,
+}
+
 try:  # package import (pytest / installed) vs flat script import
     from cbqs.phase_params import PHASES, DEFAULTS
 except ImportError:  # pragma: no cover - flat layout fallback
     PHASES = ("sat", "opt_sat", "opt")
-    DEFAULTS = {"branching_weights": None, "branching_factor": 1.0,
-                "bias_factor": 1.0, "branching_bias": 5.0,
-                "branching_radius": None, "variable_priorities": None}
+    DEFAULTS = dict(_FALLBACK_DEFAULTS)
 
 
 # --------------------------------------------------------------------------- #
 # (i) Legal lever surface (NORTHSTAR §1.6/§5) — the COMPLETE set a candidate may
 # set, derived from the phase-aware suffixes (cbqs/phase_params.py DEFAULTS) so
 # it cannot drift from the C param surface.
+#
+# TRAPDOOR (bd a0w): deriving the surface from DEFAULTS means every NEW phase
+# suffix becomes candidate-settable by default. That is right for levers priced
+# by the equal-T(n) ORACLE A/B, and WRONG for anything that moves cost on a
+# different axis. Such suffixes are subtracted here and listed in
+# _FAITHFULNESS_BREACH_PARAMS instead.
 # --------------------------------------------------------------------------- #
 
-_LEVER_SUFFIXES = frozenset(DEFAULTS)  # the 6 phase-aware levers
+#: Phase suffixes that exist on the Model but are NOT candidate-settable levers.
+#: ``angle_precision_{eps,dither}`` (bd a0w) sets the Ross-Selinger synthesis
+#: accuracy of the QTG's R_y rotations: coarser angles buy a cheaper circuit on
+#: the **T-count-per-oracle** axis, which the equal-``T(n)`` oracle A/B does not
+#: price. Letting a tuned candidate set it would buy objective with unpriced
+#: circuit cost — the "no free relabel" breach NORTHSTAR §1.1 forbids. It is a
+#: HARNESS/run-level knob (like ``M`` and ``opt_sample_cap``), swept on its own
+#: axis by ``benchmarks/run_a0w_precision_probe.py``.
+_UNPRICED_AXIS_SUFFIXES = frozenset({"angle_precision_eps", "angle_precision_dither"})
+
+_LEVER_SUFFIXES = frozenset(DEFAULTS) - _UNPRICED_AXIS_SUFFIXES  # the 6 phase-aware levers
 
 #: Every legal candidate-settable param: each lever unprefixed + per phase, plus
 #: the global exploit→explore switch point (a bounded oracle count, §4).
@@ -68,7 +93,8 @@ _FAITHFULNESS_BREACH_PARAMS = frozenset({
     "stopping_condition", "timeout", "depth_look_ahead",
     "ignore_constraint_search", "monte_carlo_estimate", "max_delta",
     "reset_delta", "max_worse_acceptances", "distance", "look_ahead_factor",
-})
+} | _UNPRICED_AXIS_SUFFIXES
+  | {f"{phase}_{suffix}" for phase in PHASES for suffix in _UNPRICED_AXIS_SUFFIXES})
 
 # --------------------------------------------------------------------------- #
 # Scale-invariance indistinguishability bands (calibrated bd 8an.1.7, reused
@@ -118,7 +144,13 @@ def check_param_allowlist(params):
     """
     reasons = []
     for key in sorted(set(params) - LEGAL_LEVER_PARAMS):
-        if key in _FAITHFULNESS_BREACH_PARAMS:
+        if any(key.endswith(suffix) for suffix in _UNPRICED_AXIS_SUFFIXES):
+            reasons.append(
+                f"{key!r}: the angle-precision lever moves cost on the "
+                f"Ross-Selinger T-count-per-oracle axis, which the equal-T(n) "
+                f"ORACLE A/B does not price (NORTHSTAR §1.1/§5) — it is a "
+                f"harness-level knob, not a candidate lever")
+        elif key in _FAITHFULNESS_BREACH_PARAMS:
             reasons.append(
                 f"{key!r}: overriding the budget/cost/termination model breaks "
                 f"equal-T(n) faithfulness (NORTHSTAR §5) — a candidate may set "

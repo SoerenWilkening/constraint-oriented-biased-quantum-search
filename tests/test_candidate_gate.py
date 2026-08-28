@@ -37,6 +37,39 @@ def test_legal_lever_params_cover_phase_prefixed_and_switch():
     assert "opt_switch_oracles" in LEGAL_LEVER_PARAMS
 
 
+def test_angle_precision_is_excluded_from_the_lever_surface():
+    """bd a0w: the angle-precision lever must NOT be candidate-settable (§1.1).
+
+    ``LEGAL_LEVER_PARAMS`` is derived from ``phase_params.DEFAULTS`` so it cannot
+    drift from the C param surface — but that derivation is a TRAPDOOR: any new
+    phase suffix silently becomes candidate-settable. ``angle_precision_eps``
+    moves cost on the Ross-Selinger **T-count-per-oracle** axis, which the
+    equal-``T(n)`` ORACLE A/B does not price. A tuned candidate could therefore
+    buy objective with unpriced circuit cost — exactly the "no free relabel"
+    breach §1.1 forbids. It stays a HARNESS-level knob, like ``M`` and
+    ``opt_sample_cap``, and belongs in ``_FAITHFULNESS_BREACH_PARAMS``.
+    """
+    leaked = sorted(k for k in LEGAL_LEVER_PARAMS if "angle_precision" in k)
+    assert leaked == [], f"angle-precision leaked into the lever surface: {leaked}"
+    # 6 lever suffixes x {unprefixed, sat_, opt_sat_, opt_} + opt_switch_oracles
+    assert len(LEGAL_LEVER_PARAMS) == 25
+
+
+def test_angle_precision_is_rejected_as_a_faithfulness_breach():
+    ok, reasons = check_param_allowlist({"opt_branching_radius": 2.0,
+                                         "opt_angle_precision_eps": 0.5})
+    assert not ok
+    assert any("opt_angle_precision_eps" in r for r in reasons)
+    assert any("T-count" in r or "T-gate" in r for r in reasons), reasons
+
+
+def test_flat_import_fallback_lever_surface_matches_the_package_one():
+    """The ImportError fallback DEFAULTS must enumerate the SAME lever suffixes
+    as cbqs.phase_params, or a flat-layout run gets a different legal set."""
+    from cbqs.phase_params import DEFAULTS as PKG_DEFAULTS
+    assert set(cg._FALLBACK_DEFAULTS) == set(PKG_DEFAULTS)
+
+
 def test_allowlist_accepts_pure_radius_switch_schedule():
     ok, reasons = check_param_allowlist(
         {"opt_sat_branching_radius": 2.0, "opt_branching_radius": 6.0,
