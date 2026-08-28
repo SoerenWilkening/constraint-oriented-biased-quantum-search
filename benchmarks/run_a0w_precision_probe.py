@@ -319,7 +319,7 @@ def _median_radius(recs, indices, seeds, arm):
     return float(np.median(vals)) if vals else None
 
 
-def _verdict(n, recs, indices, seeds, arms, T):
+def _verdict(n, recs, indices, seeds, arms, T, wall=None):
     obj_at, depth = _obj_common(recs, indices, seeds, arms, T)
     feas = {a: sum(1 for i in indices for s in seeds
                    if obj_at.get((i, s, a)) is not None) for a in arms}
@@ -375,6 +375,11 @@ def _verdict(n, recs, indices, seeds, arms, T):
     exact_radius = _median_radius(recs, indices, seeds, "exact")
     exact_oracles = _oracles_to_match(recs, obj_at, indices, seeds, "exact")
     return {"bead": "constraint-oriented-biased-quantum-search-a0w", "N": n, "T": T,
+            # the run mode is part of the RESULT: a wall-capped spot-check and a
+            # faithful oracle-budget sweep are not interchangeable reads, and a
+            # downstream figure must be able to say which it is plotting.
+            "wall_s": (float(wall) if wall else None),
+            "mode": ("wall" if wall else "faithful"),
             "seeds": list(seeds), "indices": list(indices), "arms": list(arms),
             "eps_grid": list(EPS_GRID), "r_opt": R_OPT,
             "theta_exact": theta_exact(n), "feasible_cells": feas,
@@ -435,7 +440,7 @@ def run(*, n, out_dir, seeds, budget_mult, workers, indices, bench_root, arms=No
                 rp = os.path.join(out_dir, f"{n}_{idx}__{arm}__s{s}.json")
                 if os.path.exists(rp):
                     recs[(idx, arm, s)] = json.load(open(rp))
-    summary = _verdict(n, recs, indices, seeds, arms, T)
+    summary = _verdict(n, recs, indices, seeds, arms, T, wall=wall)
     json.dump(summary, open(os.path.join(out_dir, "summary.json"), "w"), indent=2)
     _report(log, summary)
     check_harness_controls(summary)     # CLAUDE.md §2.1: crash, never warn

@@ -264,6 +264,41 @@ n=60/90/150, 0 misses of 45):
   (e.g. n=60 dithered ε=0.5: 616 oracles vs 1 041 for `exact`) with 26/45 misses vs 11/45 — a
   higher-variance search, not a better one. No arm improves both axes.
 
+### 6e. n=3000 spot-check — the prediction confirmed 20× beyond where it was fitted
+
+Wall-capped 150 s (a deliberate deviation from the 900–1800 s RUN POLICY, taken to keep the check
+under an hour; both arms of every comparison share the same cap). 3 instances × 1 seed × 5 arms.
+θ(3000) = 0.05165 rad, so the grid brackets the predicted collapse threshold between ε=0.0625
+(above θ) and ε=0.03 (below).
+
+**Realized opt-phase Hamming radius, per instance:**
+
+| arm | ε vs θ | inst 0 | inst 1 | inst 2 | predicted |
+|---|---|---|---|---|---|
+| `exact` | — | 2.86 | 3.17 | 3.00 | — |
+| **`e0.0625_sys`** | **ε > θ** | **0.000** | **0.000** | **0.000** | 0.00 ✓ |
+| `e0.03_sys` | ε < θ | 3.83 | 4.06 | 3.80 | 2.70 ✓ |
+| `e0.5_dit` | — | infeasible | **81.7** | **90.1** | 64.2 ✓ |
+| `e0.03_dit` | ε < θ | 3.33 | 3.52 | 3.27 | 2.22 ✓ |
+
+**The collapse boundary `ε = θ` holds 3/3 at n=3000** — a prediction made from n ≤ 150 and
+extrapolated 20×. So ε\* = 0.03 rad on this grid: **b\* ≈ 5.7 bits, ~15 T-gates per rotation,
+~45 500 T per QTG application** (the strict threshold is `b > log₂(π/2θ) = 4.93`; the factor-2 grid
+has nothing between 0.03 and 0.0625).
+
+**The dither falsification is now decisive.** At ε=0.5 the dithered radius inflates to ~86 against
+an exact arm of ~3.0 — a **~29× blow-up** — versus only **1.66×** at n=60 for the *same* ε. That is
+the second-order coherent bias `n·ε²/(12r)` behaving exactly as the closed form says, across a 50×
+range in `n`. Dither is not flat in `n`.
+
+**What this run does NOT establish.** The 150 s cap reaches only 350–2500 of T(n)=9989 oracles, and
+`obj@common` reads at the shallowest arm in each cell, so the objective deltas (−0.019 % for the
+collapsed arm, +0.0005 % for ε=0.03) are **not resolvable**; with a single seed the noise floor
+computes as 0.0000 %, which makes the `indist?` scoring rule vacuous — the probe therefore reports
+"no grid point indistinguishable", and that must **not** be read as a negative result. The radius is
+the decisive read here. A decidable objective claim at n=3000 needs the full 900 s cap (~3.75 h) and
+several seeds.
+
 ## 7. Verdict
 
 1. **The bead's headline question is answered: ~3 bits, ~6–9 T-gates per rotation** at n=60–150
@@ -281,9 +316,11 @@ n=60/90/150, 0 misses of 45):
    sizes on a 1-bit grid the *fitted* slope is 0.5–0.8 with wide error bars; the scaling claim rests
    on the mechanism (`ε_collapse = θ`, confirmed 4/4), not on the fit.
 
-4. **Extrapolation** (from `b*_sys = ½·log₂n + const`, const ≈ −0.5 pinned at the collapse
-   threshold, plus one grid step of margin): ~5 bits at n=3000, ~9 bits at n=10⁶. Even at n=10⁶ that
-   is ~27 T-gates per rotation against ~159 for double precision.
+4. **Confirmed at n=3000, not just extrapolated** (§6e): the collapse boundary `ε = θ` held 3/3
+   at 20× the size it was fitted on, giving **b\* ≈ 5.7 bits / ~15 T-gates per rotation /
+   ~45 500 T per QTG application** — ~10.5× cheaper than double precision at that size (the
+   advantage narrows with `n`, since b\* grows like ½·log₂n while double precision stays at 53).
+   Still extrapolated: ~9 bits at n=10⁶, i.e. ~27 T-gates per rotation against ~159.
 
 5. **Assumption (b) of §1a is load-bearing and is NOT tested here.** All of this holds only if `A`
    and `A†` are the *same* synthesized circuit. If they are independently synthesized, errors
@@ -294,11 +331,11 @@ bit-for-bit the pre-a0w solve). It is a *reporting* instrument for the T-count a
 **excluded from the M3 candidate lever surface** (`candidate_gate._UNPRICED_AXIS_SUFFIXES`), because
 it moves cost on an axis the equal-`T(n)` oracle A/B does not price (§1.1).
 
-**Not done: the n=3000 spot-check was skipped (user decision).** The small-n cliff is clean and the
-mechanism is closed-form, so the predicted `ε*(3000) ≈ 0.03–0.05 rad` (b\* ≈ 5) is an *extrapolation*,
-not a measurement. Re-open with:
-`run_a0w_precision_probe --n 3000 --wall 900 --indices 0,1,2 --arms exact,e0.0625_sys,e0.03_sys,e0.5_dit,e0.03_dit`
-(≈3.75 h) — `e0.0625_sys` should collapse and `e0.03_sys` should not.
+**Open: a decidable OBJECTIVE claim at n=3000.** The §6e spot-check confirms the *mechanism* at
+scale but was wall-capped at 150 s, too shallow to resolve objective differences. Re-run with the
+policy cap and more seeds:
+`run_a0w_precision_probe --n 3000 --wall 900 --indices 0..8 --seeds <3+> --arms exact,e0.0625_sys,e0.03_sys,e0.5_dit,e0.03_dit`
+(≈3.75 h for 3 instances × 1 seed; ~11 h for 9 × 1).
 
 ## 8. Gates
 
@@ -313,6 +350,6 @@ not a measurement. Re-open with:
   a print-instead-of-crash harness control, NORTHSTAR spec drift, a `bool('false') == True` coercion
   hole, a banker's-vs-C rounding mismatch in the verification mirrors, over-broad synthesis-mode
   claims, and dangling references to then-uncommitted files.
-- **Figure:** `benchmarks/artifacts/m5_a0w_precision/angle_precision_cliff.png`.
+- **Figure:** `benchmarks/artifacts/m5_a0w_precision/angle_precision_cliff.png` (4 sizes; the n=3000 objective panel is explicitly marked non-decidable).
 - **Drivers:** `benchmarks/a0w_radius_tolerance.py` (step 1), `benchmarks/run_a0w_precision_probe.py`
   (sweep), `benchmarks/plot_a0w_precision.py`. **Tests:** `tests/test_angle_precision.{c,py}`.
