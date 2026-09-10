@@ -97,7 +97,7 @@ def solve_arm(arm, n, idx, seed, wall, workers, bench_root):
         m.set_param(k, v)
     t0 = time.time(); r = m.solve(); dt = time.time() - t0
     baselines.warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     return {"arm": arm, "n": n, "index": idx, "seed": int(seed), "wall_s": dt, "params": resolved,
             "objective": int(r.objective) if r.objective is not None else None,
             "feasible": bool(r.feasible), "oracle_calls": int(r.oracle_calls),

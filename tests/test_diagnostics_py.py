@@ -200,7 +200,7 @@ class TestLocalSearchDiagnostics:
         m.set_param("track_history", True)
         m.set_param("distance", 2)
         result = m.local_search()
-        for value, oracle in result.history:
+        for value, oracle, _elapsed in result.history:
             assert isinstance(value, (int, float))
             assert isinstance(oracle, int) and not isinstance(oracle, bool)
             assert oracle == 0, \
@@ -249,12 +249,13 @@ class TestHistoryAccumulation:
     """Tests for improvement history in OptimizeResult."""
 
     def test_history_entries_are_tuples(self):
-        """Each entry in result.history has 2 elements (value, oracle:int) (M0e)."""
+        """Each entry in result.history is (value, oracle:int, elapsed_s:float) (M0e + bd qls)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
         for entry in result.history:
-            assert len(entry) == 2, f"History entry should have 2 elements, got {len(entry)}"
+            assert len(entry) == 3, f"History entry should have 3 elements (value, oracle, elapsed_s), got {len(entry)}"
+            assert isinstance(entry[2], float) and entry[2] >= 0.0
 
     def test_history_objectives_monotonic(self):
         """For maximization, values in history should be non-decreasing (if any entries exist)."""
@@ -268,12 +269,13 @@ class TestHistoryAccumulation:
                     f"History should be non-decreasing for MAXIMIZE: {objectives}"
 
     def test_history_entries_have_correct_types(self):
-        """History entries contain (value, oracle:int) -- oracle-indexed, not seconds (M0e)."""
+        """History entries are (value, oracle:int, elapsed_s) -- oracle-indexed (M0e) + wall stamp (bd qls)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
         for entry in result.history:
-            value, oracle = entry
+            value, oracle, elapsed = entry
+            assert isinstance(elapsed, float) and elapsed >= 0.0
             assert isinstance(value, (int, float))
             # Oracle stamp is an integer oracle count (NORTHSTAR §11), not a float time.
             assert isinstance(oracle, int) and not isinstance(oracle, bool), \
@@ -291,7 +293,7 @@ class TestHistoryAccumulation:
         # every stamp is a non-bool int in [0, result.oracle_calls] (the per-worker
         # T(n) budget == max-over-workers oracle_count). A wall-clock float, or a
         # stamp exceeding the budget, would fail here.
-        for value, oracle in result.history:
+        for value, oracle, _elapsed in result.history:
             assert isinstance(oracle, int) and not isinstance(oracle, bool)
             assert 0 <= oracle <= result.oracle_calls, \
                 f"oracle stamp {oracle} outside [0, oracle_calls={result.oracle_calls}]"

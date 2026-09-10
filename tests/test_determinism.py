@@ -384,8 +384,8 @@ class TestPerWorkerPRNGDecorrelation:
         m.manual_initial(0, [0] * m.n)
         r = run_sampling(m, None, [1], True, 0.0, worker_id)
         # r = (cur_sol, qtg, feasible, arr, t_total, incumb, history, prep, branch_diag, worker_runtime_s)
-        history = r[6]
-        return tuple(value for (value, _elapsed) in history)
+        history = r[6]  # (value, oracle, elapsed_s) entries (bd qls)
+        return tuple(entry[0] for entry in history)
 
     def test_worker0_trajectory_is_reproducible(self):
         """worker_id=0 reproduces an identical trajectory (legacy stream stable)."""

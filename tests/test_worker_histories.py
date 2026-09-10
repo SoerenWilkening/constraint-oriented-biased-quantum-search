@@ -7,8 +7,9 @@ and discard them. ``result.worker_histories`` keeps them -- one stream per
 worker, indexed by ``worker_id``, entries ``(value, oracle, elapsed_s)`` with
 ``elapsed_s`` measured from the shared solve() start -- so a user can replay
 the running-max over any subset of workers post hoc (e.g. "how would P'<P
-workers have done?") without re-running. The merged ``history`` schema
-``(value, oracle)`` is unchanged (CLAUDE.md §8).
+workers have done?") without re-running. bd qls: the merged ``history`` shares the schema --
+each entry is the producing worker's ``(value, oracle, elapsed_s)`` (a
+deliberate CLAUDE.md §8 schema change).
 """
 import random
 
@@ -39,13 +40,13 @@ def _build_model(seed=SEED, num_workers=WORKERS, track_history=True):
 
 
 def _merge(streams, is_better):
-    """Reference best-of-portfolio merge over (value, oracle, *_) streams."""
+    """Reference best-of-portfolio merge over (value, oracle, elapsed_s) streams."""
     merged = sorted((e for s in streams for e in s), key=lambda e: e[1])
     out, best = [], None
     for e in merged:
         if best is None or is_better(e[0], best):
             best = e[0]
-            out.append((e[0], e[1]))
+            out.append(e)
     return out
 
 
@@ -76,7 +77,16 @@ def test_entry_schema_and_monotonicity(result):
 
 
 def test_history_is_running_max_over_worker_histories(result):
+    """history entries are the producing worker's full (value, oracle, elapsed_s)."""
     assert _merge(result.worker_histories, lambda n, b: n > b) == list(result.history)
+
+
+def test_history_entries_carry_elapsed(result):
+    assert result.history
+    for value, oracle, elapsed in result.history:
+        assert isinstance(oracle, int) and isinstance(elapsed, float) and elapsed >= 0.0
+    # the merged curve is oracle-ordered; elapsed need not be monotone across workers
+    assert [e[1] for e in result.history] == sorted(e[1] for e in result.history)
 
 
 def test_single_worker_stream_matches_p1_run(result):
@@ -86,15 +96,17 @@ def test_single_worker_stream_matches_p1_run(result):
     trajectory depends only on (master seed, worker_id), never on its peers.
     """
     p1 = _build_model(num_workers=1).solve()
-    w0 = [(v, o) for (v, o, _t) in result.worker_histories[0]]
-    assert w0 == list(p1.history)
+    strip = lambda s: [(v, o) for (v, o, _t) in s]
+    assert strip(result.worker_histories[0]) == strip(p1.history)
 
 
 def test_deterministic_under_fixed_seed():
-    a = _build_model().solve().worker_histories
-    b = _build_model().solve().worker_histories
-    strip = lambda hs: [[(v, o) for (v, o, _t) in s] for s in hs]
-    assert strip(a) == strip(b)
+    """(value, oracle) is a pure function of the seed; elapsed_s is wall-clock and is not."""
+    a = _build_model().solve()
+    b = _build_model().solve()
+    strip = lambda s: [(v, o) for (v, o, _t) in s]
+    assert [strip(s) for s in a.worker_histories] == [strip(s) for s in b.worker_histories]
+    assert strip(a.history) == strip(b.history)
 
 
 def test_track_history_false_gives_empty():

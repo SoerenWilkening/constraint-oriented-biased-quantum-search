@@ -247,7 +247,7 @@ Each entry: **location → why dangerous → how to detect.** These are the land
 **Cython layer (`cbqs/*.pyx`, `*.pxd`)**
 - `Model.pyx` — `Model` class; `solve()` worker fan-out; objective sign; constraint push to C.
 - `SearchLib.pyx` — `run_sampling` (per-worker driver), `_propagate_phase_params`, `set_predicted_params`,
-  the `void()` history callback (`(value, elapsed_seconds)` today; migrating to `(value, oracle:int)`).
+  the `void()` history callback (entries `(value, oracle:int, elapsed_s)` — M0e oracle stamp + bd qls wall stamp).
 - `Expression.pyx` — `__le__/__ge__/__eq__` attach constraint sense+rhs (`__ge__` negates → internal LOWER).
 - `VariableVector.pyx` — `__matmul__` → `bilinear_reduce`: the vectorized build path.
 
@@ -345,9 +345,14 @@ A change to any of these must be deliberate, justified in the `bd` issue, and up
   (`test_determinism.py`). The M0 per-worker PRNG decorrelation must keep single-worker determinism intact
   and only change *multi-worker* trajectory divergence. Never "fix" a failing determinism assert by
   loosening it.
-- **History schema:** currently `(value, elapsed_seconds: float)`. The M0 migration to
-  `(value, oracle: int)` must update `SearchLib.pyx:170`, `test_concurrent_history.py`,
-  `test_diagnostics_py.py`, and `result.py` (docstring + `summary()` formatting) **in the same commit**.
+- **History schema:** `(value, oracle: int, elapsed_s: float)` (M0e oracle stamp; `elapsed_s` added by
+  bd qls 2026-09-10 = wall-clock seconds since `solve()` start, taken from the producing worker).
+  `result.worker_histories` (bd o3f) carries the raw per-worker streams in the same schema; `history` is
+  their running-max merge. Only the `(value, oracle)` projection is seed-deterministic — every
+  equality/round-trip check must project (`for (v, o, *_) in …`); saved benchmark JSON stays
+  2-element `[v, o]`. A schema change must update `SearchLib.pyx` (`_history_callback_fn`), the
+  `Model.pyx` merge, `result.py` (docstring + `summary()` + `to_dict()`), `benchmarks/metric.py`, every
+  benchmark driver that unpacks entries, and the test pins **in the same commit**.
 - **`branching_bias > -1`** (`test_bias_validation.py`) — the bias domain guard.
 
 ---

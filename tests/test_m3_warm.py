@@ -193,7 +193,7 @@ def test_warm_repair_empty_history_with_feasible_final():
     r = types.SimpleNamespace(history=[], seed=1,
                               final_incumbents=[(990.0, True), (980.0, True), (0.0, False)])
     h = baselines.warm_repair_history(r)
-    assert h == [(990.0, 0)] and r.history == [(990.0, 0)]
+    assert h == [(990.0, 0, 0.0)] and r.history == [(990.0, 0, 0.0)]
     # and it now scores as feasible (finite PI), not +inf.
     pi = metric.compute_primal_integral(r.history, _B_I, _L_I, metric.oracle_budget(10))
     assert math.isfinite(pi)
@@ -262,7 +262,7 @@ def test_warm_repair_empty_history_uses_feasible_greedy_value():
     r = types.SimpleNamespace(history=[], seed=1,
                               final_incumbents=[(990.0, True), (980.0, True)])
     h = baselines.warm_repair_history(r, greedy_value=990.0, greedy_feasible=True)
-    assert h == [(990.0, 0)] and r.history == [(990.0, 0)]
+    assert h == [(990.0, 0, 0.0)] and r.history == [(990.0, 0, 0.0)]
 
 
 def test_warm_repair_infeasible_greedy_left_verbatim_even_with_value():

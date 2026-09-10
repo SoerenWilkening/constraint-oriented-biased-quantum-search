@@ -199,7 +199,7 @@ def solve_arm(arm, n, idx, seed, budget_mult, workers, bench_root, wall=None):
     t0 = time.time()
     r = m.solve()
     baselines.warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     bd = r.branch_diagnostics or {}
     return {"arm": arm, "n": n, "index": idx, "seed": int(seed),
             "params": {k: (float(v) if isinstance(v, (int, float)) and not isinstance(v, bool)

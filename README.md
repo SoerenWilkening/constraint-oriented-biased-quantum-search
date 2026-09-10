@@ -47,13 +47,14 @@ kept in `result.worker_histories`:
 m.set_param('num_workers', 12)
 result = m.solve()
 
-result.history            # [(value, oracle), ...]  best-of-all-workers curve
+result.history            # [(value, oracle, elapsed_s), ...]  best-of-all-workers curve
 result.worker_histories   # one list per worker, index == worker id
                           # [[(value, oracle, elapsed_s), ...], ...]
 ```
 
 Each entry is the worker's own incumbent `value`, its own cumulative oracle
-count, and the wall-clock seconds since `solve()` started. Workers never read
+count, and the wall-clock seconds since `solve()` started (for `history`, as
+seen by the worker that produced the improvement). Workers never read
 each other's incumbents (each is seeded from `(seed, worker_id)`), so the curve
 that any subset of workers would have produced on its own is just the
 running-max over that subset's streams. To see how the run would have gone with
@@ -70,7 +71,7 @@ def portfolio_curve(streams, axis=1):
     for entry in sorted((e for s in streams for e in s), key=lambda e: e[axis]):
         if best is None or entry[0] > best:
             best = entry[0]
-            curve.append((entry[0], entry[axis]))
+            curve.append(entry)
     return curve
 
 k = 4

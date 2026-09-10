@@ -63,7 +63,7 @@ class TestConcurrentSolveIndependence:
             assert isinstance(result.history, list)
             # Validate structure of any history entries (M0e: (value, oracle:int))
             for entry in result.history:
-                assert len(entry) == 2, f"History entry should be 2-tuple, got {len(entry)}"
+                assert len(entry) == 3, f"History entry should be (value, oracle, elapsed_s), got {len(entry)}"
                 value, oracle = entry
                 assert isinstance(value, (int, float)), f"Value should be numeric, got {type(value)}"
                 assert isinstance(oracle, int) and not isinstance(oracle, bool), \
@@ -98,7 +98,7 @@ class TestConcurrentSolveIndependence:
             assert result.feasible is not None, f"Result {i} should have feasible flag"
             # Each history is valid independently (M0e: (value, oracle:int))
             for entry in result.history:
-                assert len(entry) == 2
+                assert len(entry) == 3
                 value, oracle = entry
                 assert isinstance(value, (int, float))
                 assert isinstance(oracle, int) and not isinstance(oracle, bool)
@@ -117,10 +117,10 @@ class TestSatisfyModeHistory:
         result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert isinstance(result.history, list)
-        # Each entry should have (satisfaction_value, oracle:int) (M0e)
+        # Each entry is (satisfaction_value, oracle:int, elapsed_s) (M0e + bd qls)
         for entry in result.history:
-            assert len(entry) == 2
-            value, oracle = entry
+            assert len(entry) == 3
+            value, oracle, _elapsed = entry
             assert isinstance(value, (int, float)), \
                 f"Expected numeric satisfaction value, got {type(value)}"
             assert value >= 0, f"Satisfaction value should be >= 0, got {value}"
@@ -225,10 +225,12 @@ class TestMultiWorkerDeterminism:
             m.set_param('num_workers', 4)
             m.set_param('track_history', True)
             result = m.solve()
-            outcomes.append((result.objective, list(result.history)))
+            # bd qls: elapsed_s is wall-clock by design; the (value, oracle)
+            # projection is what must be a pure function of the seed.
+            outcomes.append((result.objective, [(v, o) for (v, o, _t) in result.history]))
         assert outcomes[0] == outcomes[1] == outcomes[2], (
             "multi-worker fixed-seed solves must produce identical merged "
-            "best-of-portfolio histories (bd 4uf; scheduling-dependent history "
-            "breaks §6 PI reproducibility)")
+            "best-of-portfolio (value, oracle) histories (bd 4uf; scheduling-dependent "
+            "history breaks §6 PI reproducibility)")
         # the merged curve is non-trivial (at least one incumbent was logged)
         assert outcomes[0][1], "expected a non-empty merged history"

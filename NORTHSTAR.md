@@ -242,7 +242,8 @@ case (dynamic/marginal bias), which additionally charges extra **oracle** cost a
   worker, and **return each worker's final incumbent** (currently `incumb=[]`, `SearchLib.pyx:393`) so
   §8.3 can compute median-of-P. Rebuild best-of-portfolio in Python as a running-max merge over per-worker
   `(oracle, value)` streams. Update `test_concurrent_history.py` / `test_diagnostics_py.py` to the new
-  `(value, oracle:int)` schema.
+  `(value, oracle:int)` schema. *(Landed; later extended to `(value, oracle:int, elapsed_s)` — bd qls,
+  CLAUDE.md §8 — and the raw per-worker streams are exposed as `result.worker_histories`, bd o3f.)*
 - **Per-worker stream decorrelation:** `solver_ctx_init_prng` hardcodes `prng_seed_thread(master, 0)`
   (`solver_ctx.c:535`) → all P workers identical under a fixed seed. Plumb a worker index from the
   `solve()` loop (`Model.pyx:781`) through `run_sampling` and seed `prng_seed_thread(master, worker_id)`

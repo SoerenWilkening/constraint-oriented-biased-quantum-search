@@ -855,7 +855,7 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s, worker_stream)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s)
 		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
 		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
 		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
@@ -875,8 +875,9 @@ or {self.runtime}s sampling
 		final_incumbents = [r[5] for r in res]
 
 		# Best-of-portfolio improvement curve vs ORACLE budget (NORTHSTAR §11/§1.3 M0e):
-		# concatenate the per-worker (value, oracle) streams, sort by oracle, and keep
-		# the running-best value. bd 4uf: streams are now COMPLETE per-worker incumbent
+		# concatenate the per-worker (value, oracle, elapsed_s) streams, sort by oracle,
+		# and keep the running-best value (bd qls: the kept entry is the producing
+		# worker's full triple, so `history` also carries wall-clock elapsed). bd 4uf: streams are now COMPLETE per-worker incumbent
 		# logs (no longer filtered by the wall-time global_opt race), so this running-
 		# best filter is LOAD-BEARING for the best-of-P curve — different workers'
 		# streams overlap and most cross-worker events are dominated. Each worker's own
@@ -896,18 +897,19 @@ or {self.runtime}s sampling
 				is_better = lambda new, best: new > best
 			merged_history = []
 			best_val = None
-			for value, oracle in merged:
+			for entry in merged:
+				value = entry[0]
 				if best_val is None or is_better(value, best_val):
 					best_val = value
-					merged_history.append((value, oracle))
+					merged_history.append(entry)
 		else:
 			merged_history = []
 
 		# bd o3f: keep the raw per-worker streams (index == worker_id) so the
 		# user can replay the running-max over any worker subset post hoc.
-		# Entries are (value, oracle, elapsed_s); `history` above is exactly the
-		# running-max merge of these on (value, oracle).
-		worker_histories = [list(r[10]) for r in res] if track_history else []
+		# Same (value, oracle, elapsed_s) schema; `history` above is exactly
+		# their running-max merge.
+		worker_histories = [list(r[6]) for r in res] if track_history else []
 
 		# Extract solution array from global_opt
 		cdef int n_bits = self.mod[0].global_opt[0].vector.bits

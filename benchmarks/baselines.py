@@ -410,13 +410,13 @@ def warm_repair_history(result, greedy_value=None, greedy_feasible=None):
     * **feasible greedy start** → the greedy value IS the true best-of-P incumbent at oracle 0
       (all workers copy the SAME deterministic greedy state, ``SearchLib.pyx``), held until the
       first logged improvement (which is strictly better, so the curve stays monotone). Anchor
-      it: empty history → ``[(greedy_value, 0)]``; non-empty starting at oracle ``k>0`` →
+      it: empty history → ``[(greedy_value, 0, 0.0)]``; non-empty starting at oracle ``k>0`` →
       prepend ``(greedy_value, 0)``; already anchored at oracle 0 → leave verbatim.
     * **infeasible greedy start** → ``[0, first_feasible)`` is a genuine pre-feasible ``γ=1``
       plateau (identical to a cold run); leave the history verbatim, NEVER backdate.
 
     LEGACY/EXPLORATORY fallback (greedy info NOT supplied, ``None``): repair only **empty
-    history + a feasible final** → ``[(max(feasible finals), 0)]``. Provably exact: an empty
+    history + a feasible final** → ``[(max(feasible finals), 0, 0.0)]``. Provably exact: an empty
     history with a feasible final can ONLY come from a feasible greedy start no worker improved
     on (an infeasible-greedy worker that reaches feasibility logs that first-feasible incumbent
     as an improvement → non-empty history), so every final equals the greedy value held over
@@ -430,7 +430,7 @@ def warm_repair_history(result, greedy_value=None, greedy_feasible=None):
     if greedy_feasible and greedy_value is not None:
         # FAITHFUL: feasible greedy start is the true best-of-P at oracle 0.
         if not hist:
-            result.history = [(greedy_value, 0)]
+            result.history = [(greedy_value, 0, 0.0)]
         elif hist[0][1] > 0:
             result.history = [(greedy_value, 0), *hist]
         # else: history already anchored at oracle 0 — leave verbatim (no double-seed).
@@ -442,7 +442,7 @@ def warm_repair_history(result, greedy_value=None, greedy_feasible=None):
     if not hist:
         feas = [float(v) for (v, ok) in (getattr(result, "final_incumbents", None) or []) if ok]
         if feas:
-            result.history = [(max(feas), 0)]
+            result.history = [(max(feas), 0, 0.0)]
     return result.history
 
 

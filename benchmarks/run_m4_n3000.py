@@ -70,7 +70,7 @@ def solve_arm(arm, idx, seed, wall, workers, bench_root):
     t0 = time.time(); r = m.solve(); dt = time.time() - t0
     from benchmarks import baselines
     baselines.warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     return {"arm": arm, "index": idx, "seed": int(seed), "wall_s": dt,
             "objective": int(r.objective) if r.objective is not None else None,
             "feasible": bool(r.feasible), "oracle_calls": int(r.oracle_calls),
@@ -82,7 +82,7 @@ def obj_at_budget(history, T):
     """Best-of-portfolio objective at oracle budget T: the running-max value among history
     entries with oracle ≤ T (a step function; history is feasible-only, oracle-ascending).
     None if no feasible incumbent by T (a feasibility loss at the budget)."""
-    vals = [v for (v, o) in history if o <= T]
+    vals = [v for (v, o, *_) in history if o <= T]
     return max(vals) if vals else None
 
 

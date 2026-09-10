@@ -132,7 +132,7 @@ def step_eval(history, grid, floor):
     metric.compute_primal_integral's pre-feasible convention). Oracle stamps are
     clipped to the grid's max (the metric clips overshoot to T_I)."""
     best = np.full(len(grid), float(floor), dtype=float)
-    for value, oracle in history:
+    for value, oracle, *_ in history:
         best[grid >= oracle] = float(value)
     return best
 
@@ -177,7 +177,7 @@ def run(out_dir, bench_root, warm=False):
             # warm: result.history was already seeded at oracle 0 by warm_repair_history
             # (bd 8an.10) inside solve_seed_bank — feasible from oracle 0, incl. the
             # greedy-optimal empty-history case. cold: histories unchanged.
-            histories = [[(float(v), int(o)) for (v, o) in (r.history or [])]
+            histories = [[(float(v), int(o)) for (v, o, *_) in (r.history or [])]
                          for r in results]
             pis = [metric.compute_primal_integral(h, B_I, L_I, T) for h in histories]
             med_pi = statistics.median(pis)

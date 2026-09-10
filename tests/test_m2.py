@@ -117,7 +117,7 @@ def test_record_roundtrip_preserves_metric_surface():
     back = record_to_result(json.loads(json.dumps(rec)))  # through real JSON
     assert back.seed == 3
     assert back.history == [(50.0, 10), (90.0, 40)]
-    assert all(isinstance(o, int) for (_v, o) in back.history)
+    assert all(isinstance(o, int) for (_v, o, *_) in back.history)
     assert back.final_incumbents == [(90.0, True), (80.0, True)]
     assert back.objective == pytest.approx(90.0)
     assert back.feasible is True

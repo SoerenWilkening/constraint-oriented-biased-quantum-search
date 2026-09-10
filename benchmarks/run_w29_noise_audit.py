@@ -59,7 +59,7 @@ def _solve(n, idx, seed, *, params, workers, wall, bench_root, cap_oracles=None)
         m.set_param(k, v)
     r = m.solve()
     baselines.warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     return {"objective": int(r.objective) if r.objective is not None else None,
             "feasible": bool(r.feasible), "oracle_calls": int(r.oracle_calls), "history": hist}
 

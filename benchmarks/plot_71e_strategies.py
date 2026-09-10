@@ -64,7 +64,7 @@ def solve(key, factory, n, idx, seed, wall, workers, bench_root):
         m.set_param(k, v)
     t0 = time.time(); r = m.solve(); dt = time.time() - t0
     baselines.warm_repair_history(r, greedy_value=gv, greedy_feasible=gf)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     safe_over = {k: (np.asarray(v).tolist() if isinstance(v, np.ndarray) else v)
                  for k, v in overrides.items()}   # opt_branching_weights is an ndarray (theta active)
     return {"key": key, "n": n, "index": idx, "seed": int(seed), "wall_s": dt, "overrides": safe_over,

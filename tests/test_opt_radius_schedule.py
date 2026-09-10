@@ -42,7 +42,7 @@ def _solve(params, *, seed=7, M=1500, workers=1, n=40, cap=20):
     for k, v in params.items():
         m.set_param(k, v)
     r = m.solve()
-    hist = tuple((float(a), int(b)) for a, b in (r.history or []))
+    hist = tuple((float(a), int(b)) for a, b, *_ in (r.history or []))
     return r, hist
 
 

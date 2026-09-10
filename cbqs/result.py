@@ -33,17 +33,21 @@ class OptimizeResult:
         Number of oracle (QTG) calls.
     history : list of tuple
         Best-of-portfolio improvement history. Each entry is
-        ``(value, oracle)`` where ``oracle`` is the cumulative per-worker
-        oracle count (``ctx->oracle_count``) at which the running
+        ``(value, oracle, elapsed_s)`` where ``oracle`` is the cumulative
+        per-worker oracle count (``ctx->oracle_count``) at which the running
         best-of-portfolio ``value`` was achieved (NORTHSTAR §11 M0e; was
-        ``elapsed_seconds`` pre-M0e). ``value`` is the objective for OPTIMIZE
+        ``elapsed_seconds`` pre-M0e) and ``elapsed_s`` (bd qls) is the
+        wall-clock seconds since ``solve()`` started, as seen by the worker
+        that produced the entry. The curve is ordered by ``oracle``; the
+        ``(value, oracle)`` projection is a pure function of the seed,
+        ``elapsed_s`` is not. ``value`` is the objective for OPTIMIZE
         mode or the constraint satisfaction measure for SATISFY mode.
         bd 4uf: entries derive from COMPLETE per-worker incumbent streams
         (each worker logs every feasible incumbent it finds, independent of
         the shared global incumbent) merged in Python into the best-of-P
         running-max — making the curve, and the §6 PI computed from it, a
         deterministic function of (seed, num_workers), independent of thread
-        scheduling. The tuple schema is unchanged.
+        scheduling.
         The oracle counter is incremented only on the quantum ``solve()``/``ctg``
         path; the classical ``local_search()`` solver issues no oracle queries,
         so its history entries are stamped ``oracle == 0``.
@@ -54,9 +58,9 @@ class OptimizeResult:
     worker_histories : list of list of tuple
         bd o3f: the raw per-worker incumbent streams ``history`` is merged
         from, one list per portfolio worker (index == ``worker_id``). Entries
-        are ``(value, oracle, elapsed_s)``: the worker's own incumbent value,
-        its own cumulative oracle count, and wall-clock seconds since the
-        shared ``solve()`` start. Each stream is monotone in its improving
+        share the ``history`` schema ``(value, oracle, elapsed_s)``: the
+        worker's own incumbent value, its own cumulative oracle count, and
+        wall-clock seconds since the shared ``solve()`` start. Each stream is monotone in its improving
         direction, and the running-max merge of any subset of streams (on
         ``(value, oracle)``) is the best-of-portfolio curve that subset alone
         would have produced -- workers are independent (seeded by
@@ -212,11 +216,14 @@ class OptimizeResult:
         lines.append("-" * 50)
         if self.history:
             lines.append(f"  improvements: {len(self.history)}")
-            first = self.history[0]
-            lines.append(f"  first: value={first[0]}, oracle={first[1]}")
+            # bd qls entries are (value, oracle, elapsed_s); tolerate legacy
+            # 2-element entries (records loaded from pre-qls JSON).
+            def _fmt(e):
+                s = f"value={e[0]}, oracle={e[1]}"
+                return s + (f", elapsed={e[2]:.3f}s" if len(e) > 2 else "")
+            lines.append(f"  first: {_fmt(self.history[0])}")
             if len(self.history) > 1:
-                last = self.history[-1]
-                lines.append(f"  last:  value={last[0]}, oracle={last[1]}")
+                lines.append(f"  last:  {_fmt(self.history[-1])}")
         else:
             lines.append("  improvements: 0 (no improvement history)")
 

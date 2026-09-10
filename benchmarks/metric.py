@@ -218,8 +218,8 @@ def compute_primal_integral(history, B_I, L_I, T_I):
     if not history:
         return float("inf")  # never feasible → +∞ sentinel (NORTHSTAR §6 item 5)
 
-    oracles = [int(o) for (_v, o) in history]
-    values = [float(v) for (v, _o) in history]
+    oracles = [int(o) for (_v, o, *_) in history]
+    values = [float(v) for (v, _o, *_) in history]
     prev_o = None
     prev_v = None
     for v, o in zip(values, oracles):

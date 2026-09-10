@@ -318,7 +318,7 @@ def result_to_record(result):
         "feasible": bool(result.feasible),
         "verified": (None if verified is None else bool(verified)),
         "oracle_calls": int(getattr(result, "oracle_calls", 0)),
-        "history": [[float(v), int(o)] for (v, o) in (result.history or [])],
+        "history": [[float(v), int(o)] for (v, o, *_) in (result.history or [])],
         "final_incumbents": [[float(v), bool(f)] for (v, f) in
                              (getattr(result, "final_incumbents", None) or [])],
         "branch_diagnostics": bd,
@@ -333,7 +333,7 @@ def record_to_result(record):
         feasible=record["feasible"],
         verified=record.get("verified"),
         oracle_calls=record.get("oracle_calls", 0),
-        history=[(v, int(o)) for (v, o) in record["history"]],
+        history=[(v, int(o)) for (v, o, *_) in record["history"]],
         final_incumbents=[(v, bool(f)) for (v, f) in record["final_incumbents"]],
         branch_diagnostics=record.get("branch_diagnostics"),
     )

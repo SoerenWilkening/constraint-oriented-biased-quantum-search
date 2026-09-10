@@ -153,7 +153,7 @@ def solve_arm(arm, n, idx, seed, budget_mult, workers, bench_root, wall=None):
         m.set_param(k, v)
     r = m.solve()
     baselines.warm_repair_history(r, greedy_value=greedy_value, greedy_feasible=greedy_feasible)
-    hist = [[float(v), int(o)] for (v, o) in (r.history or [])]
+    hist = [[float(v), int(o)] for (v, o, *_) in (r.history or [])]
     rps = {k: (float(v) if np.isscalar(v) else f"<vec[{len(v)}]>") for k, v in resolved.items()}
     return {"arm": arm, "n": n, "index": idx, "seed": int(seed), "params": rps,
             "objective": int(r.objective) if r.objective is not None else None,
