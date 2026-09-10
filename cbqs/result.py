@@ -51,6 +51,18 @@ class OptimizeResult:
         Per-worker final incumbents, one ``(value, feasible)`` per portfolio
         worker, used for the §8.3 median-of-P / best-of-P outcome-diversity
         gate. ``None`` (stored as ``[]``) when not produced (e.g. local_search).
+    worker_histories : list of list of tuple
+        bd o3f: the raw per-worker incumbent streams ``history`` is merged
+        from, one list per portfolio worker (index == ``worker_id``). Entries
+        are ``(value, oracle, elapsed_s)``: the worker's own incumbent value,
+        its own cumulative oracle count, and wall-clock seconds since the
+        shared ``solve()`` start. Each stream is monotone in its improving
+        direction, and the running-max merge of any subset of streams (on
+        ``(value, oracle)``) is the best-of-portfolio curve that subset alone
+        would have produced -- workers are independent (seeded by
+        ``(seed, worker_id)``, never steered by the shared incumbent), so
+        "P' < P workers" can be evaluated post hoc without re-running. ``[]``
+        when ``track_history`` is off or not produced (e.g. local_search).
     verified : bool or None
         Post-solve verification result. ``None`` if verification was not run.
     violations : list of str or None
@@ -88,6 +100,7 @@ class OptimizeResult:
         "oracle_calls",
         "history",
         "final_incumbents",
+        "worker_histories",
         "verified",
         "violations",
         "num_threads",
@@ -112,6 +125,7 @@ class OptimizeResult:
         seed,
         final_incumbents=None,
         branch_diagnostics=None,
+        worker_histories=None,
     ):
         self.solution = solution
         self.objective = objective
@@ -122,6 +136,7 @@ class OptimizeResult:
         self.oracle_calls = int(oracle_calls)
         self.history = history
         self.final_incumbents = final_incumbents if final_incumbents is not None else []
+        self.worker_histories = worker_histories if worker_histories is not None else []
         self.verified = verified
         self.violations = violations
         self.num_threads = int(num_threads)
@@ -218,6 +233,9 @@ class OptimizeResult:
                 lines.append(f"  feasible: {len(feas_vals)}  best={max(feas_vals)}  median={med}")
             else:
                 lines.append("  feasible: 0")
+            if self.worker_histories:
+                sizes = [len(s) for s in self.worker_histories]
+                lines.append(f"  per-worker improvements: {sizes}")
 
         # -- Verification section --
         lines.append("")
@@ -282,6 +300,7 @@ class OptimizeResult:
             "oracle_calls": self.oracle_calls,
             "history": [list(entry) for entry in self.history] if self.history else [],
             "final_incumbents": [list(entry) for entry in self.final_incumbents] if self.final_incumbents else [],
+            "worker_histories": [[list(entry) for entry in stream] for stream in self.worker_histories] if self.worker_histories else [],
             "verified": self.verified,
             "violations": self.violations,
             "num_threads": self.num_threads,

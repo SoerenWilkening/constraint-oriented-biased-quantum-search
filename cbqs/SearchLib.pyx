@@ -170,10 +170,14 @@ cdef void my_callback_c(void* ctx_ptr) with gil:
 
 class _SolveState:
 	"""Per-thread/per-solve callback state."""
-	__slots__ = ('history', 'prev_best', 'mod', 'original_callback',
+	__slots__ = ('history', 'stamps', 'prev_best', 'mod', 'original_callback',
 	             'start_time', 'mode')
 	def __init__(self, mod, original_callback, start_time, mode):
 		self.history = []
+		# bd o3f: wall-clock stamp (seconds since the shared solve() start) for
+		# each history entry, kept in a parallel list so `history` stays the
+		# (value, oracle) schema every consumer (and §8) pins.
+		self.stamps = []
 		self.prev_best = None
 		self.mod = mod
 		self.original_callback = original_callback
@@ -212,6 +216,7 @@ def _history_callback_fn(oracle, raw=None):
 		value = mod._value_from_raw(raw) if raw is not None else mod._callback_value()
 		if state.prev_best is None or value != state.prev_best:
 			state.history.append((value, int(oracle)))
+			state.stamps.append(time_mod.monotonic() - state.start_time)
 			state.prev_best = value
 	except Exception:
 		logging.warning("History callback: error computing entry, skipping", exc_info=True)
@@ -490,9 +495,14 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 
 		# Capture history from per-thread state
 		if track_history:
-			history = list(_solve_states[threading.get_ident()].history)
+			_st = _solve_states[threading.get_ident()]
+			history = list(_st.history)
+			# bd o3f: this worker's raw incumbent stream with wall-clock stamps,
+			# (value, oracle, elapsed_s); solve() keeps it as worker_histories.
+			worker_stream = [(v, o, t) for (v, o), t in zip(_st.history, _st.stamps)]
 		else:
 			history = []
+			worker_stream = []
 
 		cur_sol.get_x()
 		arr = []
@@ -555,7 +565,7 @@ cpdef run_sampling(Model mod, object callback, not_stop: list[int], bint track_h
 		# bd lif). Read here while ctx is still alive (the finally below frees it).
 		# solve() reduces it max-over-workers into mod->runtime, replacing the racy
 		# unlocked shared mod->runtime write ctg used to do every iteration.
-		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, <double> ctx.runtime
+		return cur_sol, <unsigned long long> ctx.oracle_count, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, <double> ctx.runtime, worker_stream
 	finally:
 		# Clean up per-thread state
 		if track_history:

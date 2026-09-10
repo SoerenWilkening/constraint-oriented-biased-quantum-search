@@ -270,6 +270,7 @@ class TestOptimizeResultToDict:
             "oracle_calls",
             "history",
             "final_incumbents",
+            "worker_histories",  # bd o3f
             "verified",
             "violations",
             "num_threads",

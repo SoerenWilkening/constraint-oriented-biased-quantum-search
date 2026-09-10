@@ -855,7 +855,7 @@ or {self.runtime}s sampling
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s, worker_stream)
 		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
 		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
 		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
@@ -902,6 +902,12 @@ or {self.runtime}s sampling
 					merged_history.append((value, oracle))
 		else:
 			merged_history = []
+
+		# bd o3f: keep the raw per-worker streams (index == worker_id) so the
+		# user can replay the running-max over any worker subset post hoc.
+		# Entries are (value, oracle, elapsed_s); `history` above is exactly the
+		# running-max merge of these on (value, oracle).
+		worker_histories = [list(r[10]) for r in res] if track_history else []
 
 		# Extract solution array from global_opt
 		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
@@ -1003,6 +1009,7 @@ or {self.runtime}s sampling
 			seed=self._seed_used if self._seed_used is not None else 0,
 			final_incumbents=final_incumbents,
 			branch_diagnostics=branch_diagnostics,
+			worker_histories=worker_histories,
 		)
 
 		return result
