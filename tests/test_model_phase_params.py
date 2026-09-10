@@ -2,7 +2,7 @@
 
 Validates that phase-specific parameter definitions from ml.phase_params
 are integrated into Model._PARAM_DEFS, that set_param/get_param works
-for all 15 phase-specific params, and that _resolve_phase_params()
+for all 24 phase-specific params, and that _resolve_phase_params()
 correctly resolves with fallback logic.
 """
 import numpy as np
@@ -33,29 +33,34 @@ def _make_small_model():
 
 
 class TestPhaseParamDefsPresent:
-    """Verify all 15 phase-specific params are in _PARAM_DEFS."""
+    """Verify all 24 phase-specific params are in _PARAM_DEFS."""
 
-    def test_all_15_phase_params_in_param_defs(self):
-        """All 15 phase-specific param keys exist in _PARAM_DEFS."""
+    def test_all_phase_params_in_param_defs(self):
+        """All 24 phase-specific param keys exist in _PARAM_DEFS."""
         for phase in PHASES:
             for suffix in PHASE_PARAM_SUFFIXES:
                 key = f"{phase}_{suffix}"
                 assert key in _PARAM_DEFS, f"Missing {key} in _PARAM_DEFS"
 
-    def test_all_15_phase_params_in_known_params(self):
-        """All 15 phase-specific param keys exist in _KNOWN_PARAMS."""
+    def test_all_phase_params_in_known_params(self):
+        """All 24 phase-specific param keys exist in _KNOWN_PARAMS."""
         for phase in PHASES:
             for suffix in PHASE_PARAM_SUFFIXES:
                 key = f"{phase}_{suffix}"
                 assert key in _KNOWN_PARAMS, f"Missing {key} in _KNOWN_PARAMS"
 
     def test_phase_param_count(self):
-        """Exactly 15 phase-specific params are added (3 phases x 5 suffixes)."""
-        count = sum(
-            1 for key in _PARAM_DEFS
-            if any(key.startswith(f"{p}_") for p in PHASES)
-        )
-        assert count == 15
+        """Exactly 24 phase-specific params are added (3 phases x 8 suffixes).
+
+        Match the exact ``{phase}_{suffix}`` pattern rather than a bare
+        ``startswith(phase + '_')`` -- the latter would also count unrelated
+        top-level params that merely share a phase prefix (e.g.
+        ``opt_switch_oracles`` starts with ``opt_``)."""
+        phase_keys = {
+            f"{p}_{s}" for p in PHASES for s in PHASE_PARAM_SUFFIXES
+        }
+        count = sum(1 for key in _PARAM_DEFS if key in phase_keys)
+        assert count == 24
 
 
 # =============================================================================
@@ -117,11 +122,21 @@ class TestSetPhaseParams:
         m.set_param('opt_bias_factor', 0.5)
         assert m.get_param('opt_bias_factor') == 0.5
 
-    def test_set_phase_weights_validates_negative(self):
-        """set_param('sat_branching_weights', negative) raises ValueError."""
+    def test_set_phase_weights_allows_signed(self):
+        """set_param('sat_branching_weights', negative) is allowed (M0f signed theta)."""
         m = Model()
-        with pytest.raises(ValueError, match="non-negative"):
-            m.set_param('sat_branching_weights', [1.0, -1.0])
+        m.add_variables(2)
+        m.set_param('sat_branching_weights', [1.0, -1.0])
+        np.testing.assert_array_equal(
+            m.get_param('sat_branching_weights'), [1.0, -1.0]
+        )
+
+    def test_set_phase_weights_rejects_nan(self):
+        """set_param('sat_branching_weights', NaN) still raises ValueError."""
+        m = Model()
+        m.add_variables(2)
+        with pytest.raises(ValueError, match="NaN or Inf"):
+            m.set_param('sat_branching_weights', [1.0, float("nan")])
 
     def test_set_phase_weights_validates_length(self):
         """set_param('opt_sat_branching_weights', wrong length) raises ValueError."""
@@ -173,8 +188,8 @@ class TestResolvePhaseParams:
         resolved = m._resolve_phase_params()
         assert set(resolved.keys()) == {'sat', 'opt_sat', 'opt'}
 
-    def test_resolve_each_phase_has_5_params(self):
-        """Each phase in resolved dict has all 5 suffixes."""
+    def test_resolve_each_phase_has_6_params(self):
+        """Each phase in resolved dict has all 8 suffixes."""
         m = Model()
         resolved = m._resolve_phase_params()
         for phase in PHASES:

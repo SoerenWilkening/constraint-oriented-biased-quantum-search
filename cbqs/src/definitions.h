@@ -28,8 +28,11 @@
 #define STOPATBEST 0
 #define STOPATFIRST 1
 
-// define callback functionality
-typedef void (*callback_t)(void);
+// define callback functionality.
+// The argument is an opaque context pointer (solver_ctx_t* where available, else
+// NULL): the Cython wrapper reads ctx->oracle_count from it to oracle-stamp the
+// incumbent history (NORTHSTAR §11 M0e, bd 8an.1.5). It was void(void) before M0e.
+typedef void (*callback_t)(void *);
 
 typedef int solver_t;
 

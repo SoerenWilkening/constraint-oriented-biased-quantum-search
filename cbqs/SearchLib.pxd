@@ -15,7 +15,30 @@ cdef extern from "src/solver_ctx.h":
 		unsigned long long seed_used  # uint64_t - Actual seed used after init
 		int num_threads  # Thread count (0 = auto-detect)
 		int num_threads_used  # Actual thread count used after init
+		int worker_id  # 0-based portfolio worker index (decorrelates PRNG stream)
+		size_t oracle_count  # never-reset per-worker cumulative oracle charge (faithful metric)
+		double runtime  # bd lif: per-worker wall-clock telemetry (replaces racy shared mod->runtime)
+		int64_t callback_value  # bd 4uf: this worker's newest feasible incumbent (internal tot_profit), set by ctg before each callback
+		# M0g (bd 8an.1.7, NORTHSTAR §9): per-worker opt-phase branching diagnostics
+		unsigned long long opt_candidates  # uint64_t - # candidates CSearch_opt generated
+		unsigned long long opt_flip_sum     # uint64_t - Σ realized Hamming radius
+		unsigned long long opt_flip_sumsq   # uint64_t - Σ (realized radius)²
+		unsigned long long opt_free_sum     # uint64_t - Σ both-feasible free decisions
+		# M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters
+		# (free + bothinf + forced == decisions; opt's free == opt_free_sum above)
+		unsigned long long sat_decisions
+		unsigned long long sat_free
+		unsigned long long sat_bothinf
+		unsigned long long sat_forced
+		unsigned long long optsat_decisions
+		unsigned long long optsat_free
+		unsigned long long optsat_bothinf
+		unsigned long long optsat_forced
+		unsigned long long opt_decisions
+		unsigned long long opt_bothinf
+		unsigned long long opt_forced
 	ctypedef solver_ctx solver_ctx_t
+	const int64_t SOLVER_CTX_CALLBACK_VALUE_UNSET  # bd 4uf sentinel: callback site did not set a per-worker value
 	solver_ctx_t* solver_ctx_create()
 	void solver_ctx_free(solver_ctx_t* ctx)
 	void solver_ctx_request_stop(solver_ctx_t* ctx)
@@ -25,6 +48,7 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_bias_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_look_ahead_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_init_prng(solver_ctx_t* ctx)
+	void solver_ctx_set_worker_id(solver_ctx_t* ctx, int worker_id)
 
 	# Phase-specific setters (M1)
 	void solver_ctx_set_sat_bias(solver_ctx_t* ctx, double bias)
@@ -43,6 +67,16 @@ cdef extern from "src/solver_ctx.h":
 	void solver_ctx_set_opt_sat_bias_factor(solver_ctx_t* ctx, double factor)
 	void solver_ctx_set_opt_bias_factor(solver_ctx_t* ctx, double factor)
 
+	# bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule
+	# bd a0w (M5): angle-precision lever (Ross-Selinger / gridsynth)
+	void solver_ctx_set_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_sat_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+	void solver_ctx_set_opt_angle_precision(solver_ctx_t* ctx, double eps, int dither)
+
+	void solver_ctx_set_opt_radius_schedule(solver_ctx_t* ctx, int enabled,
+	                                        double r_start, double r_end, double gamma)
+
 	# Variable ordering (M4/M5)
 	void solver_ctx_set_variable_order(solver_ctx_t* ctx, const double* priorities, int n)
 	void solver_ctx_set_default_order(solver_ctx_t* ctx, int n)
@@ -60,7 +94,7 @@ cdef extern from "src/Branching.h":
 # Functions to manipulate states and execute the QSearch algorithm
 #
 cdef extern from "src/SearchLib.h":
-	ctypedef void (*callback_t)()
+	ctypedef void (*callback_t)(void *)  # M0e: opaque ctx (solver_ctx_t* or NULL) for oracle-stamping
 
 	ctypedef struct incumbents_t:
 		state_t *states;

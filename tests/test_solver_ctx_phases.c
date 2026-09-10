@@ -12,6 +12,7 @@
 
 /* Undefine compat macro so tests can access all three fields explicitly */
 #include "solver_ctx.h"
+#include "prng.h"
 #undef branching_stats
 
 /* ============================================================
@@ -166,6 +167,64 @@ static void test_default_values_match_current_defaults(void **state) {
     assert_true(ctx->branching_stats_opt.look_ahead_factor == 0.5);
 }
 
+/* ============================================================
+ * M0c (bd 8an.1.3): per-worker PRNG stream decorrelation
+ * ============================================================ */
+
+/**
+ * solver_ctx_init_prng() must seed the worker's thread-local stream from the
+ * master jumped ctx->worker_id times. Verifies: the default worker_id is 0; the
+ * setter stores the value; under a fixed seed, worker_id == 0 is reproducible
+ * across contexts (so single-worker determinism, CLAUDE.md §8, is preserved),
+ * and worker_id == 1 yields a decorrelated (distinct) stream.
+ */
+static void test_init_prng_decorrelates_by_worker_id(void **unused) {
+    (void)unused;
+    const uint64_t SEED = 0x5EEDULL;   /* non-zero: used verbatim, no entropy */
+    enum { NV = 6 };
+
+    /* Default worker_id is 0, and the setter stores what it is given.
+     * oracle_count (M0d) starts at 0 -- it is the never-reset oracle metric. */
+    solver_ctx_t *probe = solver_ctx_create();
+    assert_int_equal(probe->worker_id, 0);
+    assert_int_equal((int) probe->oracle_count, 0);
+    solver_ctx_set_worker_id(probe, 3);
+    assert_int_equal(probe->worker_id, 3);
+    solver_ctx_set_worker_id(NULL, 7);   /* NULL-safe, no crash */
+    solver_ctx_free(probe);
+
+    double w0[NV], w0_again[NV], w1[NV];
+
+    solver_ctx_t *a = solver_ctx_create();
+    a->seed = SEED;
+    solver_ctx_set_worker_id(a, 0);
+    solver_ctx_init_prng(a);
+    for (int i = 0; i < NV; i++) w0[i] = prng_next_double();
+    solver_ctx_free(a);
+
+    solver_ctx_t *b = solver_ctx_create();   /* worker 0 again, same seed */
+    b->seed = SEED;
+    solver_ctx_set_worker_id(b, 0);
+    solver_ctx_init_prng(b);
+    for (int i = 0; i < NV; i++) w0_again[i] = prng_next_double();
+    solver_ctx_free(b);
+
+    solver_ctx_t *d = solver_ctx_create();   /* worker 1, same seed */
+    d->seed = SEED;
+    solver_ctx_set_worker_id(d, 1);
+    solver_ctx_init_prng(d);
+    for (int i = 0; i < NV; i++) w1[i] = prng_next_double();
+    solver_ctx_free(d);
+
+    int reproducible = 1, distinct = 0;
+    for (int i = 0; i < NV; i++) {
+        if (w0[i] != w0_again[i]) reproducible = 0;
+        if (w0[i] != w1[i]) distinct = 1;
+    }
+    assert_true(reproducible);   /* worker_id 0 stable -> legacy stream preserved */
+    assert_true(distinct);       /* worker_id 1 jumped -> decorrelated */
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_three_stats_initialized_with_defaults, setup, teardown),
@@ -174,6 +233,7 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_set_opt_bias_independent_of_opt_sat, setup, teardown),
         cmocka_unit_test_setup_teardown(test_free_releases_all_three_stats, setup, teardown),
         cmocka_unit_test_setup_teardown(test_default_values_match_current_defaults, setup, teardown),
+        cmocka_unit_test(test_init_prng_decorrelates_by_worker_id),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

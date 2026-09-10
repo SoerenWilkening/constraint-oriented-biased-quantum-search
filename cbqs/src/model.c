@@ -3,6 +3,7 @@
 //
 
 #include "model.h"
+#include <stdint.h>  /* SIZE_MAX */
 
 model_t *init_model(void){
     model_t *mod = malloc(sizeof(model_t));
@@ -12,6 +13,13 @@ model_t *init_model(void){
     mod->n = 0;
     mod->runtime = 0.;
     mod->M = -1;
+    /* SIZE_MAX = "auto-switch disabled": the raw-C path stays in opt_sat and
+     * never auto-switches to opt unless a caller sets a concrete threshold.
+     * This preserves small-M raw-C tests (the old counter>10 needed ~33
+     * post-feasible oracles and so never fired at mod->M=10). The Python
+     * harness sets a concrete int(0.1*M) default in solve(). M0f / NORTHSTAR §4. */
+    mod->opt_switch_oracles = SIZE_MAX;
+    mod->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim, legacy) */
     mod->monte_carlo_estimate = 0;
     mod->ignore_constraint_search = 0;
     mod->initial_state = NULL;

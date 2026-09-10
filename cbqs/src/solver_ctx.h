@@ -14,7 +14,17 @@
 #include <stdint.h>
 #include "Branching.h"
 #include "prng.h"
+
+/** bd 0o8.3: candidates drawn between two wall-clock deadline checks inside a
+ *  CSearch_* sample loop. Power of two so the check is a cheap bitmask; large
+ *  enough that clock-read overhead is O(Leff/CHUNK) and the overshoot past the
+ *  deadline is bounded to <= CHUNK candidates (sub-ms at n=3000). */
+#define CBQS_DEADLINE_CHUNK 1024u
 #include "arena.h"
+
+/** bd 4uf: sentinel for solver_ctx_t.callback_value — "no per-worker incumbent
+ *  value was set for this callback invocation" (non-ctg callback sites). */
+#define SOLVER_CTX_CALLBACK_VALUE_UNSET INT64_MIN
 
 /**
  * @brief Solver context carrying all per-solve mutable state
@@ -27,6 +37,30 @@
  *
  * Note: Using named struct 'solver_ctx' to match forward declaration in Branching.h
  */
+
+/** bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule spec.
+ *  A FAITHFUL between-round schedule of the opt-phase state-prep angle: the
+ *  opt-phase scalar-bias radius is recomputed BETWEEN Grover rounds (a classical
+ *  write of stats->bias via ctg) from a non-quantum-internal, T(n)-normalized key
+ *  (total_oracles / mod->M in [0,1]) and held CONSTANT through every round's
+ *  Grover iterations. The inner sampler (Branching.h / quantum_search.c /
+ *  approximate_state_sampler.c) is BYTE-UNCHANGED — BranchingFunction still only
+ *  READS stats->bias. Mirrors opt_switch_oracles (round(alpha*T(n))). The schedule
+ *  shape is r(t) = r_end + (r_start - r_end) * (1 - t)^gamma for t in [0,1]:
+ *    t=0 -> r_start (broad, opt-phase start);  t=1 -> r_end (tight, near T(n)).
+ *    gamma == 1 linear; gamma > 1 tightens EARLY (steep early, gentle near t=1);
+ *    gamma < 1 stays broad longer then drops (gentle early, steep near t=1).
+ *    r_start == r_end degenerates to
+ *    the CONSTANT static lever bit-for-bit (opt_radius_schedule_eval early-returns
+ *    r_start, so the bias matches radius_to_bias(n, r_start) exactly). enabled == 0
+ *    is the strict no-op default (the existing static opt_branching_radius path). */
+typedef struct {
+    int    enabled;   /* 0 == OFF (static lever path; the default). */
+    double r_start;   /* target radius at t=0 (broad). > 0 when enabled. */
+    double r_end;     /* target radius at t=1 (tight). > 0 when enabled. */
+    double gamma;     /* decay-shape exponent. > 0 when enabled (1.0 == linear). */
+} opt_radius_schedule_t;
+
 struct solver_ctx {
     /** Phase-specific branching statistics */
     BranchingStats_t branching_stats_sat;
@@ -59,6 +93,115 @@ struct solver_ctx {
 
     /** Actual thread count used (stored after resolution) */
     int num_threads_used;
+
+    /** Portfolio worker index (0-based). Decorrelates this worker's PRNG
+     *  stream from the shared master via prng_seed_thread(master, worker_id).
+     *  worker_id == 0 reproduces the legacy single-stream behavior. */
+    int worker_id;
+
+    /** Per-worker cumulative oracle charge (Σ 2j+1 over ctg rounds).
+     *  NEVER reset for the lifetime of the worker's context — this is the
+     *  faithful, race-free quantum-cost metric that replaces the racy shared
+     *  mod->qtg_applications (NORTHSTAR §11, CLAUDE.md §1.2). */
+    size_t oracle_count;
+
+    /** Per-worker wall-clock telemetry: seconds elapsed in this worker's ctg
+     *  call (monotonic clock). Replaces the racy shared mod->runtime, which ctg
+     *  wrote unlocked every loop iteration so all threading workers raced on it
+     *  (last-writer-wins; CLAUDE.md §5, same class as the oracle_count race fixed
+     *  in 8an.1.4). Pure telemetry — it never gates termination. solve() reduces
+     *  it max-over-workers post-fan-out into mod->runtime (bd lif). */
+    double runtime;
+
+    /** bd 4uf (NORTHSTAR §11 M0e): the internal tot_profit of THIS worker's
+     *  newest feasible incumbent, written by ctg immediately before invoking
+     *  the history callback so the Cython wrapper can record the PER-WORKER
+     *  incumbent value without dereferencing the shared mod->global_opt (an
+     *  unlocked cross-thread read once the callback fires outside update_lock).
+     *  Race-free like oracle_count (one ctx per worker; same-thread write→read).
+     *  Callback sites that do not log per-worker incumbents (local_search's
+     *  fresh ctx, quantum_local_search's NULL ctx) leave it at the UNSET
+     *  sentinel; the Python side falls back to its legacy single-trajectory
+     *  value source for those. */
+    int64_t callback_value;
+
+    /** Opt-phase branching diagnostics (M0g / bd 8an.1.7, NORTHSTAR §9).
+     *  Per-worker observation counters accumulated over EVERY candidate the
+     *  exploratory `opt` phase (CSearch_opt) generates — the phase where the
+     *  scalar-bias radius lever lives and the bias is consulted ONLY on
+     *  both-feasible "free" decisions. PURE INSTRUMENTATION: they are written
+     *  but never read inside any decision; they do not touch the PRNG stream,
+     *  the oracle accounting, or any branching outcome (faithfulness, §1.1/§1.2).
+     *  Like oracle_count they are per-worker (one ctx per thread) so the writes
+     *  are race-free without locking. Used by the §9 scale-invariance test to
+     *  check the realized Hamming-radius distribution (mean+var via
+     *  Σ NumChanges and Σ NumChanges²) and the free-decision fraction f(n)
+     *  (Σ free decisions / (candidates · n)) are invariant across n. */
+    uint64_t opt_candidates;   /* # candidates generated by CSearch_opt        */
+    uint64_t opt_flip_sum;     /* Σ NumChanges (realized Hamming radius)        */
+    uint64_t opt_flip_sumsq;   /* Σ NumChanges² (for the radius variance)       */
+    uint64_t opt_free_sum;     /* Σ both-feasible "free" decisions per candidate*/
+
+    /** M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters.
+     *  At every variable decision in CSearch_{sat,opt_sat,opt} the two
+     *  look_ahead_correct calls classify the children; these record, per phase:
+     *    *_decisions  every classified decision (loop iteration reaching the
+     *                 count[0]/count[1] test);
+     *    *_free       both-feasible — BranchingFunction consulted (all phases);
+     *    *_bothinf    both-infeasible — consulted ONLY in opt_sat (sat forces
+     *                 bit=0, opt truncates the candidate);
+     *    *_forced     exactly one side feasible — feasibility-forced, the bias
+     *                 is never consulted.
+     *  Partition invariant: free + bothinf + forced == decisions (per phase).
+     *  The opt phase's free counter is the EXISTING opt_free_sum (M0g) — not
+     *  duplicated here. PURE INSTRUMENTATION like the M0g block above:
+     *  per-worker, race-free, never read inside any decision — the PRNG
+     *  stream, oracle accounting, and branching outcomes are untouched
+     *  (faithfulness §1.1/§1.2). */
+    uint64_t sat_decisions;    /* sat:     all classified decisions             */
+    uint64_t sat_free;         /* sat:     both-feasible (consulted)            */
+    uint64_t sat_bothinf;      /* sat:     both-infeasible (forced to 0)        */
+    uint64_t sat_forced;       /* sat:     single-side forced                   */
+    uint64_t optsat_decisions; /* opt_sat: all classified decisions             */
+    uint64_t optsat_free;      /* opt_sat: both-feasible (consulted)            */
+    uint64_t optsat_bothinf;   /* opt_sat: both-infeasible (ALSO consulted)     */
+    uint64_t optsat_forced;    /* opt_sat: single-side forced                   */
+    uint64_t opt_decisions;    /* opt:     all classified decisions             */
+    uint64_t opt_bothinf;      /* opt:     both-infeasible (candidate truncated)*/
+    uint64_t opt_forced;       /* opt:     single-side forced                   */
+
+    /** bd 0o8: per-worker cap on the classical Grover-round sample count
+     *  (4j²+1) used by CSearch_{sat,opt_sat,opt}. 0 == unbounded (the exact
+     *  O(4j²) rejection sim; legacy behavior). When > 0 a round draws at most
+     *  `cap` candidates, bounding the O(n·j²) classical wall-time that makes
+     *  large-n (large-j) solves intractable (NORTHSTAR §11, bd 0o8). It does
+     *  NOT touch the 2j+1 oracle charge (applied in ctg BEFORE search_function,
+     *  CLAUDE.md §1.2) -- the oracle count is unchanged; only the per-round
+     *  classical success probability for rare improvers (p < ~1/cap) is reduced.
+     *  Copied from mod->opt_sample_cap at ctg entry (per-worker, race-free). */
+    int64_t opt_sample_cap;
+
+    /** bd 0o8.3: per-worker monotonic-ns deadline that lets the wall cap
+     *  (mod->stopping_time) interrupt a Grover round IN PROGRESS, not only
+     *  between rounds (SearchLib.c). 0 == OFF (the strict no-op for every
+     *  faithful/exact run; stopping_time <= 0). When armed it is
+     *  t1_ns + stopping_time·1e9 -- the SAME monotonic basis as the existing
+     *  between-rounds total_time check, so the two agree. Each CSearch_* sample
+     *  loop checks it every CBQS_DEADLINE_CHUNK candidates and breaks once
+     *  cbqs_monotonic_ns() >= deadline_ns; the truncated round is an APPROXIMATE
+     *  outcome (faithfulness-of-outcome is RUN-POLICY-waived for wall-capped
+     *  runs) but the 2j+1 oracle charge (applied in ctg) is UNCHANGED. Written
+     *  once per worker from the read-only mod->stopping_time then read -- the
+     *  same race-free pattern as opt_sample_cap (no shared mod-> writes). */
+    uint64_t deadline_ns;
+
+    /** bd w29 (M5 / 71e): per-worker continuous opt-radius DECAY schedule.
+     *  enabled == 0 is the strict no-op default (static lever path). When
+     *  enabled, ctg recomputes ctx->branching_stats_opt.bias BETWEEN rounds in
+     *  the opt phase from this spec (see opt_radius_schedule_t). Per-worker write
+     *  at propagation time, then read between rounds — race-free, like
+     *  opt_sample_cap (no shared mod-> writes on the hot path). */
+    opt_radius_schedule_t opt_radius_schedule;
 
     /** Master PRNG state for deriving thread-specific states */
     prng_state_t master_prng;
@@ -142,10 +285,12 @@ int solver_ctx_should_stop(solver_ctx_t *ctx);
 void solver_ctx_set_bias(solver_ctx_t *ctx, double bias);
 
 /**
- * @brief Set per-variable branching weights
+ * @brief Set per-variable branching weights (signed logit offsets theta_i)
  *
- * Copies the provided array into the context, L1-normalizes it, and stores it.
- * Frees any existing weights array first. Pass NULL/0 to clear weights.
+ * Copies the provided array into the context AS-IS and stores it (no L1
+ * normalization, no non-negativity -- the values are signed additive offsets
+ * consumed by BranchingFunction; M0f, NORTHSTAR §4). Frees any existing weights
+ * array first. Pass NULL/0 to clear weights.
  *
  * @param ctx Solver context
  * @param weights Weight values to copy (NULL to clear)
@@ -237,6 +382,73 @@ void solver_ctx_set_opt_sat_look_ahead_factor(solver_ctx_t *ctx, double factor);
 void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor);
 
 /* ============================================================
+ * bd a0w (M5): angle-precision (Ross-Selinger / gridsynth)
+ * ============================================================ */
+
+/**
+ * @brief Set the R_y synthesis accuracy consumed by BranchingFunction.
+ *
+ * Runtime data (NORTHSTAR §1.6), propagated per worker via
+ * _propagate_phase_params -> these per-phase setters. @p eps is the ABSOLUTE
+ * angle accuracy in radians that Ross-Selinger / gridsynth would buy with
+ * ~3*log2(1/eps) T-gates; @p eps <= 0 is the OFF switch (exact angles) and the
+ * default, and leaves the solve BIT-FOR-BIT on the pre-a0w path.
+ *
+ * @p dither picks the ERROR STRUCTURE: 0 (the conservative default) = COHERENT
+ * displacement, a shared grid snap -- exactly "one circuit synthesized once and
+ * reused" for the shipped uniform-angle schedule (theta_i == 0), and the
+ * coherent worst case otherwise; non-zero = INCOHERENT, an independent zero-mean
+ * per-variable residual, which physically requires n separately synthesized
+ * circuits even when the target angles coincide. The dither offsets are a pure
+ * function of the variable index, so determinism under a fixed seed is
+ * unaffected (NORTHSTAR §8). See Branching.h for the full scoping.
+ *
+ * `solver_ctx_set_angle_precision` writes all three phases; the three variants
+ * write one phase each (note `ctx->branching_stats` is a compatibility macro
+ * for `branching_stats_opt`, so the opt setter covers it). NULL @p ctx is a
+ * no-op.
+ */
+void solver_ctx_set_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+void solver_ctx_set_opt_angle_precision(solver_ctx_t *ctx, double eps, int dither);
+
+/* ============================================================
+ * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
+ * ============================================================ */
+
+/**
+ * @brief Install the continuous opt-radius decay schedule on this context.
+ *
+ * Runtime data (NORTHSTAR §1.6), propagated once per worker via
+ * _propagate_phase_params. When @p enabled != 0, ctg recomputes the opt-phase
+ * bias BETWEEN Grover rounds from this spec (faithful between-round classical
+ * write; the inner sampler is byte-unchanged). enabled == 0 is the strict no-op
+ * (the static opt_branching_radius lever path). r_start/r_end/gamma must be > 0
+ * when enabled (validated at the Python set-time boundary).
+ *
+ * @param ctx     Solver context (NULL is a no-op).
+ * @param enabled Non-zero to arm the schedule; 0 to leave the static lever.
+ * @param r_start Target radius at oracle fraction t=0 (broad).
+ * @param r_end   Target radius at oracle fraction t=1 (tight).
+ * @param gamma   Decay-shape exponent (1.0 == linear).
+ */
+void solver_ctx_set_opt_radius_schedule(solver_ctx_t *ctx, int enabled,
+                                        double r_start, double r_end, double gamma);
+
+/**
+ * @brief Pure evaluator: target radius at normalized oracle fraction @p ratio.
+ *
+ * r(t) = r_end + (r_start - r_end) * (1 - clamp(t,0,1))^gamma. Deterministic and
+ * side-effect-free (depends only on @p s and @p ratio) — this purity is what
+ * makes the radius CONSTANT within a Grover round (it is evaluated only at the
+ * top of the between-round ctg loop). When r_start == r_end it returns r_start
+ * EXACTLY (no arithmetic), so the schedule degenerates to the constant lever
+ * bit-for-bit. @p s must be non-NULL.
+ */
+double opt_radius_schedule_eval(const opt_radius_schedule_t *s, double ratio);
+
+/* ============================================================
  * Consolidated Parameter Setter
  * ============================================================ */
 
@@ -289,6 +501,20 @@ void solver_ctx_debug_stats(solver_ctx_t *ctx);
  * @param ctx Solver context
  */
 void solver_ctx_init_prng(solver_ctx_t *ctx);
+
+/**
+ * @brief Set the portfolio worker index for this context
+ *
+ * Stored on the context and consumed by solver_ctx_init_prng(), which jumps
+ * the master PRNG stream worker_id times so each portfolio worker draws an
+ * independent (non-overlapping) sequence. Must be called BEFORE
+ * solver_ctx_init_prng(). worker_id == 0 reproduces the legacy stream, so
+ * single-worker runs stay bit-for-bit deterministic.
+ *
+ * @param ctx Solver context (NULL-safe)
+ * @param worker_id 0-based worker index
+ */
+void solver_ctx_set_worker_id(solver_ctx_t *ctx, int worker_id);
 
 /**
  * @brief Get default thread count from env or CPU detection

@@ -32,6 +32,7 @@ from .state cimport sw_tstbit
 from .phase_params import (
 	make_phase_param_defs, PhaseParamResolver, DEFAULTS as _PHASE_DEFAULTS,
 	PHASES as _PHASES, PHASE_PARAM_SUFFIXES as _PHASE_SUFFIXES,
+	strict_bool as _strict_bool,
 )
 
 
@@ -60,15 +61,20 @@ def _coerce_bool(value):
 _PARAM_DEFS = {
 	# --- Former solve() params (new in Phase 15) ---
 	'M':                        {'default': -1,    'coerce': int,          'validate': None,
-	                             'description': 'Maximum number of sampling iterations per worker thread; -1 means auto-calculate as n^2/16. Range: -1 or >= 1. Default: -1. Set before solve.'},
-	'stopping_time':            {'default': 300,   'coerce': float,        'validate': lambda v: v > 0,
-	                             'validate_msg': 'stopping_time must be positive',
-	                             'description': 'Wall-clock timeout in seconds for the solve process. Range: > 0. Default: 300. Set before solve.'},
+	                             'description': 'Per-worker cumulative oracle budget T(n): the run terminates once a worker has spent M oracle charges (2j+1 each), regardless of improvement frequency; the wall-clock stop is disabled. -1 auto-calculates the default T(n) = (n/32)^2 + 1200. Range: -1 or >= 1. Default: -1. Set before solve.'},
+	'opt_switch_oracles':       {'default': -1,    'coerce': int,          'validate': None,
+	                             'description': 'Cumulative per-worker oracle count at which the optimize phase switches from constraint-tightening (opt_sat) to objective maximization (opt), replacing the legacy counter>10 heuristic (NORTHSTAR §4). The switch only fires once a feasible point exists. -1 auto-calculates int(0.1*M); the effective value is clamped to [0, int(0.25*M)] (alpha<=0.25). Set before solve.'},
+	'opt_sample_cap':           {'default': 0,     'coerce': int,          'validate': lambda v: v >= 0,
+	                             'validate_msg': 'opt_sample_cap must be >= 0',
+	                             'description': 'bd 0o8: per-worker cap on the classical Grover-round sample count (4j^2+1) simulated in CSearch_{sat,opt_sat,opt}. 0 (default) == unbounded, the exact O(4j^2) rejection simulation (faithful but O(n*j^2) wall-time -> large-n intractable). When >0 a round draws at most this many candidates, bounding the classical sim to O(n*cap) per round. This does NOT change the oracle count (the 2j+1 charge is applied in ctg before the sim, CLAUDE.md §1.2); it only reduces the per-round success probability for rare improvers (p < ~1/cap), an APPROXIMATE sampler whose deviation is tunable via cap. Used by the large-n baseline freeze. Set before solve.'},
+	'stopping_time':            {'default': -1,    'coerce': float,        'validate': lambda v: v == -1 or v > 0,
+	                             'validate_msg': 'stopping_time must be > 0 (seconds) or -1 (OFF)',
+	                             'description': 'Wall-clock cap in SECONDS for the ctg solve. TRAINING use only — truncates the oracle-indexed trajectory so PI/anchors become machine-dependent (faithfulness/reproducibility WAIVED, NORTHSTAR §11). <=0 = OFF (default -1): oracle-budget-only termination (faithful). Set e.g. 2700 for a 45-min training cap. Checked between Grover rounds — cannot interrupt a single in-progress large-j round. Set before solve.'},
 	'stop_val':                 {'default': -1,    'coerce': int,          'validate': None,
 	                             'description': 'Target objective value; solver stops early if reached. -1 disables early stopping. Range: -1 or any int. Default: -1. Set before solve.'},
 	'callback':                 {'default': None,  'coerce': None,         'validate': lambda v: v is None or callable(v),
 	                             'validate_msg': 'callback must be callable or None',
-	                             'description': 'Callable invoked after each sampling iteration with the current model state. None disables callbacks. Default: None. Set before solve.'},
+	                             'description': 'Zero-arg callable invoked whenever a worker records a new feasible incumbent of its own (per-worker incumbent events, bd 4uf; fires more often than the pre-4uf global-improvement gate under multi-worker solves). None disables callbacks. Default: None. Set before solve.'},
 	'max_delta':                {'default': 7,     'coerce': int,          'validate': lambda v: v >= 0,
 	                             'validate_msg': 'max_delta must be non-negative',
 	                             'description': 'Maximum Hamming distance for neighborhood search during sampling. Larger values explore more neighbors per iteration. Range: >= 0. Default: 7. Set before solve.'},
@@ -104,8 +110,27 @@ _PARAM_DEFS = {
 	'branching_bias':           {'default': None,  'coerce': float,        'validate': lambda v: v > -1,
 	                             'validate_msg': 'branching_bias must be greater than -1',
 	                             'description': 'Assignment bias value for the branching formula; controls preference toward 0 or 1 assignments. None means auto-set to n/4 at close(). Range: > -1 or None. Default: None (auto). Set before solve.'},
+	'branching_radius':         {'default': None,  'coerce': float,        'validate': lambda v: v > 0,
+	                             'validate_msg': 'branching_radius must be > 0',
+	                             'description': 'Target neighborhood radius r; the harness sets bias = n/r - 2 so the realized Hamming radius is r at every n (scale-invariant, NORTHSTAR §4/§1.5). Takes precedence over branching_bias when set. Per-phase variants (sat_/opt_sat_/opt_) supported. Range: > 0 (use r < n) or None. Default: None. Set before solve.'},
+	# --- bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY schedule ---
+	'opt_radius_schedule_r_start': {'default': None, 'coerce': float,       'validate': lambda v: v > 0,
+	                             'validate_msg': 'opt_radius_schedule_r_start must be > 0',
+	                             'description': 'bd w29 (M5/71e): broad opt-phase radius at oracle fraction t=0 of a CONTINUOUS within-opt-phase DECAY schedule. The opt-phase bias is recomputed BETWEEN Grover rounds (faithful classical write; inner sampler byte-unchanged) from r(t)=r_end+(r_start-r_end)*(1-t)^gamma with t=total_oracles/T(n) in [0,1]. Armed iff BOTH opt_radius_schedule_r_start AND opt_radius_schedule_r_end are set; then it OVERRIDES the static opt radius in the opt phase. r_start==r_end reproduces the static lever bit-for-bit. Range: > 0 or None. Default: None. Set before solve.'},
+	'opt_radius_schedule_r_end':   {'default': None, 'coerce': float,       'validate': lambda v: v > 0,
+	                             'validate_msg': 'opt_radius_schedule_r_end must be > 0',
+	                             'description': 'bd w29 (M5/71e): tight opt-phase radius at oracle fraction t=1 (near T(n)) of the continuous opt-radius decay schedule (see opt_radius_schedule_r_start). Range: > 0 or None. Default: None. Set before solve.'},
+	'opt_radius_schedule_gamma':   {'default': None, 'coerce': float,       'validate': lambda v: v > 0,
+	                             'validate_msg': 'opt_radius_schedule_gamma must be > 0',
+	                             'description': 'bd w29 (M5/71e): decay-shape exponent of the opt-radius schedule. 1.0 (the default when the schedule is armed) = linear; >1 tightens EARLY (steep early, gentle near t=1); <1 stays broad longer (gentle early, steep near t=1). Range: > 0 or None. Default: None (=> 1.0 when armed). Set before solve.'},
+	# --- bd a0w (M5): angle-precision lever (Ross-Selinger / gridsynth) ---
+	'angle_precision_eps':      {'default': None,  'coerce': float,        'validate': lambda v: v > 0,
+	                             'validate_msg': 'angle_precision_eps must be > 0',
+	                             'description': 'bd a0w (M5): absolute accuracy (radians) to which the QTG per-variable rotation R_y(theta_i) is synthesized, as Ross-Selinger/gridsynth would at ~3*log2(1/eps) T-gates. The branching decision quantizes THETA (theta = 2*asin(sqrt(1-value)), p_flip = sin^2(theta/2)) -- never the probability -- to |theta_q - theta| <= eps, then re-clamps so bounded decisions (NORTHSTAR §1.7) hold by construction. Per-phase variants (sat_/opt_sat_/opt_) supported. None (or <= 0) means EXACT angles: the lever is OFF and the solve is bit-for-bit the default. Range: > 0 or None. Default: None. Set before solve.'},
+	'angle_precision_dither':   {'default': False, 'coerce': _strict_bool,  'validate': None,
+	                             'description': 'bd a0w (M5): synthesis model for angle_precision_eps. False (default) = ONE rotation circuit compiled once and reused for all n variables, so grid rounding is SYSTEMATIC and the realized-radius error adds coherently (~n*dtheta). True = n independently synthesized circuits, i.e. a deterministic per-variable pseudorandom residual within eps, so the radius error averages (~sqrt(n)*dtheta). The offsets are a pure function of the variable index, so determinism under a fixed seed is unaffected. Ignored when angle_precision_eps is unset. Per-phase variants supported. Default: False. Set before solve.'},
 	'branching_weights':        {'default': None,  'coerce': None,         'validate': 'special',
-	                             'description': 'Per-variable weight array for the branching formula; encodes learned or prior knowledge about variable importance. Must be a 1D non-negative numpy array of length n. None disables per-variable weighting. Default: None. Set before solve.'},
+	                             'description': 'Per-variable SIGNED logit offsets (theta_i) for the branching formula: value = sigma(logit(base) + branching_factor*theta_i). Must be a 1D finite numpy array of length n (no normalization, no non-negativity; M0f). None disables per-variable weighting. Default: None. Set before solve.'},
 	'branching_factor':         {'default': None,  'coerce': float,        'validate': lambda v: v >= 0,
 	                             'validate_msg': 'branching_factor must be non-negative',
 	                             'description': 'Weight of the branching_weights term in the 3-term branching formula. None uses the solver default. Range: >= 0 or None. Default: None. Set before solve.'},
@@ -120,13 +145,15 @@ _PARAM_DEFS = {
 	                             'description': 'Hard timeout in seconds; overrides stopping_time if set. None means use stopping_time instead. Range: > 0 or None. Default: None. Set before solve.'},
 }
 
-# Merge phase-specific parameter definitions (15 params: 3 phases x 5 suffixes)
+# Merge phase-specific parameter definitions (24 params: 3 phases x 8 suffixes)
 _phase_defs = make_phase_param_defs()
 # Add validation rules to scalar phase params
 _PHASE_VALIDATORS = {
 	'branching_bias': (lambda v: v > -1, 'branching_bias must be greater than -1'),
+	'branching_radius': (lambda v: v > 0, 'branching_radius must be > 0'),
 	'branching_factor': (lambda v: v >= 0, 'branching_factor must be non-negative'),
 	'bias_factor': (lambda v: v >= 0, 'bias_factor must be non-negative'),
+	'angle_precision_eps': (lambda v: v > 0, 'angle_precision_eps must be > 0'),
 }
 for _phase in _PHASES:
 	for _suffix in _PHASE_SUFFIXES:
@@ -275,8 +302,9 @@ cdef class Model:
 				raise ValueError(
 					f"Expected array of length {self.n}, got {len(arr)}"
 				)
-			if np.any(arr < 0):
-				raise ValueError("branching_weights must be non-negative")
+			# M0f: branching_weights are SIGNED per-variable logit offsets
+			# (theta_i) -- no non-negativity check (the L1 normalization that
+			# motivated it was dropped too). NaN/Inf are still rejected.
 			if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
 				raise ValueError(
 					"branching_weights must not contain NaN or Inf"
@@ -350,8 +378,8 @@ cdef class Model:
 	def _resolve_phase_params(self):
 		"""Resolve phase-specific parameters with fallback to unprefixed defaults.
 
-		Uses PhaseParamResolver to resolve all 15 phase-specific parameters
-		(3 phases x 5 suffixes) with the resolution order:
+		Uses PhaseParamResolver to resolve all 24 phase-specific parameters
+		(3 phases x 8 suffixes) with the resolution order:
 		    phase-specific > unprefixed > built-in default
 
 		Returns
@@ -682,6 +710,13 @@ or {self.runtime}s sampling
 				raise ValueError("Model has no constraints; add constraints before closing")
 		if not self.constraints_compiled:
 			self.objective.process(self.n)
+			# bd 3c4: also preprocess the Python-side self.constraint, symmetric with
+			# self.objective above. close() processed the C-model constraint
+			# (self.mod.con, used by solve()/ctg) but NOT this object, so its
+			# incremental-eval index arrays (positive/negative_indices+offsets) stayed
+			# NULL -- and the quantum_local_search path consumes self.constraint
+			# directly, segfaulting in adjusted_constraint_violation on the NULL arrays.
+			self.constraint.process(self.n)
 			process_constraints(self.mod.obj, self.n, enforce_density)
 			process_constraints(self.mod.con, self.n, enforce_density)
 			# Set default branching bias if not explicitly configured via set_param
@@ -696,10 +731,28 @@ or {self.runtime}s sampling
 		The result is stored as the initial state for subsequent solve calls.
 		If no initial state has been set, a default all-zeros state is
 		created first.
+
+		Returns
+		-------
+		tuple ``(value, feasible)``
+			``feasible`` (bool): whether the greedy construction satisfies all
+			constraints. ``value`` (int or None): the greedy objective
+			(``global_opt.tot_profit * sense``, same space as ``objective_value``
+			and the incumbent history) when feasible, else ``None`` — an infeasible
+			greedy ``tot_profit`` holds a constraint-violation sum, not an objective.
+
+			This is a pure read of fields ``initial_state_preparation`` just wrote
+			into ``global_opt`` (solver.c); the greedy value is only live in the
+			window BEFORE ``solve()`` overwrites ``global_opt``. The warm harness
+			(bd 8an.9) captures it here to seed the faithful oracle-0 incumbent
+			(``benchmarks.baselines.warm_repair_history``).
 		"""
 		if not self.initialized:
 			self.manual_initial(0, [0] * self.n)
 		initial_state_preparation(self.mod)
+		cdef bint greedy_feasible = self.mod[0].global_opt[0].feasible
+		greedy_value = self.objective_value if greedy_feasible else None
+		return greedy_value, bool(greedy_feasible)
 
 	def solve(self):
 		"""Solve the optimization or satisfiability problem.
@@ -744,6 +797,8 @@ or {self.runtime}s sampling
 
 		# Read all params from _params (with defaults from _PARAM_DEFS)
 		M = self._get_effective('M')
+		opt_switch_oracles = self._get_effective('opt_switch_oracles')
+		opt_sample_cap = self._get_effective('opt_sample_cap')
 		stopping_time = self._get_effective('stopping_time')
 		stop_val = self._get_effective('stop_val')
 		callback = self._get_effective('callback')
@@ -763,11 +818,28 @@ or {self.runtime}s sampling
 			if stop_val != -1: warn("Defined stop_val will be ignored when solving SAT")
 
 		if not self.initialized: self.manual_initial(0, [0] * self.n)
-		if M == -1: M = self.n ** 2 // 16
+		# Default per-worker oracle budget T(n) = (n/32)^2 + 1200 (NORTHSTAR §3/§11;
+		# lowered from (n/4)^2 on 2026-06-11, bd 8an.4.9 — quadratic shape kept,
+		# depth constant /8, for large-n freeze tractability). mod->M is a
+		# *cumulative* oracle cap enforced by the never-reset total_oracles
+		# accumulator in ctg (the wall-clock stop is disabled there), so the run
+		# terminates at ~T(n) oracles regardless of improvement frequency.
+		if M == -1: M = int((self.n / 32.0) ** 2 + 1200)
+
+		# M0f: opt_sat->opt exploit->explore switch point, in cumulative oracle
+		# units (NORTHSTAR §4), replacing the legacy counter>10. -1 auto-defaults
+		# to 10% of the budget; the effective value is clamped to [0, 0.25*M]
+		# (alpha<=0.25). The switch is additionally gated on feasibility in ctg,
+		# so it can never run CSearch_opt before a feasible point exists.
+		if opt_switch_oracles == -1:
+			opt_switch_oracles = int(0.1 * M)
+		opt_switch_oracles = max(0, min(opt_switch_oracles, int(0.25 * M)))
 
 		not_stop = [1]
 
 		self.mod.M = M
+		self.mod.opt_switch_oracles = opt_switch_oracles
+		self.mod.opt_sample_cap = opt_sample_cap
 		self.mod.depth_look_ahead = depth_look_ahead
 		self.mod.stop_val = stop_val
 		self.mod.stopping_time = stopping_time
@@ -778,22 +850,66 @@ or {self.runtime}s sampling
 
 		solve_start_time = time_mod.monotonic()
 		res = Parallel(n_jobs = num_workers, backend = "threading")(
-			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time)
-			for _ in range(num_workers)
+			delayed(run_sampling)(self, callback, not_stop, track_history, solve_start_time, worker_id)
+			for worker_id in range(num_workers)
 		)
 
 		reset_c_flags()
-		# res[i] = (cur_sol, qtg_applications, feasible, arr, t_total, incumb, history, preprocessing_time_ms)
+		# res[i] = (cur_sol, oracle_count_i, feasible, arr, t_total, incumb, history, preprocessing_time_ms, branch_diag, worker_runtime_s)
+		# res[i][1] is worker i's own race-free oracle count. Portfolio cost
+		# convention (NORTHSTAR §6/§11): each worker is capped at T(n) and scored
+		# best-of-P, so the reported oracle cost is the per-worker budget ~T(n).
+		# Write it once here, single-threaded, into the (now unwritten-by-ctg)
+		# qtg_applications slot so the result/property read a race-free value.
+		self.mod.qtg_applications = max((r[1] for r in res), default=0)
+		# bd lif: ctg now writes its wall-clock telemetry to the per-worker
+		# ctx->runtime (r[9]) instead of the racy shared mod->runtime. Reduce it
+		# max-over-workers (the portfolio finishes when the slowest worker does)
+		# once here, single-threaded, into the (now unwritten-by-ctg) mod->runtime
+		# slot so result.solve_time and the .runtime property read a race-free value.
+		self.mod.runtime = max((r[9] for r in res), default=0.0)
 		self.final_state = self.global_opt
 
-		# Merge histories from all workers, sorted by elapsed_seconds
+		# Per-worker FINAL incumbents (value, feasible) -- r[5] -- for §8.3
+		# median-of-P / best-of-P outcome-diversity gate (NORTHSTAR §8.3, M0e).
+		final_incumbents = [r[5] for r in res]
+
+		# Best-of-portfolio improvement curve vs ORACLE budget (NORTHSTAR §11/§1.3 M0e):
+		# concatenate the per-worker (value, oracle, elapsed_s) streams, sort by oracle,
+		# and keep the running-best value (bd qls: the kept entry is the producing
+		# worker's full triple, so `history` also carries wall-clock elapsed). bd 4uf: streams are now COMPLETE per-worker incumbent
+		# logs (no longer filtered by the wall-time global_opt race), so this running-
+		# best filter is LOAD-BEARING for the best-of-P curve — different workers'
+		# streams overlap and most cross-worker events are dominated. Each worker's own
+		# stream is monotone (a worker's incumbents only improve), and the merged curve
+		# is a pure function of (master seed, worker_id, P) — scheduling-independent,
+		# which is what makes the §6 PI deterministic. For MAXIMIZE this is the
+		# running-MAX; MINIMIZE/SATISFY keep the running-min in their improving
+		# direction.
 		if track_history:
-			merged_history = []
+			merged = []
 			for r in res:
-				merged_history.extend(r[6])
-			merged_history.sort(key=lambda entry: entry[1])
+				merged.extend(r[6])
+			merged.sort(key=lambda entry: entry[1])  # by oracle stamp
+			if self.mod[0].solver == SATISFY or self.sense != MAXIMIZE:
+				is_better = lambda new, best: new < best
+			else:
+				is_better = lambda new, best: new > best
+			merged_history = []
+			best_val = None
+			for entry in merged:
+				value = entry[0]
+				if best_val is None or is_better(value, best_val):
+					best_val = value
+					merged_history.append(entry)
 		else:
 			merged_history = []
+
+		# bd o3f: keep the raw per-worker streams (index == worker_id) so the
+		# user can replay the running-max over any worker subset post hoc.
+		# Same (value, oracle, elapsed_s) schema; `history` above is exactly
+		# their running-max merge.
+		worker_histories = [list(r[6]) for r in res] if track_history else []
 
 		# Extract solution array from global_opt
 		cdef int n_bits = self.mod[0].global_opt[0].vector.bits
@@ -821,6 +937,64 @@ or {self.runtime}s sampling
 		else:
 			is_feasible = bool(self.mod[0].global_opt[0].feasible)
 
+		# Opt-phase branching diagnostics, pooled across the decorrelated workers
+		# (M0g / bd 8an.1.7, NORTHSTAR §9). Each worker's ctx counted, over every
+		# candidate CSearch_opt generated, the realized Hamming radius (NumChanges)
+		# and the # of both-feasible "free" decisions. Pooling the raw sums across
+		# workers (they are i.i.d. samples of the same instance under decorrelated
+		# seeds) gives the realized-radius mean+variance and the free-decision
+		# fraction f(n) the scale-invariance test compares across n. The raw pooled
+		# sums are kept so callers can re-pool across seeds/instances.
+		_bd_cand = sum(r[8]["opt_candidates"] for r in res)
+		_bd_flip = sum(r[8]["opt_flip_sum"]   for r in res)
+		_bd_fsq  = sum(r[8]["opt_flip_sumsq"] for r in res)
+		_bd_free = sum(r[8]["opt_free_sum"]   for r in res)
+		if _bd_cand > 0:
+			_r_mean = _bd_flip / _bd_cand
+			_r_var = max(0.0, _bd_fsq / _bd_cand - _r_mean * _r_mean)
+			_f_n = _bd_free / (_bd_cand * n_bits) if n_bits > 0 else None
+		else:
+			_r_mean = None
+			_r_var = None
+			_f_n = None
+		# M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch pooling.
+		# For each phase, pool the raw per-worker counters and derive the
+		# touch fraction = consulted / decisions, where "consulted" encodes the
+		# per-phase semantics ONCE (solver.c): both-feasible is consulted in
+		# every phase; both-infeasible is consulted ONLY in opt_sat (sat forces
+		# bit=0, opt truncates the candidate). None (not 0.0) when the phase
+		# never ran — unmeasured, not measured-zero.
+		_dt = {}
+		for _ph, _kd, _kf, _kb, _kx, _binf_consulted in (
+			("sat",     "sat_decisions",    "sat_free",     "sat_bothinf",    "sat_forced",    False),
+			("opt_sat", "optsat_decisions", "optsat_free",  "optsat_bothinf", "optsat_forced", True),
+			("opt",     "opt_decisions",    "opt_free_sum", "opt_bothinf",    "opt_forced",    False),
+		):
+			_dec  = sum(r[8][_kd] for r in res)
+			_free = sum(r[8][_kf] for r in res)
+			_binf = sum(r[8][_kb] for r in res)
+			_forc = sum(r[8][_kx] for r in res)
+			_consulted = _free + (_binf if _binf_consulted else 0)
+			_dt[_ph] = {
+				"decisions": int(_dec),
+				"free": int(_free),
+				"bothinf": int(_binf),
+				"forced": int(_forc),
+				"touch_fraction": (_consulted / _dec) if _dec > 0 else None,
+			}
+		branch_diagnostics = {
+			"n": int(n_bits),
+			"opt_candidates": int(_bd_cand),
+			"radius_mean": _r_mean,
+			"radius_var": _r_var,
+			"free_fraction": _f_n,
+			"opt_flip_sum": int(_bd_flip),
+			"opt_flip_sumsq": int(_bd_fsq),
+			"opt_free_sum": int(_bd_free),
+			"decision_touch": _dt,
+			"per_worker": [dict(r[8]) for r in res],
+		}
+
 		# Build OptimizeResult
 		result = OptimizeResult(
 			solution=solution,
@@ -835,6 +1009,9 @@ or {self.runtime}s sampling
 			violations=violations,
 			num_threads=num_workers,
 			seed=self._seed_used if self._seed_used is not None else 0,
+			final_incumbents=final_incumbents,
+			branch_diagnostics=branch_diagnostics,
+			worker_histories=worker_histories,
 		)
 
 		return result
@@ -931,14 +1108,31 @@ or {self.runtime}s sampling
 		callback = self._get_effective('callback')
 		num_workers = self._get_effective('num_workers')
 
+		# bd 3c4: each worker needs its OWN fresh initial state. quantum_local_search
+		# mutates cur_sol (== the passed state) IN PLACE, so a single shared object
+		# would be corrupted/raced across workers. The former code passed
+		# self.initial_state, which is None in the normal flow -> the public method
+		# raised TypeError and never ran. Build the per-worker start from the model's
+		# C initial state (all-zeros by default), seeded all the same so divergence
+		# comes only from the decorrelated per-worker PRNG stream.
+		if not self.initialized:
+			self.manual_initial(0, [0] * self.n)
+		init_bits = [sw_tstbit(self.mod.initial_state[0].vector, _i) for _i in range(self.n)]
+
+		# Pass each worker its 0-based index (and the model seed) so
+		# run_quantum_local_search seeds a decorrelated per-worker PRNG stream,
+		# mirroring 8an.1.3's run_sampling fan-out. The former `for _` gave every
+		# worker the same (unseeded) stream -> portfolio collapse under a fixed seed.
 		Parallel(n_jobs=num_workers, backend="threading")(
 			delayed(run_quantum_local_search)(
-				self.initial_state,
+				state_py(0, list(init_bits)),
 				self.constraint,
 				self.objective,
 				distance,
-				callback
-			) for _ in range(num_workers)
+				callback,
+				self._seed,
+				worker_id
+			) for worker_id in range(num_workers)
 		)
 
 	def approximate_benchmarking(self, samples = 1024, M = 100):
@@ -1015,10 +1209,16 @@ or {self.runtime}s sampling
 		return inc
 
 	def _callback_value(self):
-		"""Current incumbent value for history callback.
+		"""Current GLOBAL incumbent value for the history callback.
 
 		In SATISFY mode, returns constraints satisfied count.
 		In OPTIMIZE mode, returns objective value scaled by sense.
+
+		bd 4uf: reads the SHARED ``mod->global_opt`` — only safe on
+		single-trajectory paths with no concurrent writer (local_search,
+		quantum_local_search; the ``raw=None`` fallback). The multi-worker ctg
+		path must use :meth:`_value_from_raw` on the per-worker
+		``ctx->callback_value`` instead.
 
 		Returns
 		-------
@@ -1028,6 +1228,26 @@ or {self.runtime}s sampling
 		if self.mod[0].solver == SATISFY:
 			return self.mod[0].con[0].num_constraints + self.mod[0].global_opt[0].tot_profit
 		return self.mod[0].global_opt[0].tot_profit * self.sense
+
+	def _value_from_raw(self, raw):
+		"""Apply the sign/sat convention to a PER-WORKER internal incumbent value.
+
+		``raw`` is a worker's ``cur_sol->tot_profit`` delivered via
+		``ctx->callback_value`` (bd 4uf / NORTHSTAR §11 per-worker incumbent
+		logging) — the exact transformation `_callback_value` applies to the
+		global incumbent and the per-worker final incumbent uses at return
+		(SearchLib.pyx), so history values and ``final_incumbents`` stay
+		mutually consistent. Reads no shared state.
+
+		Returns
+		-------
+		int
+			The worker incumbent in reporting convention (satisfied count for
+			SATISFY, sense-applied objective otherwise).
+		"""
+		if self.mod[0].solver == SATISFY:
+			return self.mod[0].con[0].num_constraints + raw
+		return raw * self.sense
 
 	@property
 	def objective_value(self):
@@ -1046,12 +1266,17 @@ or {self.runtime}s sampling
 
 	@property
 	def oracle_calls(self):
-		"""Number of Grover (QTG) oracle applications used in the last solve.
+		"""Per-worker oracle budget spent in the last solve (best-of-portfolio).
+
+		Each portfolio worker accumulates its own race-free oracle count and is
+		capped at T(n); the reported figure is the max over workers (~T(n)), per
+		the NORTHSTAR §6/§11 portfolio-cost convention. Replaces the former racy
+		shared counter.
 
 		Returns
 		-------
 		int
-			Cumulative oracle call count.
+			Per-worker cumulative oracle call count (best-of-portfolio).
 		"""
 		return self.mod[0].qtg_applications
 

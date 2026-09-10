@@ -17,6 +17,20 @@ This is a research solver. **The oracle count is the product.** CBQS is a faithf
 whose oracle count *is* the quantum cost; everything we measure and claim rests on that number being
 correct. Treat any code touching it as load-bearing.
 
+> **⚡ RUN POLICY (overrides §1.1/§1.2 for execution — user directive 2026-06-16).** Every CBQS run sets a
+> wall-clock cap `stopping_time` of **15–30 minutes** (900–1800 s; pick within the band by available time —
+> more time → toward 30 min): `m.set_param('stopping_time', 900..1800)` before `solve()`. **Do not leave it
+> at the `-1` default.** Faithfulness is **explicitly waived for runs** — 15–30 min is long enough that
+> schedule changes have a meaningful, measurable performance impact, and wall-clock performance within that
+> fixed budget is what we evaluate. This **supersedes** the "never substitute wall-clock for oracles"
+> prohibition (§1.2) and the equal-`T(n)` pricing (§1.1) *for run execution*; the oracle-accounting code
+> stays load-bearing (it must remain correct), but the oracle-indexed primal-integral faithfulness
+> guarantees (NORTHSTAR §6) no longer hold for wall-capped runs — the accepted tradeoff. Consequences:
+> n≥1000 / n=3000 (M4) become runnable on a single box (non-exact, accepted); both arms of any A/B must
+> share the same cap to stay matched; the cap is checked **between** Grover rounds, so one in-progress
+> large-`j` round can overshoot. `stopping_time` is a **harness/run-level** setting, not a per-candidate
+> lever (`candidate_gate` keeps it in `_FAITHFULNESS_BREACH_PARAMS`, so tuned candidates cannot set it).
+
 ---
 
 ## 1. Non-negotiable invariants (reject-early gates)
@@ -32,6 +46,8 @@ candidate schedule violates one of these, stop and reconsider — do not "make i
   worker. Never substitute wall-clock for oracles, never let the accumulator be racy/under-counted, never
   reset the cumulative counter. The current shared `mod->qtg_applications` is **racy and wrong** (§5);
   fixing it (per-worker counter, never-reset accumulator) is M0, not optional polish.
+  *(Exception — the RUN POLICY callout above: runs now carry a 15–30 min wall cap and faithfulness is
+  waived for them. The counter must still be correct; only the "no wall-clock termination" rule is lifted.)*
 - **§1.3 No uniform-greedy collapse.** Greedy is an *allowed opening stage*, never the whole schedule.
   Score on **best-of-portfolio** (running-max over workers), **never the mean** — the mean rewards
   low-variance greedy and discards the restart tail. (NORTHSTAR §2, §8.)
@@ -196,12 +212,17 @@ Each entry: **location → why dangerous → how to detect.** These are the land
 - **Param propagation is runtime-only.** `set_predicted_params` (Python, `SearchLib.pyx:533`) only writes
   the `mod._params` dict; live propagation is `_propagate_phase_params` (`SearchLib.pyx:223`) → per-phase
   setters. The C `solver_ctx_set_predicted_params` is **dead** from this path — don't assume it runs.
-- **CI runs only 10 of 21 C tests.** The `ctest -R` filter (test.yml) skips `arena, prng, dyn_expr,
-  variable_ordering, variable_vector, stage_switching, thread_safety, reduce_ops, merge_duplicate_terms,
-  csearch_ordering` — they compile under `-Werror` but **never execute**, so a logic regression there is
-  CI-green. → **Always run the full local suite** (`ctest` with no `-R`) before touching any of those
-  modules. The history-schema and eq29-RHS baselines are likewise only checked locally (the latter needs
-  `CBQS_BENCHMARKS_DIR`). A *skipped* test is "unverified," not "passed."
+- **CI's C-test filter (re-audited 2026-08-28, bd a0w).** The `ctest -R` filter (test.yml, 3 job
+  copies) had silently drifted to **23 of the 27 registered** cmocka targets: `test_opt_sample_cap`,
+  `test_opt_radius_schedule`, `test_deadline_interrupt` and `test_angle_precision` matched no
+  alternative and **never executed in CI**. All four are now in the filter (27/27). The remaining
+  hole is `test_predicted_params.c` — it exists in `tests/` but is **not registered in CMakeLists at
+  all**, so it is never even built (it targets the dead C `set_predicted_params` path above).
+  Note the whole workflow is currently `workflow_dispatch`-only (auto-CI disabled on push/PR), so
+  the filter gates nothing until that is restored. → **Always run the full local suite** (`ctest`
+  with no `-R`) before touching those modules; a new `add_cmocka_test` must be added to the filter
+  in all three places by hand. The history-schema and eq29-RHS baselines are likewise only checked
+  locally (the latter needs `CBQS_BENCHMARKS_DIR`). A *skipped* test is "unverified," not "passed."
 
 ---
 
@@ -226,7 +247,7 @@ Each entry: **location → why dangerous → how to detect.** These are the land
 **Cython layer (`cbqs/*.pyx`, `*.pxd`)**
 - `Model.pyx` — `Model` class; `solve()` worker fan-out; objective sign; constraint push to C.
 - `SearchLib.pyx` — `run_sampling` (per-worker driver), `_propagate_phase_params`, `set_predicted_params`,
-  the `void()` history callback (`(value, elapsed_seconds)` today; migrating to `(value, oracle:int)`).
+  the `void()` history callback (entries `(value, oracle:int, elapsed_s)` — M0e oracle stamp + bd qls wall stamp).
 - `Expression.pyx` — `__le__/__ge__/__eq__` attach constraint sense+rhs (`__ge__` negates → internal LOWER).
 - `VariableVector.pyx` — `__matmul__` → `bilinear_reduce`: the vectorized build path.
 
@@ -255,24 +276,35 @@ pytest tests/ -v --tb=short --ignore=tests/test_stress.py
 pytest tests/test_stress.py -v --timeout=180        # split out (slow)
 ```
 
-**C tests — run the FULL suite locally** (CI only runs 10 of 21; see §5):
+**C tests — run the FULL suite locally** (CI's filter misses `test_opt_sample_cap`, and
+`test_predicted_params.c` is unregistered; see §5):
 ```bash
 cmake -S tests -B build-tests -DWERROR=ON
 cmake --build build-tests -j
-ctest --test-dir build-tests --output-on-failure    # ALL 21 targets — do this before touching any C module
-# CI's narrower filter (do not rely on it as your gate):
-#   ctest -R "test_(intarray|expression|state|constraint|model|branching|solver|searchlib|integration)"
+ctest --test-dir build-tests --output-on-failure    # ALL targets — do this before touching any C module
+# CI's narrower filter (do not rely on it as your gate) — see test.yml for the current -R regex.
 ```
 
-**Sanitizers — run the matching one before touching its code (see §3 core areas):**
+**Sanitizers — run the matching one before touching its code (see §3 core areas).**
+The one-command gate runs both and picks a working toolchain automatically:
+```bash
+tests/run_sanitizers.sh            # ASan (full) + TSan (thread_safety); also: asan | tsan
+```
+> **macOS (bd aft):** Apple clang's sanitizer runtime SIGILLs at startup on macOS 26+
+> (Darwin 25+) — every instrumented binary exits 132 *before* main, so the manual
+> `cmake` commands below need Homebrew LLVM clang (`brew install llvm`) via
+> `-DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang`. `run_sanitizers.sh` does this
+> for you; the CMake config also **fails loudly** with this remedy if a sanitizer
+> build is configured with the broken toolchain. Linux/CI are unaffected.
+
 ```bash
 # ASan (heap/UAF/leaks) — before memory-ownership changes (arena, dyn_expr, state, local_search):
-cmake -S tests -B build-asan -DASAN=ON -DWERROR=ON && cmake --build build-asan -j
+cmake -S tests -B build-asan -DASAN=ON -DWERROR=ON && cmake --build build-asan -j   # macOS: add -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
 ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 ctest --test-dir build-asan --output-on-failure
 
 # TSan (data races) — before touching solver_ctx, the threading workers, or the oracle counter:
 cmake -S tests -B build-tsan -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+  -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"   # macOS: -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang
 cmake --build build-tsan -j && TSAN_OPTIONS=halt_on_error=1 ctest --test-dir build-tsan -R test_thread_safety -V
 
 # Valgrind (definite leaks / invalid access) — Expression/Constraint/state/local_search/solver:
@@ -293,13 +325,34 @@ A change to any of these must be deliberate, justified in the `bd` issue, and up
   prob `1/7`). Pins the bias→value map; the sigmoid reparam must recover it at `θ_i=0`.
 - **Eq.29 RHS (instance `100_0`):** `le_rhs==5032863` (sum over c3), `ge_rhs==5040079` (sum over c2).
   Encodes the LE-uses-c3 / GE-uses-c2 mapping. Needs `CBQS_BENCHMARKS_DIR`.
+- **Frozen-default protocol = WARM (bd 8an.9, 2026-06-19).** `baselines_frozen.csv` / `floor_calibration.csv`
+  are the **warm** default (published `iqs` `general_greedy` start), `protocol` column == `warm` on every
+  scored row. The cold `0^n` tables are archived at `baselines_frozen_cold.csv` / `floor_calibration_cold.csv`
+  for M1-cold provenance. The warm freeze **keeps the cold `L_I`** (shared normalizer) and re-scores only
+  `default_PI` warm (`default_instance_anchors(L_I_override=)`); a warm `default_PI` is NOT comparable to a
+  cold one (feasible from oracle 0), so `freeze_default_anchors` enforces a **single-protocol** guard. The
+  canonical M3 driver is `run_m3_warm.py`; the cold `run_m3.py` fails loud against the warm table. To
+  reproduce the cold M1 baselines, restore the `*_cold.csv` archive (or `m2 … --cold`).
+- **Warm PI freeze tops out at n=500 — n≥1000 is DEGENERATE (bd 8an.4.8, 2026-06-21).** At n≥1000 warm
+  CBQS reaches feasibility **at or above** the classical frontier `B_I` (greedy `== B_I` exactly on
+  n=1000_0/1; n=3000 first-feasible+final beat hexaly, `verify=True`), so `L_I ≥ B_I` → the primal-gap-to-`B_I`
+  normalizer collapses (every instance drops as `L_ge_B`). The onset shows at n=500 (2/8 default_PI < 0).
+  So `baselines_frozen.csv` is warm-anchored **only through n=500**; do **not** attempt an L_I/default_PI
+  freeze at n≥1000. **M4 (n=3000) is scored by a DIRECT objective A/B**, not a B_I-anchored PI verdict
+  (warm CBQS likely beats classical SOTA at scale — see `benchmarks/M3_WARM_FINDINGS.md` §9, memory
+  `largen-warm-beats-bi-metric-degenerate`). A faithful warm n=3000 solve is also ~32 min (≈33 h/stratum).
 - **Determinism:** fixed seed + single worker → identical objective **and** solution array
   (`test_determinism.py`). The M0 per-worker PRNG decorrelation must keep single-worker determinism intact
   and only change *multi-worker* trajectory divergence. Never "fix" a failing determinism assert by
   loosening it.
-- **History schema:** currently `(value, elapsed_seconds: float)`. The M0 migration to
-  `(value, oracle: int)` must update `SearchLib.pyx:170`, `test_concurrent_history.py`,
-  `test_diagnostics_py.py`, and `result.py` (docstring + `summary()` formatting) **in the same commit**.
+- **History schema:** `(value, oracle: int, elapsed_s: float)` (M0e oracle stamp; `elapsed_s` added by
+  bd qls 2026-09-10 = wall-clock seconds since `solve()` start, taken from the producing worker).
+  `result.worker_histories` (bd o3f) carries the raw per-worker streams in the same schema; `history` is
+  their running-max merge. Only the `(value, oracle)` projection is seed-deterministic — every
+  equality/round-trip check must project (`for (v, o, *_) in …`); saved benchmark JSON stays
+  2-element `[v, o]`. A schema change must update `SearchLib.pyx` (`_history_callback_fn`), the
+  `Model.pyx` merge, `result.py` (docstring + `summary()` + `to_dict()`), `benchmarks/metric.py`, every
+  benchmark driver that unpacks entries, and the test pins **in the same commit**.
 - **`branching_bias > -1`** (`test_bias_validation.py`) — the bias domain guard.
 
 ---

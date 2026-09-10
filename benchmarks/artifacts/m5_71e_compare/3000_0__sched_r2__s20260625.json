@@ -1,0 +1,1 @@
+{"key": "sched_r2", "n": 3000, "index": 0, "seed": 20260625, "wall_s": 300.6166310310364, "overrides": {"opt_sat_branching_radius": 8.0, "opt_branching_radius": 2.0, "opt_switch_oracles": 1498}, "objective": 22689234654, "feasible": true, "oracle_calls": 792, "greedy_feasible": false, "history": [[22682275554.0, 73], [22689234654.0, 127]]}

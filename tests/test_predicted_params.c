@@ -81,7 +81,8 @@ static void test_sets_bias_factor_on_all_three_phases(void **state) {
 }
 
 /* test_sets_weights_on_all_three_phases:
- * branching_weights should be set (L1-normalized) on all three phases. */
+ * branching_weights should be set verbatim (M0f: no L1 normalization, signed
+ * theta) on all three phases. */
 static void test_sets_weights_on_all_three_phases(void **state) {
     solver_ctx_t *ctx = (solver_ctx_t *)*state;
 
@@ -89,7 +90,7 @@ static void test_sets_weights_on_all_three_phases(void **state) {
     double priorities[] = {0.5, 1.5};
     solver_ctx_set_predicted_params(ctx, 10.0, 1.0, 1.0, weights, priorities, 2);
 
-    /* Weights are L1-normalized: [1/4, 3/4] */
+    /* Weights stored AS-IS: [1.0, 3.0] (no normalization). */
     assert_non_null(ctx->branching_stats_sat.branching_weights);
     assert_non_null(ctx->branching_stats_opt_sat.branching_weights);
     assert_non_null(ctx->branching_stats_opt.branching_weights);
@@ -98,10 +99,10 @@ static void test_sets_weights_on_all_three_phases(void **state) {
     assert_int_equal(ctx->branching_stats_opt_sat.num_weights, 2);
     assert_int_equal(ctx->branching_stats_opt.num_weights, 2);
 
-    assert_true(fabs(ctx->branching_stats_sat.branching_weights[0] - 0.25) < 1e-10);
-    assert_true(fabs(ctx->branching_stats_sat.branching_weights[1] - 0.75) < 1e-10);
-    assert_true(fabs(ctx->branching_stats_opt.branching_weights[0] - 0.25) < 1e-10);
-    assert_true(fabs(ctx->branching_stats_opt.branching_weights[1] - 0.75) < 1e-10);
+    assert_true(fabs(ctx->branching_stats_sat.branching_weights[0] - 1.0) < 1e-12);
+    assert_true(fabs(ctx->branching_stats_sat.branching_weights[1] - 3.0) < 1e-12);
+    assert_true(fabs(ctx->branching_stats_opt.branching_weights[0] - 1.0) < 1e-12);
+    assert_true(fabs(ctx->branching_stats_opt.branching_weights[1] - 3.0) < 1e-12);
 }
 
 /* test_sets_variable_order_on_all_three_phases:

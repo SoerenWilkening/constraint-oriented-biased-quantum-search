@@ -157,10 +157,11 @@ int CSearch_opt_sampler(solver_ctx_t *ctx, approximate_state_t *state, state_t *
             // check, if assignment does not exceed potentials
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
-            // look ahead to the left side
-            look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the left side (natural traversal: this sampler
+            // iterates i = 0..n-1 directly, so order/rank stay NULL, bd h8d)
+            look_ahead_correct(i, 0, imin(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, NULL, NULL);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(i, 1, imin(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, NULL, NULL);
             
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"

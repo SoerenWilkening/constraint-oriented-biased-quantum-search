@@ -147,11 +147,13 @@ class TestBranchingWeightsValidation:
         with pytest.raises(ValueError, match="Expected array of length 5, got 2"):
             m.set_param("branching_weights", [1.0, 2.0])
 
-    def test_branching_weights_negative(self):
-        """Negative weight raises ValueError."""
+    def test_branching_weights_negative_allowed(self):
+        """Negative weights are allowed (M0f: signed per-variable logit offsets)."""
+        import numpy as np
         m = Model()
-        with pytest.raises(ValueError, match="non-negative"):
-            m.set_param("branching_weights", [1.0, -1.0])
+        m.add_variables(2)
+        m.set_param("branching_weights", [1.0, -1.0])
+        np.testing.assert_array_equal(m.get_param("branching_weights"), [1.0, -1.0])
 
     def test_branching_weights_nan(self):
         """NaN weight raises ValueError."""
@@ -401,16 +403,22 @@ class TestSetParamSetTimeValidation:
     """Verify validation is performed at set-time."""
 
     def test_stopping_time_zero_raises(self):
-        """set_param('stopping_time', 0) raises ValueError."""
+        """set_param('stopping_time', 0) raises ValueError (0 is not the -1 OFF sentinel)."""
         m = Model()
-        with pytest.raises(ValueError, match="stopping_time must be positive"):
+        with pytest.raises(ValueError, match="stopping_time must be > 0"):
             m.set_param("stopping_time", 0)
 
-    def test_stopping_time_negative_raises(self):
-        """set_param('stopping_time', -1) raises ValueError."""
+    def test_stopping_time_minus_one_is_off(self):
+        """set_param('stopping_time', -1) is the OFF sentinel (no ctg wall cap) — accepted."""
         m = Model()
-        with pytest.raises(ValueError, match="stopping_time must be positive"):
-            m.set_param("stopping_time", -1)
+        m.set_param("stopping_time", -1)
+        assert m.get_param("stopping_time") == -1
+
+    def test_stopping_time_negative_other_raises(self):
+        """A negative other than -1 raises ValueError (only -1 is the OFF sentinel)."""
+        m = Model()
+        with pytest.raises(ValueError, match="stopping_time must be > 0"):
+            m.set_param("stopping_time", -5)
 
     def test_num_workers_zero_raises(self):
         """set_param('num_workers', 0) raises ValueError."""
@@ -465,7 +473,7 @@ class TestSetParamResetToDefault:
 
     @pytest.mark.parametrize("name,set_val,default_val", [
         ("M", 500, -1),
-        ("stopping_time", 60, 300),
+        ("stopping_time", 60, -1),
         ("num_workers", 4, 12),
         ("track_history", False, True),
         ("callback", lambda: None, None),
@@ -488,7 +496,7 @@ class TestGetParamDefaults:
 
     @pytest.mark.parametrize("name,expected", [
         ("M", -1),
-        ("stopping_time", 300),
+        ("stopping_time", -1),
         ("stop_val", -1),
         ("callback", None),
         ("max_delta", 7),

@@ -26,6 +26,11 @@ static void branching_stats_init_defaults(BranchingStats_t *stats) {
     stats->look_ahead_factor = 0.0;
     stats->variable_order = NULL;
     stats->num_vars = 0;
+    stats->variable_rank = NULL;
+    /* bd a0w (M5): angle-precision lever OFF by default (exact angles) -- the
+     * pre-a0w BranchingFunction path, bit-for-bit. */
+    stats->angle_precision_eps = 0.0;
+    stats->angle_precision_dither = 0;
 }
 
 static void branching_stats_free_weights(BranchingStats_t *stats) {
@@ -38,6 +43,10 @@ static void branching_stats_free_weights(BranchingStats_t *stats) {
         free(stats->variable_order);
         stats->variable_order = NULL;
         stats->num_vars = 0;
+    }
+    if (stats->variable_rank != NULL) {
+        free(stats->variable_rank);
+        stats->variable_rank = NULL;
     }
 }
 
@@ -55,16 +64,11 @@ static void branching_stats_set_weights(BranchingStats_t *stats, const double *w
     memcpy(stats->branching_weights, weights, (size_t)n * sizeof(double));
     stats->num_weights = n;
 
-    /* L1 normalize */
-    double sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        sum += fabs(stats->branching_weights[i]);
-    }
-    if (sum > 0.0) {
-        for (int i = 0; i < n; i++) {
-            stats->branching_weights[i] /= sum;
-        }
-    }
+    /* Stored AS-IS: branching_weights are SIGNED per-variable logit offsets
+     * (theta_i) consumed additively by BranchingFunction (M0f, NORTHSTAR §4).
+     * The old L1 normalization was removed -- normalizing would couple the
+     * per-variable channel back to a shared denominator and rescale the radius
+     * (NORTHSTAR §1.5); the sign and magnitude are now both meaningful. */
 }
 
 /* ============================================================
@@ -97,6 +101,36 @@ solver_ctx_t *solver_ctx_create(void) {
     ctx->seed_used = 0;
     ctx->num_threads = 0;
     ctx->num_threads_used = 0;
+    ctx->worker_id = 0;
+    ctx->oracle_count = 0;
+    ctx->runtime = 0.0;  /* bd lif: per-worker wall-clock telemetry (see solver_ctx.h) */
+    /* bd 4uf: no incumbent value until ctg's per-worker callback site sets one. */
+    ctx->callback_value = SOLVER_CTX_CALLBACK_VALUE_UNSET;
+    /* Opt-phase branching diagnostics (M0g / bd 8an.1.7) — pure per-worker
+     * observation counters, accumulated over the solve (see solver_ctx.h). */
+    ctx->opt_candidates = 0;
+    ctx->opt_flip_sum = 0;
+    ctx->opt_flip_sumsq = 0;
+    ctx->opt_free_sum = 0;
+    /* M2a (bd 8an.3.1): per-phase decision-touch counters (see solver_ctx.h). */
+    ctx->sat_decisions = 0;
+    ctx->sat_free = 0;
+    ctx->sat_bothinf = 0;
+    ctx->sat_forced = 0;
+    ctx->optsat_decisions = 0;
+    ctx->optsat_free = 0;
+    ctx->optsat_bothinf = 0;
+    ctx->optsat_forced = 0;
+    ctx->opt_decisions = 0;
+    ctx->opt_bothinf = 0;
+    ctx->opt_forced = 0;
+    ctx->opt_sample_cap = 0;  /* bd 0o8: 0 == unbounded (exact rejection sim) */
+    ctx->deadline_ns = 0;     /* bd 0o8.3: 0 == OFF; armed by ctg from stopping_time */
+    /* bd w29 (M5 / 71e): opt-radius decay schedule OFF by default (static lever). */
+    ctx->opt_radius_schedule.enabled = 0;
+    ctx->opt_radius_schedule.r_start = 0.0;
+    ctx->opt_radius_schedule.r_end = 0.0;
+    ctx->opt_radius_schedule.gamma = 1.0;
     memset(&ctx->master_prng, 0, sizeof(prng_state_t));
 
     /* Record start time */
@@ -290,6 +324,69 @@ void solver_ctx_set_opt_look_ahead_factor(solver_ctx_t *ctx, double factor) {
 }
 
 /* ============================================================
+ * bd w29 (M5 / 71e): continuous opt-radius DECAY schedule
+ * ============================================================ */
+
+/* ============================================================
+ * bd a0w (M5): angle-precision (Ross-Selinger / gridsynth) setters
+ * ============================================================ */
+
+void solver_ctx_set_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    solver_ctx_set_sat_angle_precision(ctx, eps, dither);
+    solver_ctx_set_opt_sat_angle_precision(ctx, eps, dither);
+    solver_ctx_set_opt_angle_precision(ctx, eps, dither);
+}
+
+void solver_ctx_set_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_sat.angle_precision_eps = eps;
+    ctx->branching_stats_sat.angle_precision_dither = dither ? 1 : 0;
+}
+
+void solver_ctx_set_opt_sat_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt_sat.angle_precision_eps = eps;
+    ctx->branching_stats_opt_sat.angle_precision_dither = dither ? 1 : 0;
+}
+
+void solver_ctx_set_opt_angle_precision(solver_ctx_t *ctx, double eps, int dither) {
+    if (ctx == NULL) { return; }
+    ctx->branching_stats_opt.angle_precision_eps = eps;
+    ctx->branching_stats_opt.angle_precision_dither = dither ? 1 : 0;
+}
+
+void solver_ctx_set_opt_radius_schedule(solver_ctx_t *ctx, int enabled,
+                                        double r_start, double r_end, double gamma) {
+    if (ctx == NULL) { return; }
+    ctx->opt_radius_schedule.enabled = enabled;
+    ctx->opt_radius_schedule.r_start = r_start;
+    ctx->opt_radius_schedule.r_end = r_end;
+    ctx->opt_radius_schedule.gamma = gamma;
+}
+
+double opt_radius_schedule_eval(const opt_radius_schedule_t *s, double ratio) {
+    /* Bit-for-bit constant degeneracy: when the endpoints coincide the schedule
+     * IS the constant lever — return r_start with no arithmetic (so the bias
+     * matches radius_to_bias(n, r_start) exactly and the pow() below is never
+     * exercised on a degenerate spec). This is the negative-control guarantee. */
+    if (s->r_start == s->r_end) {
+        return s->r_start;
+    }
+    /* Normalized oracle fraction t in [0,1]. ctg passes total_oracles/mod->M,
+     * which the loop guard keeps in [0,1); clamp defensively so a raw-API caller
+     * (or the terminal in-progress round) can never push the shape out of range. */
+    double t = ratio;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    /* r(t) = r_end + (r_start - r_end) * (1 - t)^gamma:
+     *   t=0 -> r_start (broad), t=1 -> r_end (tight). For gamma>0 and t in [0,1]
+     *   the factor (1-t)^gamma is in [0,1], so r stays within [min,max] of the
+     *   two positive endpoints — always > 0 (radius_to_bias never divides by 0). */
+    return s->r_end + (s->r_start - s->r_end) * pow(1.0 - t, s->gamma);
+}
+
+/* ============================================================
  * Consolidated Parameter Setter
  * ============================================================ */
 
@@ -351,18 +448,56 @@ static void free_variable_order(BranchingStats_t *stats) {
         stats->variable_order = NULL;
         stats->num_vars = 0;
     }
+    if (stats->variable_rank != NULL) {
+        free(stats->variable_rank);
+        stats->variable_rank = NULL;
+    }
 }
 
-/* Set variable_order on a single BranchingStats_t from a sorted index array */
+/* Set variable_order on a single BranchingStats_t from a sorted index array.
+ *
+ * bd h8d: also builds variable_rank, the inverse permutation
+ * (rank[order[k]] = k) that evaluation() needs to keep clause-closure
+ * prefix-consistent with the traversal. For an IDENTITY order the rank is
+ * deliberately left NULL: rank==NULL selects the natural-index closure path,
+ * which is exactly equivalent for identity traversal and keeps every default
+ * solve bit-for-bit on the pre-h8d code path (CLAUDE.md SS8 baselines). */
 static void set_variable_order_on_stats(BranchingStats_t *stats, const int *order, int n) {
     free_variable_order(stats);
     if (order == NULL || n <= 0) { return; }
     stats->variable_order = malloc((size_t)n * sizeof(int));
-    if (stats->variable_order == NULL) { return; }
+    if (stats->variable_order == NULL) {
+        /* SS2.1 fail loud (core-change review, bd h8d): a solve that was asked
+         * to run a custom order but silently runs the default corrupts every
+         * equal-T(n) A/B verdict built on it — the lever you priced is not the
+         * lever that ran. abort(), not assert(): -DNDEBUG strips asserts in
+         * the production .so. */
+        fprintf(stderr, "cbqs: FATAL: variable_order allocation failed (n=%d) — "
+                        "cannot run the requested ordering lever (CLAUDE.md SS2.1)\n", n);
+        abort();
+    }
+    int identity = 1;
     for (int i = 0; i < n; i++) {
         stats->variable_order[i] = order[i];
+        identity &= (order[i] == i);
     }
     stats->num_vars = n;
+
+    if (identity) { return; }  /* rank stays NULL: natural-equivalent traversal */
+
+    stats->variable_rank = malloc((size_t)n * sizeof(int));
+    if (stats->variable_rank == NULL) {
+        /* SS2.1 fail loud: a non-identity order WITHOUT a rank would silently
+         * reintroduce the h8d infeasible-acceptance bug (clause-closure keyed
+         * off the traversal). Never run that way — and never silently swap in
+         * a different lever either (see above). */
+        fprintf(stderr, "cbqs: FATAL: variable_rank allocation failed (n=%d) — "
+                        "a non-identity order must never run without its rank (bd h8d)\n", n);
+        abort();
+    }
+    for (int i = 0; i < n; i++) {
+        stats->variable_rank[stats->variable_order[i]] = i;
+    }
 }
 
 void solver_ctx_set_variable_order(solver_ctx_t *ctx, const double *priorities, int n) {
@@ -531,8 +666,17 @@ void solver_ctx_init_prng(solver_ctx_t *ctx) {
         ctx->num_threads_used = ctx->num_threads;
     }
 
-    /* Initialize thread-local PRNG for main thread (thread 0) */
-    prng_seed_thread(&ctx->master_prng, 0);
+    /* Initialize thread-local PRNG for this portfolio worker. Jumping the
+     * master stream worker_id times gives each worker a non-overlapping
+     * sequence; worker_id == 0 reproduces the legacy single-stream behavior. */
+    prng_seed_thread(&ctx->master_prng, ctx->worker_id);
+}
+
+void solver_ctx_set_worker_id(solver_ctx_t *ctx, int worker_id) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->worker_id = worker_id;
 }
 
 /* ============================================================

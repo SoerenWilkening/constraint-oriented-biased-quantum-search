@@ -38,6 +38,7 @@ else:
 lib_cbqs_core_build_info = {
     'sources': [
         'cbqs/src/solver.c',
+        'cbqs/src/incr_eval.c',
         'cbqs/src/SearchLib.c',
         'cbqs/src/Branching.c',
         'cbqs/src/intarray.c',
@@ -59,6 +60,18 @@ lib_cbqs_core_build_info = {
     # include directory in addition to the project source directory.
     'include_dirs': ['cbqs/src', sysconfig.get_path('include')],
     'macros': [],
+    # bd 0o8.1 (exact win D): the core inherits only sysconfig CFLAGS (-O3 -fwrapv
+    # ...), so the O(n^2)/candidate integer hot loop in evaluation() (solver.c) was
+    # never vectorized. setuptools build_clib forwards 'cflags' as extra_postargs.
+    # -march=native vectorizes that loop (integer reductions are exact under the
+    # inherited -fwrapv). -ffp-contract=off is LOAD-BEARING: -march=native enables
+    # FMA, which could contract BranchingFunction's runtime a*b+c*d (Branching.h)
+    # and flip an accept/reject vs the no-FMA baseline -- pinning it off keeps the
+    # build BIT-FOR-BIT (CLAUDE.md §8 determinism + golden value). evaluation() is
+    # integer (llabs(factors)) so it is unaffected by FP contraction. NOTE:
+    # -march=native bakes in the build host's ISA -- freeze shards (bd 0o8 batch)
+    # must run on compatible hardware.
+    'cflags': ['-O3', '-march=native', '-ffp-contract=off'],
 }
 if sys.platform == "win32":
     lib_cbqs_core_build_info['libraries'] = ['bcrypt']

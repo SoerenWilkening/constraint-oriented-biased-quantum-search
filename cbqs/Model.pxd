@@ -11,6 +11,8 @@ cdef extern from "src/model.h":
 		state_t *initial_state;
 		state_t *global_opt;
 		size_t M;
+		size_t opt_switch_oracles;
+		size_t opt_sample_cap;
 		int break_item;
 		int n;
 		double stopping_time;
@@ -22,7 +24,7 @@ cdef extern from "src/model.h":
 		int reset_delta;
 		int max_delta;
 		int solver
-		int qtg_applications
+		int64_t qtg_applications   # bd 9fi: int64 to mirror model.h (must match exactly)
 		int max_worse_acceptances;
 		int stopping_condition;
 		int distance;

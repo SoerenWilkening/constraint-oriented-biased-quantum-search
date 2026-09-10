@@ -24,6 +24,40 @@ set(CBQS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cbqs/src")
 option(ASAN "Enable AddressSanitizer" OFF)
 option(WERROR "Enable -Werror for strict warning compliance" OFF)
 
+# --- Sanitizer runtime smoke check (bd aft) ----------------------------------
+# Apple clang's compiler-rt SIGILLs at process startup on macOS 26+ (Darwin 25+):
+# every instrumented binary exits 132 before main, so the CLAUDE.md §7 local
+# sanitizer gate is SILENTLY non-functional (it reads as "all tests crash"). When
+# a sanitizer is requested, compile+run a trivial instrumented program at
+# configure time and fail LOUDLY with the remedy if the runtime can't start. On
+# Linux / a working toolchain (incl. CI) this passes silently.
+if(ASAN OR CMAKE_C_FLAGS MATCHES "-fsanitize")
+    include(CheckCSourceRuns)
+    if(ASAN)
+        set(CMAKE_REQUIRED_FLAGS "-fsanitize=address")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=address")
+    endif()
+    # Any -fsanitize=thread already lives in CMAKE_C_FLAGS, so the check inherits it.
+    check_c_source_runs("int main(void){return 0;}" CBQS_SANITIZER_RUNTIME_OK)
+    unset(CMAKE_REQUIRED_FLAGS)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(NOT CBQS_SANITIZER_RUNTIME_OK)
+        set(_san_hint "")
+        if(APPLE)
+            string(CONCAT _san_hint
+                "\n  macOS 26+ (Darwin 25+): Apple clang's sanitizer runtime is broken (bd aft)."
+                "\n  Use Homebrew LLVM clang (verified working) — reconfigure a fresh build dir with"
+                "\n      -DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang"
+                "\n  or just run  tests/run_sanitizers.sh  (it selects the right compiler).")
+        endif()
+        message(FATAL_ERROR
+            "Sanitizer runtime fails to start with "
+            "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} (${CMAKE_C_COMPILER}): "
+            "a trivial instrumented program exits before main, so the gate would "
+            "report a spurious crash for every test.${_san_hint}")
+    endif()
+endif()
+
 # Helper function to create a CMocka test
 # Usage: add_cmocka_test(NAME test_source.c [extra_cbqs_sources...])
 function(add_cmocka_test NAME)
@@ -58,6 +92,11 @@ function(add_cmocka_test NAME)
         endif()
     else()
         target_compile_options(${NAME} PRIVATE /W3)
+        # solver_ctx.c uses C11 <stdatomic.h> (atomic_bool stop flag). MSVC only
+        # enables it under /experimental:c11atomics, which in turn requires a C11/C17
+        # mode (supplied here via CMAKE_C_STANDARD=17 -> /std:c17). Without this the
+        # build dies with C1189 "C atomic support is not enabled" (bd 8an.1.10).
+        target_compile_options(${NAME} PRIVATE /experimental:c11atomics)
         # /WX (warnings-as-errors) deferred: MSVC surfaces C4267 size_t->int
         # warnings (incl. from cmocka) that need triage first (bd 8an.1.10).
     endif()
@@ -121,11 +160,26 @@ add_cmocka_test(test_branching
     ${CBQS_SRC_DIR}/intarray.c
 )
 
+# bd a0w (M5): angle-precision lever -- Ross-Selinger/gridsynth theta quantization
+# inside BranchingFunction. Same source list as test_branching (header-only lever
+# + the solver_ctx setters).
+add_cmocka_test(test_angle_precision
+    test_angle_precision.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+)
+
 # --- Plan 01-03 tests: solver, searchlib, integration ---
 
 add_cmocka_test(test_solver
     test_solver.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -137,42 +191,32 @@ add_cmocka_test(test_solver
     ${CBQS_SRC_DIR}/platform.c
 )
 
-if(NOT CMAKE_CROSSCOMPILING)
-    # SearchLib.c includes Python.h -- find Python for include path
-    find_package(Python3 COMPONENTS Development)
-    if(Python3_FOUND)
-        set(PYTHON_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
-    else()
-        execute_process(
-            COMMAND python3 -c "import sysconfig; print(sysconfig.get_path('include'))"
-            OUTPUT_VARIABLE PYTHON_INCLUDE_DIRS
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-    endif()
-
-    add_cmocka_test(test_searchlib
-        test_searchlib.c
-        ${CBQS_SRC_DIR}/SearchLib.c
-        ${CBQS_SRC_DIR}/solver.c
-        ${CBQS_SRC_DIR}/Branching.c
-        ${CBQS_SRC_DIR}/model.c
-        ${CBQS_SRC_DIR}/constraint.c
-        ${CBQS_SRC_DIR}/Expression.c
-        ${CBQS_SRC_DIR}/dyn_expr.c
-        ${CBQS_SRC_DIR}/quantum_search.c
-        ${CBQS_SRC_DIR}/state.c
-        ${CBQS_SRC_DIR}/intarray.c
-        ${CBQS_SRC_DIR}/prng.c
-        ${CBQS_SRC_DIR}/platform.c
-        ${CBQS_SRC_DIR}/solver_ctx.c
-        ${CBQS_SRC_DIR}/arena.c
-    )
-    target_include_directories(test_searchlib PRIVATE "${PYTHON_INCLUDE_DIRS}")
-endif()
+# test_searchlib needs no Python: SearchLib.c no longer includes <Python.h>
+# (bd 8an.1.10), so the former find_package(Python3)/include-dir machinery and
+# the CMAKE_CROSSCOMPILING guard it required are gone.
+add_cmocka_test(test_searchlib
+    test_searchlib.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
 
 add_cmocka_test(test_integration
     test_integration.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -193,6 +237,7 @@ add_cmocka_test(test_local_search
     ${CBQS_SRC_DIR}/local_search.c
     ${CBQS_SRC_DIR}/quantum_search.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
@@ -273,15 +318,111 @@ add_cmocka_test(test_variable_ordering
     ${CBQS_SRC_DIR}/intarray.c
 )
 
-# --- M5: CSearch ordering iteration tests ---
-add_cmocka_test(test_csearch_ordering
-    test_csearch_ordering.c
+# --- bd h8d: feasibility consistency under variable reordering (quadratic clauses) ---
+# Name keeps the "test_variable" prefix so CI's ctest -R filter matches it.
+add_cmocka_test(test_variable_order_feasibility
+    test_variable_order_feasibility.c
     ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/model.c
     ${CBQS_SRC_DIR}/constraint.c
     ${CBQS_SRC_DIR}/Expression.c
     ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- M5: CSearch ordering iteration tests ---
+add_cmocka_test(test_csearch_ordering
+    test_csearch_ordering.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- bd 0o8.2 (exact win A): incremental evaluation() cross-check ---
+add_cmocka_test(test_eval_incremental
+    test_eval_incremental.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- bd 0o8: classical Grover-round sample cap (opt_sample_cap) ---
+add_cmocka_test(test_opt_sample_cap
+    test_opt_sample_cap.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- bd 0o8.3: mid-round wall-clock deadline interrupt (ctx->deadline_ns) ---
+add_cmocka_test(test_deadline_interrupt
+    test_deadline_interrupt.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
+
+# --- bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY lever ---
+# Drives ctg (mirrors test_searchlib's source list) for the bit-for-bit negative
+# control + liveness, plus pure-evaluator unit tests.
+add_cmocka_test(test_opt_radius_schedule
+    test_opt_radius_schedule.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
     ${CBQS_SRC_DIR}/prng.c

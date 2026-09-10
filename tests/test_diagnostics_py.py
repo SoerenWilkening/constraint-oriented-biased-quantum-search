@@ -84,6 +84,22 @@ class TestSolveDiagnostics:
         assert result.preprocessing_time >= 0
         assert result.time > 0
 
+    def test_solve_time_is_race_free_aggregate(self):
+        """bd lif: ctg records wall-clock in the per-worker ctx->runtime; solve()
+        reduces it max-over-workers into mod->runtime, replacing the racy unlocked
+        shared write ctg used to do every iteration. The telemetry must still flow
+        end-to-end: a multi-worker solve yields a finite, non-negative solve_time,
+        and result.solve_time and the .runtime property read the same (now
+        race-free) post-fan-out value."""
+        import math
+        m = _build_knapsack_model()
+        _configure_solve(m, num_workers=4)
+        result = m.solve()
+        assert result.solve_time >= 0.0
+        assert math.isfinite(result.solve_time)
+        # Both read the single post-fan-out mod->runtime aggregate (race-free).
+        assert result.solve_time == pytest.approx(m.runtime * 1000.0)
+
     def test_result_has_oracle_calls(self):
         """result.oracle_calls >= 0."""
         m = _build_knapsack_model()
@@ -173,6 +189,23 @@ class TestLocalSearchDiagnostics:
         assert len(result.solution) == 5
         assert isinstance(result.objective, (int, float))
 
+    def test_local_search_history_oracle_stamp_is_zero(self):
+        """The classical k-flip local_search() path issues no oracle queries, so its
+        oracle-indexed history entries are stamped oracle == 0 (M0e). Pins the
+        deliberate intent so the local_search history meaning cannot silently drift
+        (ctx->oracle_count is incremented only on the quantum solve()/ctg path)."""
+        m = _build_knapsack_model(n_vars=8, capacity=6)
+        m.manual_initial(0, [0] * 8)  # start away from optimum so the search improves
+        m.set_param("stopping_time", 3)
+        m.set_param("track_history", True)
+        m.set_param("distance", 2)
+        result = m.local_search()
+        for value, oracle, _elapsed in result.history:
+            assert isinstance(value, (int, float))
+            assert isinstance(oracle, int) and not isinstance(oracle, bool)
+            assert oracle == 0, \
+                f"local_search makes no oracle queries; stamp must be 0, got {oracle}"
+
 
 class TestVerifyIntegration:
     """Tests for verify parameter integration with OptimizeResult."""
@@ -216,12 +249,13 @@ class TestHistoryAccumulation:
     """Tests for improvement history in OptimizeResult."""
 
     def test_history_entries_are_tuples(self):
-        """Each entry in result.history has 2 elements (value, elapsed_seconds)."""
+        """Each entry in result.history is (value, oracle:int, elapsed_s:float) (M0e + bd qls)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
         for entry in result.history:
-            assert len(entry) == 2, f"History entry should have 2 elements, got {len(entry)}"
+            assert len(entry) == 3, f"History entry should have 3 elements (value, oracle, elapsed_s), got {len(entry)}"
+            assert isinstance(entry[2], float) and entry[2] >= 0.0
 
     def test_history_objectives_monotonic(self):
         """For maximization, values in history should be non-decreasing (if any entries exist)."""
@@ -235,27 +269,64 @@ class TestHistoryAccumulation:
                     f"History should be non-decreasing for MAXIMIZE: {objectives}"
 
     def test_history_entries_have_correct_types(self):
-        """History entries contain (value, elapsed_seconds)."""
+        """History entries are (value, oracle:int, elapsed_s) -- oracle-indexed (M0e) + wall stamp (bd qls)."""
         m = _build_knapsack_model()
         _configure_solve(m)
         result = m.solve()
         for entry in result.history:
-            value, elapsed_seconds = entry
+            value, oracle, elapsed = entry
+            assert isinstance(elapsed, float) and elapsed >= 0.0
             assert isinstance(value, (int, float))
-            assert isinstance(elapsed_seconds, float)
+            # Oracle stamp is an integer oracle count (NORTHSTAR §11), not a float time.
+            assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                f"Oracle stamp should be int, got {type(oracle)}"
+            assert oracle >= 0
 
-    def test_multi_worker_history_merged(self):
-        """History from multiple workers is merged into single list."""
+    def test_multi_worker_history_merged_running_max(self):
+        """Multi-worker history is a flat best-of-portfolio curve: sorted by oracle,
+        running-max value (NORTHSTAR §11/§1.3 M0e)."""
         m = _build_knapsack_model()
         _configure_solve(m, num_workers=2)
         result = m.solve()
-        # History should be a flat list (not nested), sorted by elapsed_seconds
         assert isinstance(result.history, list)
+        # The history axis IS the §1.2 per-worker oracle metric (ctx->oracle_count):
+        # every stamp is a non-bool int in [0, result.oracle_calls] (the per-worker
+        # T(n) budget == max-over-workers oracle_count). A wall-clock float, or a
+        # stamp exceeding the budget, would fail here.
+        for value, oracle, _elapsed in result.history:
+            assert isinstance(oracle, int) and not isinstance(oracle, bool)
+            assert 0 <= oracle <= result.oracle_calls, \
+                f"oracle stamp {oracle} outside [0, oracle_calls={result.oracle_calls}]"
         if len(result.history) > 1:
-            times = [entry[1] for entry in result.history]
-            for i in range(1, len(times)):
-                assert times[i] >= times[i - 1], \
-                    f"Merged history should be sorted by elapsed_seconds: {times}"
+            oracles = [entry[1] for entry in result.history]
+            values = [entry[0] for entry in result.history]
+            for i in range(1, len(oracles)):
+                assert oracles[i] >= oracles[i - 1], \
+                    f"Merged history should be sorted by oracle: {oracles}"
+                # Running-max best-of-portfolio: value strictly improves at each kept point.
+                assert values[i] > values[i - 1], \
+                    f"Best-of-portfolio value should be monotone-increasing: {values}"
+
+    def test_final_incumbents_best_of_portfolio(self):
+        """result.final_incumbents holds one (value, feasible) per worker, and the best
+        feasible per-worker value equals the reported best-of-portfolio objective (M0e §8.3).
+
+        Pins the faithfulness identity max-over-workers == global_opt (the worker's final
+        cur_sol is its best because CSearch_opt only accepts strictly-improving moves)."""
+        m = _build_knapsack_model(sense=MAXIMIZE)
+        _configure_solve(m, num_workers=3)
+        result = m.solve()
+        assert isinstance(result.final_incumbents, list)
+        assert len(result.final_incumbents) == 3
+        for entry in result.final_incumbents:
+            assert len(entry) == 2
+            value, feasible = entry
+            assert isinstance(value, (int, float))
+            assert isinstance(feasible, bool)
+        feas_vals = [v for (v, f) in result.final_incumbents if f]
+        if result.feasible and feas_vals:
+            assert max(feas_vals) == result.objective, \
+                f"best-of-P {max(feas_vals)} must equal global_opt objective {result.objective}"
 
     def test_track_history_false_returns_empty(self):
         """track_history=False produces empty history."""
@@ -263,3 +334,113 @@ class TestHistoryAccumulation:
         _configure_solve(m, track_history=False)
         result = m.solve()
         assert result.history == []
+
+
+class TestDecisionTouch:
+    """M2a (bd 8an.3.1, NORTHSTAR §4/§12): per-phase decision-touch counters.
+
+    branch_diagnostics["decision_touch"] reports, per phase (sat/opt_sat/opt),
+    how many variable decisions the look-ahead classified as both-feasible
+    ("free" -- BranchingFunction consulted), both-infeasible ("bothinf" --
+    consulted ONLY in opt_sat; sat forces bit=0, opt truncates the candidate),
+    or single-side forced ("forced" -- bias never consulted). The exact
+    per-phase taxonomy is pinned RNG-free in test_searchlib.c; these tests pin
+    the Python surface: structure, partition invariant, M0g consistency, phase
+    attribution under OPTIMIZE, and fixed-seed determinism.
+    """
+
+    PHASES = ("sat", "opt_sat", "opt")
+    KEYS = ("decisions", "free", "bothinf", "forced")
+
+    def _solve_touch(self, seed=12345, num_workers=1):
+        m = _build_knapsack_model()
+        _configure_solve(m, num_workers=num_workers)
+        m.seed = seed
+        result = m.solve()
+        assert result.branch_diagnostics is not None
+        return result
+
+    def test_decision_touch_structure(self):
+        """decision_touch has all 3 phases x (4 counters + touch_fraction)."""
+        result = self._solve_touch()
+        dt = result.branch_diagnostics["decision_touch"]
+        assert set(dt.keys()) == set(self.PHASES)
+        for phase in self.PHASES:
+            for key in self.KEYS:
+                assert isinstance(dt[phase][key], int), (phase, key)
+                assert dt[phase][key] >= 0, (phase, key)
+            assert "touch_fraction" in dt[phase], phase
+
+    def test_decision_touch_partition_invariant(self):
+        """free + bothinf + forced == decisions, in every phase."""
+        result = self._solve_touch(num_workers=2)
+        dt = result.branch_diagnostics["decision_touch"]
+        for phase in self.PHASES:
+            d = dt[phase]
+            assert d["free"] + d["bothinf"] + d["forced"] == d["decisions"], phase
+
+    def test_decision_touch_opt_free_matches_m0g(self):
+        """opt's free counter IS the M0g opt_free_sum (no duplicate counter)."""
+        result = self._solve_touch()
+        bd = result.branch_diagnostics
+        assert bd["decision_touch"]["opt"]["free"] == bd["opt_free_sum"]
+
+    def test_decision_touch_sat_unused_under_optimize(self):
+        """OPTIMIZE never runs CSearch_sat: the sat row must be all-zero and
+        its touch_fraction None (not 0.0 -- unmeasured, not measured-zero)."""
+        result = self._solve_touch()
+        sat = result.branch_diagnostics["decision_touch"]["sat"]
+        assert sat["decisions"] == 0
+        assert sat["touch_fraction"] is None
+
+    def test_decision_touch_opt_populated(self):
+        """A feasible knapsack solve reaches the opt phase and classifies at
+        least one decision there; touch_fraction = consulted/decisions in
+        [0, 1]. In opt only both-feasible decisions are consulted."""
+        result = self._solve_touch()
+        opt = result.branch_diagnostics["decision_touch"]["opt"]
+        assert opt["decisions"] > 0
+        tf = opt["touch_fraction"]
+        assert tf is not None and 0.0 <= tf <= 1.0
+        assert tf == pytest.approx(opt["free"] / opt["decisions"])
+
+    def test_decision_touch_opt_sat_fraction_counts_bothinf(self):
+        """opt_sat's consulted set is free UNION bothinf (solver.c:540) -- its
+        touch_fraction must reflect that, not free alone."""
+        result = self._solve_touch()
+        os_ = result.branch_diagnostics["decision_touch"]["opt_sat"]
+        if os_["decisions"] > 0:
+            expect = (os_["free"] + os_["bothinf"]) / os_["decisions"]
+            assert os_["touch_fraction"] == pytest.approx(expect)
+        else:
+            assert os_["touch_fraction"] is None
+
+    def test_decision_touch_pools_per_worker(self):
+        """Pooled counters equal the sum over per_worker entries."""
+        result = self._solve_touch(num_workers=3)
+        bd = result.branch_diagnostics
+        per_worker = bd["per_worker"]
+        assert len(per_worker) == 3
+        for c_key, phase, key in (
+            ("sat_decisions", "sat", "decisions"),
+            ("sat_free", "sat", "free"),
+            ("sat_bothinf", "sat", "bothinf"),
+            ("sat_forced", "sat", "forced"),
+            ("optsat_decisions", "opt_sat", "decisions"),
+            ("optsat_free", "opt_sat", "free"),
+            ("optsat_bothinf", "opt_sat", "bothinf"),
+            ("optsat_forced", "opt_sat", "forced"),
+            ("opt_decisions", "opt", "decisions"),
+            ("opt_free_sum", "opt", "free"),
+            ("opt_bothinf", "opt", "bothinf"),
+            ("opt_forced", "opt", "forced"),
+        ):
+            assert bd["decision_touch"][phase][key] == \
+                sum(w[c_key] for w in per_worker), (phase, key)
+
+    def test_decision_touch_deterministic(self):
+        """Fixed seed + single worker => identical decision_touch (the counters
+        are a pure function of the trajectory; §8 determinism baseline)."""
+        dt1 = self._solve_touch(seed=777).branch_diagnostics["decision_touch"]
+        dt2 = self._solve_touch(seed=777).branch_diagnostics["decision_touch"]
+        assert dt1 == dt2

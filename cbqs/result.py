@@ -32,9 +32,41 @@ class OptimizeResult:
     oracle_calls : int
         Number of oracle (QTG) calls.
     history : list of tuple
-        Improvement history. Each entry is ``(value, elapsed_seconds)``
-        where value is the objective for OPTIMIZE mode or the constraint
-        satisfaction count for SATISFY mode.
+        Best-of-portfolio improvement history. Each entry is
+        ``(value, oracle, elapsed_s)`` where ``oracle`` is the cumulative
+        per-worker oracle count (``ctx->oracle_count``) at which the running
+        best-of-portfolio ``value`` was achieved (NORTHSTAR §11 M0e; was
+        ``elapsed_seconds`` pre-M0e) and ``elapsed_s`` (bd qls) is the
+        wall-clock seconds since ``solve()`` started, as seen by the worker
+        that produced the entry. The curve is ordered by ``oracle``; the
+        ``(value, oracle)`` projection is a pure function of the seed,
+        ``elapsed_s`` is not. ``value`` is the objective for OPTIMIZE
+        mode or the constraint satisfaction measure for SATISFY mode.
+        bd 4uf: entries derive from COMPLETE per-worker incumbent streams
+        (each worker logs every feasible incumbent it finds, independent of
+        the shared global incumbent) merged in Python into the best-of-P
+        running-max — making the curve, and the §6 PI computed from it, a
+        deterministic function of (seed, num_workers), independent of thread
+        scheduling.
+        The oracle counter is incremented only on the quantum ``solve()``/``ctg``
+        path; the classical ``local_search()`` solver issues no oracle queries,
+        so its history entries are stamped ``oracle == 0``.
+    final_incumbents : list of tuple or None
+        Per-worker final incumbents, one ``(value, feasible)`` per portfolio
+        worker, used for the §8.3 median-of-P / best-of-P outcome-diversity
+        gate. ``None`` (stored as ``[]``) when not produced (e.g. local_search).
+    worker_histories : list of list of tuple
+        bd o3f: the raw per-worker incumbent streams ``history`` is merged
+        from, one list per portfolio worker (index == ``worker_id``). Entries
+        share the ``history`` schema ``(value, oracle, elapsed_s)``: the
+        worker's own incumbent value, its own cumulative oracle count, and
+        wall-clock seconds since the shared ``solve()`` start. Each stream is monotone in its improving
+        direction, and the running-max merge of any subset of streams (on
+        ``(value, oracle)``) is the best-of-portfolio curve that subset alone
+        would have produced -- workers are independent (seeded by
+        ``(seed, worker_id)``, never steered by the shared incumbent), so
+        "P' < P workers" can be evaluated post hoc without re-running. ``[]``
+        when ``track_history`` is off or not produced (e.g. local_search).
     verified : bool or None
         Post-solve verification result. ``None`` if verification was not run.
     violations : list of str or None
@@ -44,6 +76,22 @@ class OptimizeResult:
         Number of threads used during the solve.
     seed : int
         Random seed used for reproducibility.
+    branch_diagnostics : dict or None
+        Opt-phase branching diagnostics pooled across the decorrelated workers
+        (M0g / bd 8an.1.7, NORTHSTAR §9). Keys: ``n`` (number of variables),
+        ``opt_candidates`` (total candidates ``CSearch_opt`` generated),
+        ``radius_mean`` / ``radius_var`` (realized Hamming-radius distribution),
+        ``free_fraction`` (``f(n)`` = both-feasible "free" decisions per variable
+        per candidate), the raw pooled sums ``opt_flip_sum`` / ``opt_flip_sumsq``
+        / ``opt_free_sum`` (so callers can re-pool across seeds/instances),
+        ``decision_touch`` (M2a / bd 8an.3.1: per-phase decision-touch counters
+        ``{sat,opt_sat,opt} -> {decisions, free, bothinf, forced,
+        touch_fraction}`` where ``free + bothinf + forced == decisions``;
+        ``touch_fraction`` = bias-consulted decisions / all decisions, with
+        both-infeasible consulted ONLY in ``opt_sat`` — ``None`` when the phase
+        never ran), and ``per_worker`` (the raw per-worker counter dicts).
+        ``None`` when not produced (e.g. the classical ``local_search`` path,
+        which never enters the quantum ``opt`` phase).
     """
 
     __slots__ = (
@@ -55,10 +103,13 @@ class OptimizeResult:
         "iterations",
         "oracle_calls",
         "history",
+        "final_incumbents",
+        "worker_histories",
         "verified",
         "violations",
         "num_threads",
         "seed",
+        "branch_diagnostics",
     )
 
     def __init__(
@@ -76,6 +127,9 @@ class OptimizeResult:
         violations,
         num_threads,
         seed,
+        final_incumbents=None,
+        branch_diagnostics=None,
+        worker_histories=None,
     ):
         self.solution = solution
         self.objective = objective
@@ -85,10 +139,13 @@ class OptimizeResult:
         self.iterations = int(iterations)
         self.oracle_calls = int(oracle_calls)
         self.history = history
+        self.final_incumbents = final_incumbents if final_incumbents is not None else []
+        self.worker_histories = worker_histories if worker_histories is not None else []
         self.verified = verified
         self.violations = violations
         self.num_threads = int(num_threads)
         self.seed = int(seed)
+        self.branch_diagnostics = branch_diagnostics
 
     # ------------------------------------------------------------------
     # Properties
@@ -159,13 +216,33 @@ class OptimizeResult:
         lines.append("-" * 50)
         if self.history:
             lines.append(f"  improvements: {len(self.history)}")
-            first = self.history[0]
-            lines.append(f"  first: value={first[0]}, t={first[1]:.3f}s")
+            # bd qls entries are (value, oracle, elapsed_s); tolerate legacy
+            # 2-element entries (records loaded from pre-qls JSON).
+            def _fmt(e):
+                s = f"value={e[0]}, oracle={e[1]}"
+                return s + (f", elapsed={e[2]:.3f}s" if len(e) > 2 else "")
+            lines.append(f"  first: {_fmt(self.history[0])}")
             if len(self.history) > 1:
-                last = self.history[-1]
-                lines.append(f"  last:  value={last[0]}, t={last[1]:.3f}s")
+                lines.append(f"  last:  {_fmt(self.history[-1])}")
         else:
             lines.append("  improvements: 0 (no improvement history)")
+
+        # -- Portfolio section --
+        if self.final_incumbents:
+            lines.append("")
+            lines.append("Portfolio (per-worker final incumbents)")
+            lines.append("-" * 50)
+            feas_vals = [v for (v, f) in self.final_incumbents if f]
+            lines.append(f"  workers: {len(self.final_incumbents)}")
+            if feas_vals:
+                ordered = sorted(feas_vals)
+                med = ordered[len(ordered) // 2]
+                lines.append(f"  feasible: {len(feas_vals)}  best={max(feas_vals)}  median={med}")
+            else:
+                lines.append("  feasible: 0")
+            if self.worker_histories:
+                sizes = [len(s) for s in self.worker_histories]
+                lines.append(f"  per-worker improvements: {sizes}")
 
         # -- Verification section --
         lines.append("")
@@ -229,6 +306,8 @@ class OptimizeResult:
             "iterations": self.iterations,
             "oracle_calls": self.oracle_calls,
             "history": [list(entry) for entry in self.history] if self.history else [],
+            "final_incumbents": [list(entry) for entry in self.final_incumbents] if self.final_incumbents else [],
+            "worker_histories": [[list(entry) for entry in stream] for stream in self.worker_histories] if self.worker_histories else [],
             "verified": self.verified,
             "violations": self.violations,
             "num_threads": self.num_threads,

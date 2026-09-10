@@ -120,6 +120,70 @@ static void test_overwrite_ordering(void **state) {
     assert_int_equal(ctx->branching_stats.variable_order[4], 1);
 }
 
+/* --- bd h8d: variable_rank (inverse permutation) construction --- */
+
+/* Non-identity order builds rank with rank[order[k]] == k for all three phases */
+static void test_rank_is_inverse_of_order(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+    double priorities[] = {3.0, 1.0, 2.0};   /* order [0,2,1] */
+    solver_ctx_set_variable_order(ctx, priorities, 3);
+
+    BranchingStats_t *phases[3] = {
+        &ctx->branching_stats_sat,
+        &ctx->branching_stats_opt_sat,
+        &ctx->branching_stats_opt,
+    };
+    for (int p = 0; p < 3; p++) {
+        assert_non_null(phases[p]->variable_order);
+        assert_non_null(phases[p]->variable_rank);
+        for (int k = 0; k < 3; k++) {
+            assert_int_equal(phases[p]->variable_rank[phases[p]->variable_order[k]], k);
+        }
+    }
+    /* order [0,2,1] -> rank[0]=0, rank[2]=1, rank[1]=2 */
+    assert_int_equal(ctx->branching_stats.variable_rank[0], 0);
+    assert_int_equal(ctx->branching_stats.variable_rank[1], 2);
+    assert_int_equal(ctx->branching_stats.variable_rank[2], 1);
+}
+
+/* Identity order keeps rank NULL: the natural-equivalent fast path that
+ * preserves the pre-h8d code path bit-for-bit for every default solve. */
+static void test_identity_order_has_null_rank(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+
+    solver_ctx_set_default_order(ctx, 5);
+    assert_non_null(ctx->branching_stats.variable_order);
+    assert_null(ctx->branching_stats.variable_rank);
+
+    /* identity reached through the priorities argsort too (equal priorities) */
+    double priorities[] = {1.0, 1.0, 1.0};
+    solver_ctx_set_variable_order(ctx, priorities, 3);
+    assert_non_null(ctx->branching_stats.variable_order);
+    assert_null(ctx->branching_stats.variable_rank);
+}
+
+/* Clearing the order clears the rank; overwriting non-identity -> identity
+ * must drop the stale rank (no dangling inverse of a freed order). */
+static void test_rank_lifecycle_clear_and_overwrite(void **state) {
+    solver_ctx_t *ctx = (solver_ctx_t *)*state;
+
+    double priorities[] = {1.0, 2.0, 3.0};   /* order [2,1,0], non-identity */
+    solver_ctx_set_variable_order(ctx, priorities, 3);
+    assert_non_null(ctx->branching_stats.variable_rank);
+
+    /* overwrite with identity: rank must go back to NULL */
+    solver_ctx_set_default_order(ctx, 3);
+    assert_non_null(ctx->branching_stats.variable_order);
+    assert_null(ctx->branching_stats.variable_rank);
+
+    /* set non-identity again, then clear entirely */
+    solver_ctx_set_variable_order(ctx, priorities, 3);
+    assert_non_null(ctx->branching_stats.variable_rank);
+    solver_ctx_set_variable_order(ctx, NULL, 0);
+    assert_null(ctx->branching_stats.variable_order);
+    assert_null(ctx->branching_stats.variable_rank);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_default_ordering_is_identity, setup, teardown),
@@ -129,6 +193,9 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_set_variable_order_from_degrees, setup, teardown),
         cmocka_unit_test(test_free_releases_ordering_arrays),
         cmocka_unit_test_setup_teardown(test_overwrite_ordering, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_rank_is_inverse_of_order, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_identity_order_has_null_rank, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_rank_lifecycle_clear_and_overwrite, setup, teardown),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

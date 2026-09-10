@@ -61,18 +61,19 @@ class TestConcurrentSolveIndependence:
         for result in results:
             assert isinstance(result, OptimizeResult)
             assert isinstance(result.history, list)
-            # Validate structure of any history entries
+            # Validate structure of any history entries (M0e: (value, oracle:int))
             for entry in result.history:
-                assert len(entry) == 2, f"History entry should be 2-tuple, got {len(entry)}"
-                value, elapsed = entry
+                assert len(entry) == 3, f"History entry should be (value, oracle, elapsed_s), got {len(entry)}"
+                value, oracle = entry
                 assert isinstance(value, (int, float)), f"Value should be numeric, got {type(value)}"
-                assert isinstance(elapsed, float), f"Elapsed should be float, got {type(elapsed)}"
-            # Verify elapsed times are non-decreasing within each history
+                assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                    f"Oracle stamp should be int, got {type(oracle)}"
+            # Verify oracle stamps are non-decreasing within each history
             if len(result.history) > 1:
-                times = [entry[1] for entry in result.history]
-                for i in range(1, len(times)):
-                    assert times[i] >= times[i - 1], \
-                        f"Elapsed times should be non-decreasing: {times}"
+                oracles = [entry[1] for entry in result.history]
+                for i in range(1, len(oracles)):
+                    assert oracles[i] >= oracles[i - 1], \
+                        f"Oracle stamps should be non-decreasing: {oracles}"
 
     def test_concurrent_solve_no_cross_contamination(self):
         """Four concurrent solves produce independently valid results (CB-02)."""
@@ -95,13 +96,13 @@ class TestConcurrentSolveIndependence:
             assert isinstance(result.history, list), f"Result {i} history should be list"
             assert result.solution is not None, f"Result {i} should have solution"
             assert result.feasible is not None, f"Result {i} should have feasible flag"
-            # Each history is valid independently
+            # Each history is valid independently (M0e: (value, oracle:int))
             for entry in result.history:
-                assert len(entry) == 2
-                value, elapsed = entry
+                assert len(entry) == 3
+                value, oracle = entry
                 assert isinstance(value, (int, float))
-                assert isinstance(elapsed, float)
-                assert elapsed >= 0, f"Elapsed time should be non-negative, got {elapsed}"
+                assert isinstance(oracle, int) and not isinstance(oracle, bool)
+                assert oracle >= 0, f"Oracle stamp should be non-negative, got {oracle}"
 
 
 class TestSatisfyModeHistory:
@@ -116,15 +117,15 @@ class TestSatisfyModeHistory:
         result = m.solve()
         assert isinstance(result, OptimizeResult)
         assert isinstance(result.history, list)
-        # Each entry should have (satisfaction_count, elapsed_seconds)
+        # Each entry is (satisfaction_value, oracle:int, elapsed_s) (M0e + bd qls)
         for entry in result.history:
-            assert len(entry) == 2
-            value, elapsed = entry
+            assert len(entry) == 3
+            value, oracle, _elapsed = entry
             assert isinstance(value, (int, float)), \
-                f"Expected numeric satisfaction count, got {type(value)}"
-            assert value >= 0, f"Satisfaction count should be >= 0, got {value}"
-            assert isinstance(elapsed, float), \
-                f"Elapsed should be float, got {type(elapsed)}"
+                f"Expected numeric satisfaction value, got {type(value)}"
+            assert value >= 0, f"Satisfaction value should be >= 0, got {value}"
+            assert isinstance(oracle, int) and not isinstance(oracle, bool), \
+                f"Oracle stamp should be int, got {type(oracle)}"
 
 
 class TestTrackHistoryFalse:
@@ -182,3 +183,54 @@ class TestConcurrentCallback:
         # Note: if no improvements are found, callbacks may not fire for history,
         # but the C-level callback is still called on each iteration.
         # We verify the mechanism works without crashing, not the exact count.
+
+
+class TestMultiWorkerDeterminism:
+    """bd 4uf (NORTHSTAR §11 M0e / §13): per-worker incumbent logging.
+
+    Each worker logs every feasible incumbent IT finds (stamped with its own
+    ctx->oracle_count) and Python merges the streams into the best-of-portfolio
+    running-max — so the merged history, and the §6 PI computed from it, is a
+    pure function of (master seed, num_workers), independent of thread
+    scheduling. Pre-4uf the callback was gated on beating the SHARED global_opt
+    (a wall-time race) inside update_lock: worker-local improvements that lost
+    the race were dropped even when not dominated on the per-worker oracle
+    axis, so identical fixed-seed multi-worker solves produced different merged
+    curves (measured: 17/20 real Eq.29 n=10/20 instances drifted >1e-3, mixed
+    direction). This test is the Python kill-shot: it cannot reliably pass
+    under the shared gate. §8: determinism baseline STRENGTHENED, not loosened
+    — single-worker asserts in test_determinism.py are untouched.
+    """
+
+    @staticmethod
+    def _build_cold_model():
+        # No general_greedy(): a cold start guarantees the workers themselves
+        # find improving incumbents, so the merged history is non-empty and the
+        # determinism assertion bites on real per-worker streams.
+        m = Model()
+        xs = m.add_variables(8)
+        x = [xs[i] for i in range(8)]
+        weights = [2, 3, 4, 5, 1, 6, 3, 2]
+        values = [3, 4, 5, 7, 2, 8, 4, 3]
+        m.add_constraint(sum(weights[i] * x[i] for i in range(8)) <= 15)
+        m.set_objective(sum(values[i] * x[i] for i in range(8)), sense=MAXIMIZE)
+        m.close()
+        return m
+
+    def test_multi_worker_history_deterministic_fixed_seed(self):
+        outcomes = []
+        for _ in range(3):
+            m = self._build_cold_model()
+            m.seed = 12345
+            m.set_param('num_workers', 4)
+            m.set_param('track_history', True)
+            result = m.solve()
+            # bd qls: elapsed_s is wall-clock by design; the (value, oracle)
+            # projection is what must be a pure function of the seed.
+            outcomes.append((result.objective, [(v, o) for (v, o, _t) in result.history]))
+        assert outcomes[0] == outcomes[1] == outcomes[2], (
+            "multi-worker fixed-seed solves must produce identical merged "
+            "best-of-portfolio (value, oracle) histories (bd 4uf; scheduling-dependent "
+            "history breaks §6 PI reproducibility)")
+        # the merged curve is non-trivial (at least one incumbent was logged)
+        assert outcomes[0][1], "expected a non-empty merged history"

@@ -231,6 +231,47 @@ def _make_knapsack_model(n=20):
     return m
 
 
+class TestGeneralGreedyReturn:
+    """general_greedy() returns (value, feasible) for the warm oracle-0 seed (bd 8an.9).
+
+    The greedy value is only live BEFORE solve() overwrites global_opt, so the warm harness
+    captures it from this return to seed the faithful oracle-0 incumbent
+    (benchmarks.baselines.warm_repair_history)."""
+
+    def test_returns_value_feasible_tuple_when_greedy_feasible(self):
+        m = _make_knapsack_model(20)        # generous capacity -> greedy is feasible
+        ret = m.general_greedy()
+        assert isinstance(ret, tuple) and len(ret) == 2
+        value, feasible = ret
+        assert feasible is True
+        # value is in objective_value space (tot_profit * sense), not raw tot_profit
+        assert value == m.objective_value
+        assert value is not None
+
+    def test_value_is_none_when_greedy_infeasible(self):
+        # A constraint no greedy assignment can satisfy: require >= n ones but capacity < n.
+        m = Model()
+        n = 12
+        x = m.add_variables(n)
+        m.set_objective(sum(x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum(x[i] for i in range(n)) >= n)        # need all ones
+        m.add_constraint(sum(x[i] for i in range(n)) <= n - 4)    # but at most n-4 -> infeasible
+        m.close()
+        value, feasible = m.general_greedy()
+        if not feasible:
+            assert value is None      # infeasible greedy must NOT report a (violation-sum) value
+        else:                          # if greedy happens to find feasibility, value is honest
+            assert value == m.objective_value
+
+    def test_return_is_idempotent_and_matches_objective_value(self):
+        m = _make_knapsack_model(16)
+        v1, f1 = m.general_greedy()
+        v2, f2 = m.general_greedy()         # deterministic construction -> identical
+        assert (v1, f1) == (v2, f2)
+        if f1:
+            assert v1 == m.objective_value
+
+
 class TestBranchingWeightsDeterminism:
     """Verify deterministic behavior survives across separate model lifecycles.
 
@@ -305,6 +346,189 @@ class TestBranchingWeightsDeterminism:
         np.testing.assert_array_equal(
             result1.solution, result2.solution,
             err_msg="Cross-lifecycle determinism: same seed+factors should give same solution"
+        )
+
+
+class TestPerWorkerPRNGDecorrelation:
+    """M0c (bd 8an.1.3): per-worker PRNG stream decorrelation.
+
+    Before the fix, every worker seeded prng_seed_thread(master, 0), so under a
+    fixed seed all workers ran the identical trajectory -- portfolio collapse
+    (CLAUDE.md §5). Each worker now jumps the xoshiro stream by its worker_id,
+    so distinct workers diverge while worker_id=0 reproduces the legacy stream
+    (single-worker determinism, §8, is preserved).
+
+    These tests drive run_sampling directly with explicit worker_id values. The
+    incumbent-history callback only fires when a worker improves the *shared*
+    model global_opt (SearchLib.c:193-197), so each trajectory is measured after
+    reset() + manual_initial(), which rebuilds global_opt at the worst value
+    while keeping the C-level budget (mod.M, set by the prior solve()) intact.
+    Thus the only thing that varies between measurements is worker_id.
+    """
+
+    def _prepared_model(self, n=50, seed=12345, M=200, stopping_time=5):
+        m = _make_knapsack_model(n)
+        m.seed = seed
+        m.set_param("M", M)
+        m.set_param("stopping_time", stopping_time)
+        m.set_param("num_workers", 1)
+        # solve() once to populate the C model_t budget/phase fields
+        # (mod.M, max_delta, stopping_time, ...) that run_sampling reads.
+        m.solve()
+        return m
+
+    def _trajectory(self, m, worker_id):
+        from cbqs.SearchLib import run_sampling
+        # Fresh, un-shadowed global_opt for this measurement; mod.M is preserved.
+        m.reset()
+        m.manual_initial(0, [0] * m.n)
+        r = run_sampling(m, None, [1], True, 0.0, worker_id)
+        # r = (cur_sol, qtg, feasible, arr, t_total, incumb, history, prep, branch_diag, worker_runtime_s)
+        history = r[6]  # (value, oracle, elapsed_s) entries (bd qls)
+        return tuple(entry[0] for entry in history)
+
+    def test_worker0_trajectory_is_reproducible(self):
+        """worker_id=0 reproduces an identical trajectory (legacy stream stable)."""
+        m = self._prepared_model()
+        h0a = self._trajectory(m, 0)
+        h0b = self._trajectory(m, 0)
+        assert len(h0a) > 1, "expected a non-trivial multi-step trajectory to compare"
+        assert h0a == h0b, (
+            "worker_id=0 must reproduce the same trajectory across runs "
+            "(single-worker determinism preserved)"
+        )
+
+    def test_two_workers_have_distinct_trajectories(self):
+        """Fixed seed, workers 0 and 1 explore divergent trajectories."""
+        m = self._prepared_model()
+        h0 = self._trajectory(m, 0)
+        h1 = self._trajectory(m, 1)
+        assert len(h0) > 1, "expected a non-trivial trajectory"
+        assert h0 != h1, (
+            "worker_id=0 and worker_id=1 must diverge under a fixed seed "
+            "(was: every worker seeded prng_seed_thread(master, 0))"
+        )
+
+    def test_fixed_seed_workers_not_collapsed(self):
+        """A fixed-seed portfolio must not collapse onto one trajectory."""
+        m = self._prepared_model()
+        trajectories = {self._trajectory(m, w) for w in range(4)}
+        assert len(trajectories) > 1, (
+            "fixed-seed workers all share one trajectory -- portfolio collapse"
+        )
+
+
+class TestQuantumLocalSearchPRNGSeeding:
+    """M0c follow-up (bd 3c4): run_quantum_local_search must seed the thread-local
+    PRNG (g_prng_state) per-worker before the nogil quantum_local_search, which
+    draws from it via prng_next_double/int.
+
+    Before the fix this path NEVER seeded g_prng_state -- the only seeding was a
+    vestigial srand() on the C library rand(), which quantum_local_search does not
+    use. So the search ran on whatever leftover stream the worker thread held, and
+    on a fresh thread that is the all-zero xoshiro state -- a fixed point -- so
+    every fixed-seed portfolio worker collapsed onto one identical trajectory
+    (CLAUDE.md §5). The fix mirrors 8an.1.3 for the ctg path: create a solver_ctx,
+    set (seed, worker_id), and init_prng so each worker jumps the stream by its
+    worker_id (worker_id=0 reproduces the legacy stream).
+
+    These tests drive run_quantum_local_search directly with explicit (seed,
+    worker_id). quantum_local_search mutates the passed state in place
+    (cur_sol == initial.state), so the final bit vector tuple(initial) is the
+    observable. A fully symmetric knapsack (unit weights/values, capacity n//2)
+    has many equal-value optima, so distinct PRNG streams settle on distinct bit
+    patterns -- the decorrelation signal -- even when the optimal value coincides.
+
+    RED note (honest TDD provenance): these tests pass (seed, worker_id) to
+    run_quantum_local_search, args the PRE-fix 5-arg signature did not accept, so
+    against literally-unpatched code they raise TypeError -- an arity error, not the
+    logical assertion. The genuine logical RED was verified by KEEPING the new
+    signature but neutralising the seeding (drop solver_ctx_init_prng): then
+    g_prng_state stays the all-zero fixed point, test_seed_drives_the_search and
+    test_fixed_seed_workers_not_collapsed FAIL with a single collapsed result while
+    test_worker0_reproducible trivially passes (degenerate stream is reproducible).
+    So the latter two carry the RED-GREEN load for the decorrelation invariant.
+    """
+
+    def _symmetric_model(self, n=40):
+        m = Model()
+        x = m.add_variables(n)
+        # Unit weights AND unit values: every size-(n//2) subset is optimal, so the
+        # realized solution is purely a function of the PRNG stream.
+        m.set_objective(sum(x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum(x[i] for i in range(n)) <= n // 2)
+        m.close()
+        return m
+
+    def _final_bits(self, m, seed, worker_id):
+        from cbqs.SearchLib import run_quantum_local_search
+        from cbqs.state import state_py
+        # Fresh all-zeros start each call (the search mutates it in place); only the
+        # seeded PRNG stream varies between measurements.
+        initial = state_py(0, [0] * m.n)
+        run_quantum_local_search(initial, m.constraint, m.objective, 2, None, seed, worker_id)
+        return tuple(initial)
+
+    def test_worker0_reproducible(self):
+        """Same (seed, worker_id=0) reproduces an identical quantum search."""
+        m = self._symmetric_model()
+        b1 = self._final_bits(m, 777, 0)
+        b2 = self._final_bits(m, 777, 0)
+        assert b1 == b2, (
+            "fixed (seed, worker_id=0) must reproduce the quantum-local-search "
+            "result (was: g_prng_state left at the thread's leftover stream)"
+        )
+
+    def test_seed_drives_the_search(self):
+        """The seed actually feeds the stream: distinct seeds diverge."""
+        m = self._symmetric_model()
+        results = {self._final_bits(m, s, 0) for s in (1, 2, 3, 4, 5)}
+        assert len(results) > 1, (
+            "the quantum-local-search result must depend on the seed "
+            "(g_prng_state was never seeded from it)"
+        )
+
+    def test_fixed_seed_workers_not_collapsed(self):
+        """Fixed seed, distinct worker_ids must not collapse onto one trajectory."""
+        m = self._symmetric_model()
+        results = {self._final_bits(m, 777, w) for w in range(8)}
+        assert len(results) > 1, (
+            "fixed-seed workers all produced the identical quantum search -- "
+            "portfolio collapse (g_prng_state not decorrelated by worker_id)"
+        )
+
+    def test_public_method_runs_across_workers(self):
+        """The PUBLIC Model.quantum_local_search() fan-out runs end-to-end across
+        multiple workers and actually searches (bd 3c4).
+
+        This guards the rewritten public path, which no other test exercises: before
+        the fix it passed self.initial_state (None in the normal flow) -> TypeError
+        and the method never ran; the underlying path also segfaulted (Python
+        self.constraint left unprocessed -> NULL incremental-eval index arrays) and
+        heap-corrupted (uninitialised state .branch freed by free_state). A
+        regression in any of those kills the process here. Per-worker OUTCOME
+        diversity is asserted by the direct-call tests above (which can observe each
+        worker's mutated-in-place result); the public method discards per-worker
+        states, so through it we assert crash-free completion + that the search fired
+        at least one improving incumbent (i.e. it genuinely ran, not a silent no-op).
+        """
+        m = Model()
+        n = 12
+        x = m.add_variables(n)
+        m.set_objective(sum((i % 7 + 1) * x[i] for i in range(n)), sense=MAXIMIZE)
+        m.add_constraint(sum((i % 5 + 1) * x[i] for i in range(n)) <= n)
+        m.close()
+        m.seed = 4242
+        m.set_param("num_workers", 4)
+        m.set_param("distance", 2)
+        improvements = []
+        m.set_param("callback", lambda: improvements.append(1))
+        # Must not raise (was TypeError on None initial_state) nor segfault/abort
+        # (NULL constraint indices / uninitialised-branch free).
+        m.quantum_local_search()
+        assert len(improvements) >= 1, (
+            "public quantum_local_search() ran but never improved an incumbent "
+            "across 4 workers -- the search did not actually execute"
         )
 
 

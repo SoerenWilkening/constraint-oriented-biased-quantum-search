@@ -4,6 +4,9 @@
 
 #ifndef IMPROVED_QUANTUM_SEARCH_MODEL_H
 #define IMPROVED_QUANTUM_SEARCH_MODEL_H
+#include <stdint.h>   /* int64_t qtg_applications (bd 9fi): depend on it directly,
+                       * not transitively via constraint.h, so an include reorder
+                       * can't silently break the field's declaration. */
 #include "state.h"
 #include "constraint.h"
 
@@ -14,6 +17,15 @@ typedef struct {
 	state_t *initial_state;
 	state_t *global_opt;
 	size_t M;
+    size_t opt_switch_oracles;  /* M0f: cumulative-oracle threshold (per worker) for the
+                                 * opt_sat->opt exploit->explore switch in ctg, replacing the
+                                 * hardcoded counter>10. SIZE_MAX disables the auto-switch.
+                                 * NORTHSTAR §4: learned, in oracle units, bounded [0, alpha*T(n)]. */
+    size_t opt_sample_cap;      /* bd 0o8: cap on the classical Grover-round sample count
+                                 * (4j²+1) in CSearch_{sat,opt_sat,opt}; 0 == unbounded. Copied
+                                 * to ctx->opt_sample_cap at ctg entry. Bounds the O(n·j²) sim
+                                 * wall-time of large-j rounds WITHOUT touching the 2j+1 oracle
+                                 * charge (CLAUDE.md §1.2). See solver_ctx.h / opt_sample_count. */
     int break_item;
 	int n;
 	double stopping_time;
@@ -25,7 +37,11 @@ typedef struct {
 	int reset_delta;
 	int max_delta;
     int solver;
-    int qtg_applications;
+    int64_t qtg_applications;   /* bd 9fi: post-parallel aggregation slot = max over
+                                 * workers of the per-worker size_t oracle_count. int64
+                                 * (not int) so a raw-API huge mod->M cannot truncate the
+                                 * aggregate or overflow the Cython assignment. Must stay in
+                                 * lockstep with Model.pxd's mirror (CLAUDE.md §1.2). */
     int max_worse_acceptances;
     int stopping_condition;
     int distance;

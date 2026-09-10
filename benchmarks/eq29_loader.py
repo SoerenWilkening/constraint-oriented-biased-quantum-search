@@ -71,31 +71,122 @@ def eq29_rhs(c2, c3):
     return int(np.asarray(c3)[il].sum()), int(np.asarray(c2)[il].sum())
 
 
-def build_model(c1, c2, c3):
+#: At/above this variable count, ``build_model`` defaults to the vectorized
+#: bilinear (matmul) build instead of the O(n^2) Python triple-loop. Pinned as a
+#: named constant so the auto-select decision is independently testable.
+VECTORIZED_THRESHOLD = 1000
+
+
+def _use_vectorized(n):
+    """Auto-select the vectorized bilinear build path for large models.
+
+    The O(n^2) Python triple-loop is fine for small/mid n but slow and
+    memory-heavy at scale; at ``n >= VECTORIZED_THRESHOLD`` we build via the
+    ``bilinear_reduce``/matmul fast path instead.
+    """
+    return n >= VECTORIZED_THRESHOLD
+
+
+#: Largest |coefficient| that survives the constraint LHS ``*2`` without
+#: overflowing int64 (2**62 - 1). The Python loop path raises OverflowError on
+#: out-of-range coefficients via Expression._validate_numeric; the vectorized
+#: path must fail just as loud rather than silently wrap (§2.1).
+_INT64_HALF_MAX = (2 ** 63 - 1) // 2
+
+
+def _times2_int64(a, name):
+    """Return ``a * 2`` as a C-contiguous int64 array, raising on overflow.
+
+    ``a`` is already int64; numpy would silently wrap ``a * 2`` past the int64
+    range. We refuse to do that for a load-bearing constraint coefficient — the
+    loop build path raises here too — so detect it before multiplying.
+    """
+    if np.any(a > _INT64_HALF_MAX) or np.any(a < -_INT64_HALF_MAX - 1):
+        raise OverflowError(f"{name} coefficient*2 exceeds int64 range")
+    return np.ascontiguousarray(a * 2)
+
+
+def _eq29_lhs(x, c1, c2, c3, vectorized):
+    """Build the three Eq.29 left-hand-side ``Expression`` objects over vector *x*.
+
+    Returns ``(objective, le_lhs, ge_lhs)``::
+
+        objective : sum_{i>=j}   c1[i,j] * x_i * x_j     (MAXIMIZE)
+        le_lhs    : sum_{i>=j} 2*c3[i,j] * x_i * x_j     (<= eq29_rhs[0])
+        ge_lhs    : sum_{i>=j} 2*c2[i,j] * x_i * x_j     (>= eq29_rhs[1])
+
+    Inputs MUST be lower-triangular (strict upper zeroed), as produced by
+    ``read_instance`` — both paths rely on that to realize the ``i>=j`` sum
+    (the matmul path sums over every nonzero entry; the loop path filters
+    ``i>=j``; with a lower-triangular matrix these coincide).
+
+    With *vectorized* True, ``x @ (C @ x)`` (``bilinear_reduce``) emits each
+    ``(i,j)`` term exactly once with no zero terms, so the caller may pass
+    ``validate=False`` and skip the O(n^2) ``merge()``. The loop path is the
+    reference build used at small n and for the equivalence test.
+
+    Raises ``ValueError`` if any matrix is not square lower-triangular — the two
+    paths only build the same quadratic form under that precondition (the matmul
+    sums over every nonzero entry; the loop filters ``i>=j``), so we fail fast
+    rather than silently emit a different QCQP (§2.1).
+    """
+    # Fail-fast on the lower-triangular precondition both build paths rely on.
+    c1a = np.asarray(c1, dtype=np.int64)
+    c2a = np.asarray(c2, dtype=np.int64)
+    c3a = np.asarray(c3, dtype=np.int64)
+    for name, a in (("c1", c1a), ("c2", c2a), ("c3", c3a)):
+        if a.ndim != 2 or a.shape[0] != a.shape[1]:
+            raise ValueError(f"{name} must be a square matrix, got shape {a.shape}")
+        if np.any(np.triu(a, 1)):
+            raise ValueError(
+                f"{name} has nonzero strict-upper-triangle entries; build_model "
+                f"requires lower-triangular input (use read_instance)."
+            )
+
+    if vectorized:
+        c1m = np.ascontiguousarray(c1a)
+        c3m = _times2_int64(c3a, "c3")
+        c2m = _times2_int64(c2a, "c2")
+        objective = x @ (c1m @ x)
+        le_lhs = x @ (c3m @ x)
+        ge_lhs = x @ (c2m @ x)
+    else:
+        objective = sum(int(c1[i][j]) * x[i] * x[j] for i in x for j in x if i >= j)
+        le_lhs = sum(2 * int(c3[i][j]) * x[i] * x[j] for i in x for j in x if i >= j)
+        ge_lhs = sum(2 * int(c2[i][j]) * x[i] * x[j] for i in x for j in x if i >= j)
+    return objective, le_lhs, ge_lhs
+
+
+def build_model(c1, c2, c3, vectorized=None):
     """Build the closed Eq.29 cbqs ``Model`` (objective + two quadratic constraints).
 
     Mirrors ``Paper_general_constraints/run_quantum.py``. The objective is MAXIMIZE.
+    Inputs are the lower-triangular matrices returned by ``read_instance``.
 
-    NOTE (perf): this is the O(n^2) Python build (~n^2/2 product terms); fine for
-    small/mid n, but for n >= 1000 it is slow/memory-heavy — switch to the vectorized
-    bilinear build path (M0a follow-up, NORTHSTAR §11) at scale.
+    Parameters
+    ----------
+    vectorized : bool or None, optional
+        Build-path selector. ``None`` (default) auto-selects via
+        ``_use_vectorized(n)`` — the ``bilinear_reduce``/matmul fast path at
+        ``n >= VECTORIZED_THRESHOLD``, the O(n^2) Python triple-loop below it.
+        Pass ``True``/``False`` to force the choice (used by the equivalence
+        test). The fast path passes ``validate=False`` to skip the O(n^2)
+        ``merge()`` of already-clean ``bilinear_reduce`` output; the loop path
+        keeps ``validate=True`` (its terms may include zero/duplicate forms).
     """
     from cbqs import Model, MAXIMIZE
 
     n = len(c1)
+    if vectorized is None:
+        vectorized = _use_vectorized(n)
+
     m = Model()
     x = m.add_variables(n)
-    m.set_objective(
-        sum(int(c1[i][j]) * x[i] * x[j] for i in x for j in x if i >= j),
-        sense=MAXIMIZE,
-    )
-    m.add_constraint(
-        sum(2 * int(c3[i][j]) * x[i] * x[j] for i in x for j in x if i >= j)
-        <= sum(int(c3[i][j]) for i in x for j in x if i >= j)
-    )
-    m.add_constraint(
-        sum(2 * int(c2[i][j]) * x[i] * x[j] for i in x for j in x if i >= j)
-        >= sum(int(c2[i][j]) for i in x for j in x if i >= j)
-    )
+    le_rhs, ge_rhs = eq29_rhs(c2, c3)
+    objective, le_lhs, ge_lhs = _eq29_lhs(x, c1, c2, c3, vectorized)
+
+    m.set_objective(objective, sense=MAXIMIZE, validate=not vectorized)
+    m.add_constraint(le_lhs <= le_rhs, validate=not vectorized)
+    m.add_constraint(ge_lhs >= ge_rhs, validate=not vectorized)
     m.close()
     return m

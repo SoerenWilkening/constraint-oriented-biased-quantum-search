@@ -1,17 +1,45 @@
 #include "solver.h"
 #undef branching_stats  /* Use active_stats pointer for phase-aware branching */
 #include "prng.h"
+#include "incr_eval.h"  /* bd 0o8.2 (exact win A): incremental depth-0 marginals */
+#include "platform.h"   /* bd 0o8.3: cbqs_monotonic_ns for the mid-round deadline */
 
 // implementations of classical sampling search and benchmarking =======================================================
+/*
+ * evaluation -- charge the clauses decided by assigning `item`, against the
+ * remaining constraint potentials.
+ *
+ * bd h8d: clause-closure is keyed on the TRAVERSAL ORDER, not the natural
+ * variable index. `rank` is the inverse permutation of the traversal order
+ * (rank[var] = position at which `var` is assigned); rank == NULL means the
+ * traversal is natural (identity), where position order == index order and
+ * the original `var < item` / `var > item` tests are exact. A clause member
+ * is "already assigned" iff it comes BEFORE `item` in traversal order:
+ *   - POSITIVE arm (item := 1): a clause counts against the potential only
+ *     when `item` is its LAST member in traversal order (is_closed) and all
+ *     earlier members are 1.
+ *   - NEGATIVE arm (item := 0): a pre-charged negative clause is refunded at
+ *     the FIRST zero in traversal order, i.e. when every earlier member is 1
+ *     (`assigned`); is_closed is irrelevant.
+ * The rank path must scan the WHOLE clause: clause members are stored in
+ * construction order (ascending for every model built through the Python
+ * path, but NOT rank-sorted), so a traversal-earlier member may appear after
+ * a traversal-later one and an early `break` would mis-compute `assigned`
+ * for the NEGATIVE arm. The natural path keeps the original early-break
+ * unchanged (bit-for-bit with the pre-h8d code).
+ */
 static inline int evaluation(new_constraints_t *con, int64_t *potentials, int item,
                              const unsigned int *indices,
                              const unsigned int *rows,
                              const unsigned int *cols,
                              const unsigned int nnz,
                              const unsigned int *num_indices,
-                             const unsigned int *offsets, state_t *cur_sol, int negative, int64_t *ret_total) {
+                             const unsigned int *offsets, state_t *cur_sol, int negative,
+                             int64_t *ret_total, const int *rank) {
 	size_t C = con->num_constraints;
 	int feasible = 1;
+	const int rank_item = (rank != NULL) ? rank[item] : 0;
+	const size_t nbits = (size_t)cur_sol->vector.bits;
 	// check, if assignment does not exceed potentials
 	for (size_t cnstr = 0; cnstr < C; cnstr++) {
 		int64_t total = 0;
@@ -23,15 +51,29 @@ static inline int evaluation(new_constraints_t *con, int64_t *potentials, int it
             for (uint32_t cls = 0; cls < num_indices[ind]; cls++) {
                 uint32_t index = indices[offsets[ind] + cls]; // index of the clause of constraint cnstr
                 size_t clause_index = clause_offset + index;
-                
+
                 int assigned = 1; // store, if all the previous items in the clause are assignmed to 1
                 int is_closed = 1;
                 for (uint32_t i = 0; i < con->clause_length[clause_index]; i++) {
                     size_t var = con->variables[variable_index(index, i, clause_offset)];
-                    if (var < (size_t)item) assigned &= sw_tstbit(cur_sol->vector, var);
-                    if (var > (size_t)item) {
-                        is_closed = 0;
-                        break;
+                    if (rank == NULL) {
+                        /* natural traversal: original closure test, bit-for-bit */
+                        if (var < (size_t)item) assigned &= sw_tstbit(cur_sol->vector, var);
+                        if (var > (size_t)item) {
+                            is_closed = 0;
+                            break;
+                        }
+                    } else {
+                        /* reordered traversal: closure keyed on rank (bd h8d) */
+                        if (var == (size_t)item) continue;
+                        if (var < nbits && rank[var] < rank_item) {
+                            assigned &= sw_tstbit(cur_sol->vector, var);
+                        } else {
+                            is_closed = 0;
+                            /* POSITIVE charge is dead once unclosed; NEGATIVE
+                             * still needs `assigned` over ALL earlier members */
+                            if (negative == POSITIVE) break;
+                        }
                     }
                 }
                 if ((negative == POSITIVE && is_closed) || negative == NEGATIVE)
@@ -63,30 +105,41 @@ int update_potentials(new_constraints_t *con, int64_t *potentials, int direction
  * look_ahead_correct -- Recursively check if a partial variable assignment can lead
  *                       to a feasible solution by exploring future assignments.
  *
- * Algorithm: Starting at variable `index`, tentatively assigns `next_assignment` (0 or 1)
- * and evaluates whether constraint potentials remain non-negative (feasibility check).
- * If feasible and `index < depth`, recurses on the next variable trying both 0 and 1.
- * Each time the recursion reaches `depth` with a feasible assignment, `count_solutions`
- * is incremented.
+ * Algorithm: Starting at traversal POSITION `pos`, tentatively assigns
+ * `next_assignment` (0 or 1) to the variable visited at that position and
+ * evaluates whether constraint potentials remain non-negative (feasibility
+ * check). If feasible and `pos < depth_pos`, recurses on the NEXT POSITION in
+ * traversal order trying both 0 and 1. Each time the recursion reaches
+ * `depth_pos` with a feasible assignment, `count_solutions` is incremented.
+ *
+ * bd h8d: positions, not natural indices. With a non-identity `order` the old
+ * natural-successor recursion (index+1) walked variables that were already
+ * assigned (corrupting their bits via the exit reset) and skipped the actual
+ * upcoming ones. With order == NULL position == index and the behavior is
+ * identical to the original.
  *
  * Parameters:
- *   index           -- current variable being assigned
+ *   pos             -- traversal position being assigned (variable = order[pos])
  *   next_assignment -- 0 or 1 to try for this variable
- *   depth           -- how far ahead to look (0 = check only this variable)
+ *   depth_pos       -- position to look ahead to (== pos: check only this one)
  *   count_solutions -- [out] incremented for each feasible completion found
  *   con             -- constraint data with preprocessed indices
  *   potentials      -- remaining capacity for each constraint (modified and restored)
  *   cur_sol         -- current partial solution (bits set/cleared during recursion)
  *   ret_total       -- scratch array for constraint evaluation results
+ *   order           -- traversal order (order[k] = variable; NULL = identity)
+ *   rank            -- inverse of `order` (NULL = natural-equivalent traversal);
+ *                      forwarded to evaluation() for closure consistency
  *
  * Purpose: Prunes the branching tree early by detecting that no feasible completion
  * exists beyond a certain depth, avoiding wasted exploration of infeasible subtrees.
  * The count of feasible completions is used by the sampling algorithm to bias the
  * branching probability toward assignments that have more feasible continuations.
  */
-int look_ahead_correct(int index, int next_assignment, int depth, int *count_solutions, new_constraints_t *con,
+int look_ahead_correct(int pos, int next_assignment, int depth_pos, int *count_solutions, new_constraints_t *con,
                        int64_t *potentials,
-                       state_t *cur_sol, int64_t *ret_total) {
+                       state_t *cur_sol, int64_t *ret_total, const int *order, const int *rank) {
+	const int index = (order != NULL) ? order[pos] : pos;
 	// check, if assignment does not exceed potentials
 	if (next_assignment) sw_setbit(cur_sol->vector, index); // set assignment to 1
 	else sw_clrbit(cur_sol->vector, index); // set assignment to 0 (just to make sure, it should already be 0)
@@ -100,7 +153,7 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
                            con->nnz_pos,
                            con->num_positive_indices,
                            con->positive_offsets, cur_sol,
-                           POSITIVE, ret_total);
+                           POSITIVE, ret_total, rank);
     }
 	else {
         bool_ = evaluation(con, potentials, index,
@@ -110,11 +163,11 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
                            con->nnz_neg,
                            con->num_negative_indices,
                            con->negative_offsets, cur_sol,
-                           NEGATIVE, ret_total);
+                           NEGATIVE, ret_total, rank);
     }
 
 	if (bool_) {
-		if (index == depth) (*count_solutions)++;
+		if (pos == depth_pos) (*count_solutions)++;
 		else {
 			if (next_assignment) {
 				update_potentials(con, potentials, PLAIN, ret_total);
@@ -126,12 +179,12 @@ int look_ahead_correct(int index, int next_assignment, int depth, int *count_sol
 
             int64_t *sub_ret1 = calloc(con->num_constraints, sizeof(int64_t));
 		    int64_t *sub_ret2 = calloc(con->num_constraints, sizeof(int64_t));
-			(void)look_ahead_correct(index + 1, 0, depth, count_solutions, con, potentials, cur_sol, sub_ret1);
-			(void)look_ahead_correct(index + 1, 1, depth, count_solutions, con, potentials, cur_sol, sub_ret2);
+			(void)look_ahead_correct(pos + 1, 0, depth_pos, count_solutions, con, potentials, cur_sol, sub_ret1, order, rank);
+			(void)look_ahead_correct(pos + 1, 1, depth_pos, count_solutions, con, potentials, cur_sol, sub_ret2, order, rank);
 			free(sub_ret1);
             free(sub_ret2);
 			// reset potentials for proper use in sampling algorithm
-			
+
             update_potentials(con, potentials, INVERSE, ret_total);
 
 		}
@@ -222,10 +275,10 @@ int initial_state_preparation(model_t *mod) {
 		// check, if assignment does not exceed potentials
 		// if depth look ahead is 0, it will check only the next assignment
 		int count[2] = {0, 0};
-		// look ahead to the left side
-		look_ahead_correct(i, 1, min(i + mod->depth_look_ahead, n - 1), &count[1], mod->con, potentials, mod->initial_state, ret_total2);
+		// look ahead to the left side (natural traversal: no order/rank)
+		look_ahead_correct(i, 1, imin(i + mod->depth_look_ahead, n - 1), &count[1], mod->con, potentials, mod->initial_state, ret_total2, NULL, NULL);
 		// look ahead to the right side
-        look_ahead_correct(i, 0, min(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1);
+        look_ahead_correct(i, 0, imin(i + mod->depth_look_ahead, n - 1), &count[0], mod->con, potentials, mod->initial_state, ret_total1, NULL, NULL);
 
 		// If all the constraints ar fulfilled by both assignments, "go to the right"
 		if (count[0] > 0 && count[1] > 0) {
@@ -284,6 +337,36 @@ int initial_state_preparation(model_t *mod) {
 }
 
 
+/*
+ * opt_sample_count -- classical sample budget for one Grover round of j iterations.
+ *
+ * The faithful classical simulation of a Grover round draws 4j^2+1 candidate
+ * states and returns the first improver, so its success probability is
+ * 1-(1-p)^(4j^2+1) where p is the single-candidate improvement probability.
+ * This is the O(n*j^2) classical wall-time that makes large-n (large-j) solves
+ * intractable (bd 0o8): with j_max ~ n^2/32 a single stuck round is ~n^5.
+ *
+ * When ctx->opt_sample_cap > 0 the count is clamped to `cap`, bounding a round
+ * at O(n*cap) instead of O(n*j^2). This does NOT touch the oracle accounting:
+ * the 2j+1 charge is applied in ctg BEFORE search_function (SearchLib.c), so j,
+ * the cap-j clamp, and ctx->oracle_count are all unchanged (CLAUDE.md §1.2).
+ * The only effect is the per-round classical success probability for rare
+ * improvers (p < ~1/cap): capping treats them as non-improving, an APPROXIMATE
+ * sampler (the bd 0o8 word) whose deviation is measured by the success-law test
+ * and tunable via `cap`. cap==0 reproduces the exact unbounded rejection sim.
+ *
+ * Computed in int64: the legacy `4 * j * j + 1` with int j is signed-overflow
+ * UB for j > ~23170 (reachable at n >= ~860), so this also fixes a latent bug.
+ * For j <= 23170 (every committed test/baseline) the value is identical to the
+ * legacy int computation, so cap==0 stays bit-for-bit faithful (§8).
+ */
+static inline int64_t opt_sample_count(const solver_ctx_t *ctx, int j) {
+	int64_t L = 4LL * (int64_t) j * (int64_t) j + 1;
+	int64_t cap = ctx->opt_sample_cap;
+	if (cap > 0 && L > cap) return cap;
+	return L;
+}
+
 int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
                 new_constraints_t *con, new_constraints_t *obj,
                 int depth_look_ahead, int direction, array_t *ful,
@@ -310,15 +393,31 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
+	/* bd 0o8.2 (exact win A): at depth 0 the two per-variable look_ahead_correct
+	 * re-scans are replaced by O(C) incremental marginal reads; incr_create returns
+	 * NULL for k-ary (clause length > 2) models, which fall back to the dense path.
+	 * CBQS_NO_INCR=1 forces the dense path (kill-switch / equivalence A-B; cached once). */
+	static int incr_disabled = -1;
+	if (incr_disabled < 0) incr_disabled = getenv("CBQS_NO_INCR") ? 1 : 0;
+	incr_state_t *st = (depth_look_ahead == 0 && !incr_disabled) ? incr_create(con, n, var_order, var_rank) : NULL;
+	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (see the
+		 * opt_sat/sat loops); no-op when deadline_ns == 0, 2j+1 charge unaffected. */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
+		if (st) incr_reset(st);
 		// Reset reusable state instead of alloc/free
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
 
 		// Store which bit from the previous solution is flipped
 		int NumChanges = 0;
+		// M0g (bd 8an.1.7): count both-feasible "free" decisions for f(n).
+		int NumFree = 0;
 
 		// reset constraint rhs to initial values
 		memcpy(potentials, con->rhs, C * sizeof(int64_t));
@@ -343,15 +442,30 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// check, if assignment does not exceed potentials
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
-			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
-			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+			if (st) {
+				/* bd 0o8.2: O(C) incremental reads == the two dense look-aheads.
+				 * POS arm -> ret_total2/count[1], NEG arm -> ret_total1/count[0]. */
+				incr_marginal(st, i, potentials, ret_total2, &count[1], ret_total1, &count[0]);
+			} else {
+				// look ahead to the left side (position space, bd h8d)
+				look_ahead_correct(k, 0, imin(k + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
+				// look ahead to the right side
+				look_ahead_correct(k, 1, imin(k + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
+			}
+
+			/* M2a (bd 8an.3.1): classify this decision for the per-phase
+			 * touch fraction — pure counters, no behavior change. The
+			 * both-feasible "free" class accumulates via NumFree (M0g
+			 * opt_free_sum), flushed per candidate below. */
+			ctx->opt_decisions++;
+			if (count[0] == 0 && count[1] == 0)      ctx->opt_bothinf++;
+			else if (count[0] == 0 || count[1] == 0) ctx->opt_forced++;
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
 			if (count[0] > 0 && count[1] > 0) {
                 sw_setbit(new_sol->branch, i);
+				NumFree++;  // M0g (bd 8an.1.7): bias-decided "free" variable for f(n)
 				if (random_num > BranchingFunction(i, bit, 0, 0, ctx->active_stats)) {
 					sw_setbit(new_sol->vector, i);
 					new_bit = 1;
@@ -372,6 +486,9 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 				new_bit = 1;
 			}
 
+			// bd 0o8.2: fold this variable's finalized bit into the incremental accumulators
+			if (st) incr_commit(st, i, new_bit);
+
 			// was a bit flipped?
 			if (bit != new_bit) ChangedBits[NumChanges++] = i;
 
@@ -383,6 +500,14 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			int vi = var_order ? var_order[mn] : mn;
 			if (sw_tstbit(cur_sol->vector, vi)) ChangedBits[NumChanges++] = vi;
 		}
+		// M0g (bd 8an.1.7, NORTHSTAR §9): record this candidate's realized
+		// Hamming radius (NumChanges) and free-decision count (NumFree) into the
+		// per-worker, race-free diagnostics. Runs for EVERY candidate (before the
+		// accept/return below) so the distribution is unbiased by acceptance.
+		ctx->opt_candidates += 1;
+		ctx->opt_flip_sum   += (uint64_t) NumChanges;
+		ctx->opt_flip_sumsq += (uint64_t) NumChanges * (uint64_t) NumChanges;
+		ctx->opt_free_sum   += (uint64_t) NumFree;
 		int as1 = (k == n);
 		if (as1) for (uint32_t ci = 0; ci < con->num_constraints; ++ci) {
 		    if (con->sense[ci] == EQUAL) as1 &= potentials[ci] == 0;
@@ -401,19 +526,21 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
             free_state(new_sol, 1);
             free(ChangedBits);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
+			if (st) incr_free(st);
 			return 1;
 		}
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(ChangedBits);
 	free(potentials);
 	free(ret_total1);
 	free(ret_total2);
+	if (st) incr_free(st);
 	return 0;
 }
 
@@ -442,9 +569,17 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
+	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (checked
+		 * every CBQS_DEADLINE_CHUNK candidates; no-op when deadline_ns == 0). The
+		 * 2j+1 oracle charge is applied in ctg before this call, so a truncated
+		 * round neither over- nor under-charges (CLAUDE.md §1.2). */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -471,10 +606,18 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 
-            // look ahead to the left side
-            look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the left side (position space, bd h8d)
+            look_ahead_correct(k, 0, imin(k + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(k, 1, imin(k + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
+
+			/* M2a (bd 8an.3.1): classify this decision — pure counters, no
+			 * behavior change. NOTE: in opt_sat the both-infeasible class is
+			 * ALSO bias-consulted (the branch below), unlike sat/opt. */
+			ctx->optsat_decisions++;
+			if (count[0] > 0 && count[1] > 0)        ctx->optsat_free++;
+			else if (count[0] == 0 && count[1] == 0) ctx->optsat_bothinf++;
+			else                                     ctx->optsat_forced++;
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -526,7 +669,7 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
             sw_set_inplace(cur_sol->vector, new_sol->vector);
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 1;
-		    *samples += l;
+		    *samples += (int) l;
 		    free_state(new_sol, 1);
 			free(potentials);
 			free(ret_total1);
@@ -548,14 +691,14 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    cur_sol->tot_profit = total_violation;
 		    cur_sol->feasible = 0;
             free_state(new_sol, 1);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
             return 1;
         }
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);
@@ -588,9 +731,17 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		return 0;
 	}
 
-    int l;
+    int64_t l;
+	int64_t Leff = opt_sample_count(ctx, j);  /* bd 0o8: cap O(n*j^2) sim work */
 	int *var_order = ctx->active_stats->variable_order;
-	for (l = 0; l < 4 * j * j + 1; l++) {
+	const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
+	for (l = 0; l < Leff; l++) {
+		/* bd 0o8.3: interrupt this round once the wall deadline passes (checked
+		 * every CBQS_DEADLINE_CHUNK candidates; no-op when deadline_ns == 0). The
+		 * 2j+1 oracle charge is applied in ctg before this call, so a truncated
+		 * round neither over- nor under-charges (CLAUDE.md §1.2). */
+		if (ctx->deadline_ns && (l & (CBQS_DEADLINE_CHUNK - 1)) == 0
+		    && cbqs_monotonic_ns() >= ctx->deadline_ns) break;
 		// Reset reusable state
         sw_set_ui_0(new_sol->vector);
         sw_set_ui_0(new_sol->branch);
@@ -618,10 +769,18 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			// check, if assignment does not exceed potentials
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
-			// look ahead to the left side
-			look_ahead_correct(i, 0, min(i + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+			// look ahead to the left side (position space, bd h8d)
+			look_ahead_correct(k, 0, imin(k + depth_look_ahead, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
 			// look ahead to the right side
-			look_ahead_correct(i, 1, min(i + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+			look_ahead_correct(k, 1, imin(k + depth_look_ahead, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
+
+			/* M2a (bd 8an.3.1): classify this decision — pure counters, no
+			 * behavior change. In sat the both-infeasible class is handled as
+			 * forced-to-0 below, but it is counted as its own class. */
+			ctx->sat_decisions++;
+			if (count[0] > 0 && count[1] > 0)        ctx->sat_free++;
+			else if (count[0] == 0 && count[1] == 0) ctx->sat_bothinf++;
+			else                                     ctx->sat_forced++;
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -657,14 +816,14 @@ int CSearch_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 			sw_set_inplace(cur_sol->branch, new_sol->branch);
 
             free_state(new_sol, 1);
-            *samples += l;
+            *samples += (int) l;
 			free(potentials);
 			free(ret_total1);
 			free(ret_total2);
             return 1;
         }
 	}
-	*samples += l;
+	*samples += (int) l;
 	free_state(new_sol, 1);
 	free(potentials);
 	free(ret_total1);
@@ -720,6 +879,7 @@ double CSearch_opt_monte_carlo_sampler(
 
         int i;
         int *var_order = ctx->active_stats->variable_order;
+        const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
         int k;
         for (k = 0; k < n; k++) {
             i = var_order ? var_order[k] : k;
@@ -732,10 +892,10 @@ double CSearch_opt_monte_carlo_sampler(
             // check, if assignment does not exceed potentials
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
-            // look ahead to the left side
-            look_ahead_correct(i, 0, min(i + 0, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the left side (position space, bd h8d)
+            look_ahead_correct(k, 0, imin(k + 0, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i + 0, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(k, 1, imin(k + 0, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
@@ -831,6 +991,7 @@ double CSearch_opt_sat_monte_carlo_sampler(
         sw_set_ui_0(new_sol->branch);
 
 		int *var_order = ctx->active_stats->variable_order;
+		const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
 		int k;
 		for (k = 0; k < n; k++) {
 			i = var_order ? var_order[k] : k;
@@ -844,10 +1005,10 @@ double CSearch_opt_sat_monte_carlo_sampler(
 			// if depth look ahead is 0, it will check only the next assignment
 			int count[2] = {0, 0};
 
-            // look ahead to the left side
-            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the left side (position space, bd h8d)
+            look_ahead_correct(k, 0, imin(k, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(k, 1, imin(k, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
 
 			// only counts needs to be checked, since they also include bool_plus and bool_minus
 			// If all the constraints ar fulfilled by both assignments, "branch"
@@ -950,6 +1111,7 @@ double CSearch_sat_monte_carlo_sampler(
         
         int i;
         int *var_order = ctx->active_stats->variable_order;
+        const int *var_rank = ctx->active_stats->variable_rank;  /* bd h8d */
         int k;
         for (k = 0; k < n; k++) {
             i = var_order ? var_order[k] : k;
@@ -961,10 +1123,10 @@ double CSearch_sat_monte_carlo_sampler(
             // check, if assignment does not exceed potentials
             // if depth look ahead is 0, it will check only the next assignment
             int count[2] = {0, 0};
-            // look ahead to the left side
-            look_ahead_correct(i, 0, min(i, n - 1), &count[0], con, potentials, new_sol, ret_total1);
+            // look ahead to the left side (position space, bd h8d)
+            look_ahead_correct(k, 0, imin(k, n - 1), &count[0], con, potentials, new_sol, ret_total1, var_order, var_rank);
             // look ahead to the right side
-            look_ahead_correct(i, 1, min(i, n - 1), &count[1], con, potentials, new_sol, ret_total2);
+            look_ahead_correct(k, 1, imin(k, n - 1), &count[1], con, potentials, new_sol, ret_total2, var_order, var_rank);
 
             // only counts needs to be checked, since they also include bool_plus and bool_minus
             // If all the constraints ar fulfilled by both assignments, "branch"
