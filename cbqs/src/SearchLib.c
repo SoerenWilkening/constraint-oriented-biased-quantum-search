@@ -192,13 +192,21 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * (value, feasible) that metric.instance_feasible falls back on, and the
 	 * `if (callback && cur_sol->feasible)` history gate reads it too.
 	 * NO-OP on every other OPTIMIZE path: the WARM start
-	 * (initial_state_preparation, solver.c:309) already set the identical
+	 * (initial_state_preparation, solver.c) already set the identical
 	 * eval_constraints verdict, and an infeasible start writes back the 0 that
-	 * was already there. SATISFY is EXCLUDED and stays bit-for-bit: CSearch_sat
-	 * never writes cur_sol->feasible, so the flag is 0 for the whole run there
-	 * (Model.pyx:932 documents it as unreliable in that mode and derives
-	 * feasibility from tot_profit) -- writing it would newly open the
-	 * `if (callback && cur_sol->feasible)` history gate for SATISFY solves. */
+	 * was already there.
+	 *
+	 * SATISFY is EXCLUDED and stays bit-for-bit. CORRECTION (the bd 47j comment
+	 * here claimed "CSearch_sat never writes cur_sol->feasible, so the flag is 0
+	 * for the whole run there" -- that is FALSE): CSearch_sat indeed never writes
+	 * it, but initial_state_preparation does, for EVERY solver mode, so a WARM
+	 * SATISFY start carries feasible == 1 and the
+	 * `if (callback && cur_sol->feasible)` history gate is already open there.
+	 * Measured: n=12 trivially-satisfiable SATISFY model, warm -> len(history)
+	 * == 1, cold -> 0, on this build AND on ca97941. The exclusion is therefore
+	 * justified by "do not perturb a mode whose flag Model.pyx:932 documents as
+	 * unreliable and whose feasibility is derived from tot_profit", NOT by the
+	 * flag being constant. */
 	if (mod->solver == OPTIMIZE) cur_sol->feasible = feasible;
 
 	int stage = 1;
@@ -223,10 +231,20 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	     * AND could kill the whole opt phase. Now that the seed below stamps
 	     * that state feasible, an unvalidated P would be reported as a
 	     * CONFIDENTLY feasible wrong answer; recomputing removes the hazard.
-	     * Provable no-op on both canonical protocols: cold is P == 0 with
-	     * objective_value(0^n) == 0 (every clause needs an assigned variable,
-	     * constraint.c:512-528), and the WARM start already carries exactly
-	     * this value (initial_state_preparation, solver.c:312-314). */
+	     * No-op on both canonical protocols AS THEY ARE USED IN THIS REPO, but
+	     * NOT unconditionally. CORRECTION (the bd 47j comment here claimed
+	     * "objective_value(0^n) == 0 because every clause needs an assigned
+	     * variable" -- that is FALSE): objective_value's inner loop starts from
+	     * `assigned = 1`, so a ZERO-LENGTH clause -- a CONSTANT objective term --
+	     * contributes its factor unconditionally (constraint.c). Measured: a
+	     * `MINIMIZE sum v_i x_i + 100` model returns objective 100 on the cold
+	     * 0^n start here, where ca97941 returned the uncorrected P == 0. The new
+	     * value is the CORRECT objective of the returned vector, so this is a
+	     * deliberate correction, not a regression -- but it does move
+	     * result.objective and every `history` VALUE for constant-term
+	     * objectives. Eq.29 and every in-repo caller have no constant term (the
+	     * byte-identity A/B against ca97941 covers that). The WARM start carries
+	     * exactly this value already (initial_state_preparation, solver.c). */
 	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
 	    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
@@ -565,8 +583,16 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
              * phase machine. profit_is_objective now excludes the stage-1
              * violation states and stage-2 slack states explicitly, and the
              * first-feasible objective recompute above precedes this site, so
-             * the first logged value is still the true first-feasible objective
-             * and the logged stream is byte-identical to the pre-fix one. */
+             * the first logged value is still the true first-feasible objective.
+             * CORRECTION (the bd xjs comment here claimed the logged stream is
+             * "byte-identical to the pre-fix one" -- that is only true for
+             * Eq.29 and every other in-repo caller, NOT in general): the
+             * entry-time objective recompute above moves every logged VALUE for
+             * a constant-term objective, and the EQUAL violation-predicate fix
+             * (solver.h) removes bogus entries that a `== R` model used to log
+             * on constraint-violating points. Both are corrections; the
+             * byte-identity A/B against ca97941 is what pins the no-op claim,
+             * and it is scoped to the models it covers. */
             if (callback && cur_sol->feasible && profit_is_objective) {
                 ctx->callback_value = cur_sol->tot_profit;
                 callback(ctx);

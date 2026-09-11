@@ -17,11 +17,17 @@ passing.
 
 The general trigger is broader than "cold", and measured: MINIMIZE + ANY
 infeasible start (a warm ``general_greedy()`` start that comes out infeasible
-reproduces it identically). MAXIMIZE is immune because the objective is stored
-negated, so at the first-feasible handoff ``cur_sol->tot_profit < 0 <=
-total_violation`` and the corrupting stage-2 accept can never fire; a ``<=``
-capacity model is immune because ``0^n`` is feasible and ctg enters stage 3
-without ever running opt_sat.
+reproduces it identically). MAXIMIZE with ALL-NON-NEGATIVE objective
+coefficients is immune: every stored factor is then ``<= 0``, so at the
+first-feasible handoff ``cur_sol->tot_profit <= 0 <= total_violation`` and the
+corrupting stage-2 accept cannot fire. The immunity comes from the COEFFICIENT
+SIGNS, not from the sense — a MAXIMIZE objective containing a negative
+coefficient stores a positive factor and can reopen the same accept, so
+"MAXIMIZE is immune" (an earlier phrasing of this docstring, of
+tests/test_opt_sat_feasibility.c and of the bd xjs commit body) is FALSE as
+stated. A ``<=`` capacity model is immune for an unrelated and unconditional
+reason: ``0^n`` is feasible, so ctg enters stage 3 without ever running
+opt_sat.
 """
 
 import os

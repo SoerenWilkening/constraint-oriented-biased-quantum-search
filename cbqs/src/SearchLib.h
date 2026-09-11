@@ -57,10 +57,18 @@ void free_incumbents(incumbents_t *incumbents);
  * The comparison stays STRICT in every cell, so ties keep the incumbent.
  *
  * SATISFY (feasibility_aware == 0) keeps the legacy comparison BIT-FOR-BIT:
- * cur_sol->feasible is never written on the CSearch_sat path (the flag is
- * documented as unreliable in that mode, Model.pyx:932), tot_profit carries
- * -num_satisfied_constraints, and feasibility is derived from tot_profit
- * instead. Adding the dominance cells there would freeze the incumbent.
+ * tot_profit carries -num_satisfied_constraints and feasibility is derived
+ * from it, not from the flag, which Model.pyx:932 documents as unreliable in
+ * that mode. Adding the dominance cells there would freeze the incumbent.
+ * (CORRECTION to an earlier version of this comment, which asserted
+ * "cur_sol->feasible is never written on the CSearch_sat path" as if the flag
+ * were therefore constant 0: CSearch_sat indeed never writes it, but
+ * initial_state_preparation does, for EVERY solver mode, and run_sampling
+ * copies the initial state into cur_sol -- so a WARM SATISFY start carries
+ * feasible == 1 for the whole run. Measured on ca97941 and here: a warm
+ * SATISFY solve logs len(history) == 1, a cold one 0. The flag is thus a
+ * STALE START-TIME verdict that nothing maintains during a SATISFY run, which
+ * is the real reason acceptance must not be keyed on it here.)
  */
 static inline int global_opt_superseded_by(const state_t *g, const state_t *c,
                                            int feasibility_aware) {

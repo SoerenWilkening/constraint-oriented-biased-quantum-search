@@ -30,9 +30,15 @@
  * accept:
  *   - `<=` capacity models start feasible -> ctg enters stage 3 immediately and
  *     never runs opt_sat;
- *   - MAXIMIZE objectives are stored negated, so at the first-feasible handoff
- *     cur_sol->tot_profit < 0 <= total_violation and the stage-2 accept above
- *     can never fire.
+ *   - MAXIMIZE with ALL-NON-NEGATIVE objective coefficients stores every factor
+ *     <= 0, so at the first-feasible handoff cur_sol->tot_profit <= 0 <=
+ *     total_violation and the stage-2 accept above cannot fire. NOTE the
+ *     immunity comes from the COEFFICIENT SIGNS, not from the sense: a MAXIMIZE
+ *     objective with a negative coefficient stores a positive factor and can
+ *     put a positive value in tot_profit, reopening the same accept. The
+ *     earlier "MAXIMIZE is immune because the objective is stored negated"
+ *     phrasing (this file and test_opt_switch_feasibility.py) was wrong on that
+ *     point.
  * "Cold" is incidental: a WARM general_greedy() start that comes out infeasible
  * reproduces it identically (measured; pinned in test_opt_switch_feasibility.py).
  *

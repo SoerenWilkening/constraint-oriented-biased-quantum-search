@@ -270,6 +270,26 @@ python setup.py build_ext --inplace          # or: pip install --no-build-isolat
 `Model is None` after import means the extension/optional deps failed to build — a silent-degradation mode;
 treat it as a hard failure, not "skip."
 
+> **⚠️ AFTER EDITING `cbqs/src/*.c` OR `*.h`, THE LINE ABOVE IS NOT ENOUGH — AND IT FAILS SILENTLY.**
+> `setup.py` links the extensions with `libraries=['cbqs_core']`, but setuptools' freshness check is
+> `newer_group(sources + depends, ext_path)` and the static lib is in **neither** list — so
+> `build_clib && build_ext --inplace` recompiles `libcbqs_core.a` and then **does not relink**.
+> `rm cbqs/*.so` alone is ALSO insufficient: `build_ext` restores a **stale** copy out of
+> `build/lib.macosx-*/` with its mtime preserved. Multiple agents have burned cycles on false
+> RED/GREEN results from this. **Mandatory recipe, every time:**
+> ```bash
+> rm -rf build/lib.*-cpython-*            # zsh: quote or use find; the staged copy is the trap
+> rm -f cbqs/*.so
+> python setup.py build_clib && python setup.py build_ext --inplace
+> ls -l cbqs/Model.cpython-*.so           # macOS: ls -lT — the timestamp MUST be NOW
+> strings cbqs/SearchLib.cpython-*.so | grep -c '<a string you just added>'   # linkage check: expect 1
+> ```
+> Both checks are part of the recipe, not optional: the timestamp proves the `.so` was rebuilt, the
+> `strings` grep proves the rebuilt `.so` actually contains your C change. Any probe script must also
+> assert it imported the checkout under test
+> (`assert cbqs.__file__.startswith('<this worktree>')`) — run from elsewhere it silently picks up
+> another checkout's editable install.
+
 **Python tests** (matches the CI python job):
 ```bash
 pytest tests/ -v --tb=short --ignore=tests/test_stress.py
