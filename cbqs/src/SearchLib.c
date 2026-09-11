@@ -62,12 +62,27 @@ void free_incumbents(incumbents_t *incumbents){
 
 /* Global pointer to active solver context for signal handler access.
  * This is needed because signal handlers cannot receive user data.
- * Only one solve can be active with signal handling at a time. */
-static solver_ctx_t *g_active_ctx = NULL;
+ *
+ * ATOMIC (not a plain pointer): solve() fans ctg out over P threads that all
+ * share this file-scope slot, so the plain `g_active_ctx = ctx` at ctg entry
+ * and the `= NULL` at exit were an unsynchronised write/write and a
+ * signal-handler read racing both -- a data race in the C sense (and one TSan
+ * reports the moment more than one thread runs ctg, which is why no test could
+ * see it before test_ctg_concurrent_global_opt). Relaxed ordering is
+ * sufficient: the pointee is a per-worker ctx whose only cross-thread field is
+ * the atomic `stop` flag solver_ctx_request_stop sets, and the semantics stay
+ * exactly what they were -- last writer wins, the handler stops whichever
+ * worker registered most recently. (That last-writer-wins behaviour is itself
+ * wrong for P > 1 -- one worker's exit also restores SIG_DFL while the others
+ * still run -- but fixing the INTERRUPT SEMANTICS is a separate change; this
+ * one only makes the access well-defined.) */
+static _Atomic(solver_ctx_t *) g_active_ctx = NULL;
 
 static void handle_signal(int signum) {
-    if (g_active_ctx != NULL) {
-        solver_ctx_request_stop(g_active_ctx);
+    (void) signum;
+    solver_ctx_t *ctx = atomic_load_explicit(&g_active_ctx, memory_order_relaxed);
+    if (ctx != NULL) {
+        solver_ctx_request_stop(ctx);
     }
 }
 
@@ -318,7 +333,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	int samples = 0;
 
 	/* Register this context for signal handler access */
-	g_active_ctx = ctx;
+	atomic_store_explicit(&g_active_ctx, ctx, memory_order_relaxed);
 	cbqs_install_interrupt_handler(handle_signal);
 
 	/* Primary gate: the never-reset oracle budget (mod->M carries T(n)), so
@@ -336,7 +351,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	       && (mod->stopping_time <= 0 || total_time < mod->stopping_time)) {
 		if (solver_ctx_should_stop(ctx)) {
 			cbqs_install_interrupt_handler(NULL);
-			g_active_ctx = NULL;
+			atomic_store_explicit(&g_active_ctx, NULL, memory_order_relaxed);
 			return 0;
 		}
 
@@ -669,7 +684,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 	/* Clear signal handler context */
 	cbqs_install_interrupt_handler(NULL);
-	g_active_ctx = NULL;
+	atomic_store_explicit(&g_active_ctx, NULL, memory_order_relaxed);
 
 	return feasible;
 }

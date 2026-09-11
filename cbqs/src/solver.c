@@ -401,9 +401,20 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	 * re-scans are replaced by O(C) incremental marginal reads; incr_create returns
 	 * NULL for k-ary (clause length > 2) models, which fall back to the dense path.
 	 * CBQS_NO_INCR=1 forces the dense path (kill-switch / equivalence A-B; cached once). */
-	static int incr_disabled = -1;
-	if (incr_disabled < 0) incr_disabled = getenv("CBQS_NO_INCR") ? 1 : 0;
-	incr_state_t *st = (depth_look_ahead == 0 && !incr_disabled) ? incr_create(con, n, var_order, var_rank) : NULL;
+	/* ATOMIC (relaxed): solve() runs CSearch_opt from P worker threads, so the
+	 * lazy init of this file-scope cache was a genuine write/read data race --
+	 * found by TSan the first time any test drove ctg from more than one thread
+	 * (tests/test_thread_safety.c::test_ctg_concurrent_global_opt). It is
+	 * value-idempotent (every thread computes the same 0/1 from the same env
+	 * var), so relaxed ordering is enough: the only cost of a lost race is one
+	 * extra getenv(). Do NOT demote this back to a plain `static int`. */
+	static _Atomic int incr_disabled = -1;
+	int incr_off = atomic_load_explicit(&incr_disabled, memory_order_relaxed);
+	if (incr_off < 0) {
+		incr_off = getenv("CBQS_NO_INCR") ? 1 : 0;
+		atomic_store_explicit(&incr_disabled, incr_off, memory_order_relaxed);
+	}
+	incr_state_t *st = (depth_look_ahead == 0 && !incr_off) ? incr_create(con, n, var_order, var_rank) : NULL;
 	for (l = 0; l < Leff; l++) {
 		/* bd 0o8.3: interrupt this round once the wall deadline passes (see the
 		 * opt_sat/sat loops); no-op when deadline_ns == 0, 2j+1 charge unaffected. */

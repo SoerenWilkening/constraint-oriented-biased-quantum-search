@@ -501,6 +501,62 @@ static void test_ctg_equality_never_reports_false_feasible(void **state) {
     }
 }
 
+/* ------------------------------------------------------------------ *
+ * MAXIMIZE sum_i (i+1)*x_i  subject to  sum_i x_i >= k.
+ *
+ * MAXIMIZE is stored NEGATED (Model.pyx: the C core always minimises
+ * tot_profit, and MAXIMIZE == -1 flips the factors), so objective_value(0^n)
+ * == 0 and every non-empty assignment scores STRICTLY BELOW it. That is what
+ * makes CSearch_opt's accept test `as1 && cur_sol->tot_profit > val` reachable
+ * from the cold start -- which the MINIMIZE fixture above cannot do (there
+ * every assignment scores at or above the all-zeros 0, so the accept can NEVER
+ * fire and any assertion inside `if (res)` is VACUOUS; instrumented on the
+ * pre-fix build, `res` was never 1 across all 16 seeds).
+ * ------------------------------------------------------------------ */
+static model_t *build_max_covering_model(int n, int k) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(con_expr, i); }
+    multiply_constant(con_expr, -1);                /* factors -1 */
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, n - k);         /* <=> sum x >= k */
+    add_expression_to_constraints(mod->con, con_expr);
+
+    expression_t *obj_all = init_expression();
+    for (int i = 0; i < n; i++) {
+        expression_t *t = init_expression();
+        add_variable(t, i);
+        multiply_constant(t, -(i + 1));             /* MAXIMIZE => negated */
+        add_expression(obj_all, t);
+        free_expression(t);
+    }
+    add_sense_to_expression(obj_all, LOWER);
+    add_rhs_to_expression(obj_all, 0);
+    add_expression_to_constraints(mod->obj, obj_all);
+
+    preprocessing(n, mod->con);
+    preprocessing(n, mod->obj);
+
+    int *arr = calloc((size_t) n, sizeof(int));
+    assert_non_null(arr);
+    mod->initial_state = init_state(0, arr, n);
+    mod->global_opt = init_state(0, arr, n);
+    free(arr);
+
+    mod->n = n;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = -1;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_expr);
+    free_expression(obj_all);
+    return mod;
+}
+
 /*
  * ignore_constraint_search starts ctg in stage 3 / CSearch_opt / stats_opt even
  * from an INFEASIBLE point (the flag skips the sat + opt_sat phases). CSearch_opt
@@ -511,14 +567,19 @@ static void test_ctg_equality_never_reports_false_feasible(void **state) {
  * (NORTHSTAR §5 "wrong phase's stats", silent before the per-round coupling
  * check). The phase machine must stay in the objective phase.
  *
- * This path had NO end-to-end coverage before bd xjs.
+ * MAXIMIZE (see build_max_covering_model): with the MINIMIZE fixture this test
+ * was VACUOUS -- CSearch_opt never accepted, so `if (res)` never ran and the
+ * handoff under test was never reached. The `assert_true(accepts > 0)` guard
+ * the other two tests in this file already carry is what makes that
+ * non-regressible.
  */
 static void test_ctg_ignore_constraint_search_stays_in_opt_phase(void **state) {
     (void)state;
     const int n = 6, k = 3;
 
+    int accepts = 0;
     for (uint64_t seed = 1; seed <= 16; ++seed) {
-        model_t *mod = build_min_covering_model(n, k);
+        model_t *mod = build_max_covering_model(n, k);
         /* Small budget for the same O(n*j^2) reason as above; this run never
          * leaves stage 3, so it would otherwise spend the whole budget on
          * ever-larger Grover rounds. */
@@ -537,13 +598,68 @@ static void test_ctg_ignore_constraint_search_stays_in_opt_phase(void **state) {
         solver_ctx_init_prng(ctx);
 
         incumbents_t *inc = init_incumbents(n, cur_sol);
-        (void) ctg(ctx, mod, cur_sol, NULL, inc);   /* must not abort */
+        int feasible = ctg(ctx, mod, cur_sol, NULL, inc);   /* must not abort */
+
+        /* Every accepted move pushed an incumbent, so head counts them. */
+        accepts += inc->head;
 
         /* CSearch_opt only accepts constraint-satisfying candidates, so any
          * state it moved to must still pass eval_constraints. */
         if (cur_sol->feasible) {
             assert_int_equal(eval_constraints(mod->con, cur_sol, n), 1);
+            /* ctg's return value is the STICKY local `feasible`, which the
+             * handoff must raise on this path too -- it gates the stop_val
+             * break and the post-loop objective recompute. */
+            assert_true(feasible);
+            /* ...and the shared incumbent must describe a feasible point too
+             * (the ICS path is no longer exempt from the bd 47j contract). */
+            assert_int_equal(mod->global_opt->feasible, 1);
+            assert_int_equal(eval_constraints(mod->con, mod->global_opt, n), 1);
         }
+        if (mod->global_opt->feasible) {
+            assert_int_equal(eval_constraints(mod->con, mod->global_opt, n), 1);
+        }
+
+        free_incumbents(inc);
+        free_state(cur_sol, 1);
+        solver_ctx_free(ctx);
+        free_model(mod);
+    }
+    /* ANTI-VACUITY: without this the whole test passed while CSearch_opt never
+     * accepted anything (measured on the MINIMIZE fixture: 0 accepts / 16 seeds). */
+    assert_true(accepts > 0);
+}
+
+/*
+ * MINIMIZE + ICS kept as a pure "must not abort / must not desync" smoke test.
+ * It is honestly labelled: CSearch_opt provably cannot accept here (every
+ * assignment scores at or above the all-zeros 0), so it exercises only the
+ * phase-machine entry + the per-round coupling check, and asserts nothing that
+ * depends on an accept.
+ */
+static void test_ctg_ignore_constraint_search_minimize_no_desync(void **state) {
+    (void)state;
+    const int n = 6, k = 3;
+
+    for (uint64_t seed = 1; seed <= 8; ++seed) {
+        model_t *mod = build_min_covering_model(n, k);
+        mod->M = 300;
+        mod->opt_switch_oracles = 40;
+        mod->ignore_constraint_search = 1;
+
+        int zeros[6] = {0, 0, 0, 0, 0, 0};
+        state_t *cur_sol = init_state(0, zeros, n);
+        assert_int_equal(eval_constraints(mod->con, cur_sol, n), 0);
+
+        solver_ctx_t *ctx = solver_ctx_create();
+        ctx->seed = seed;
+        solver_ctx_init_prng(ctx);
+
+        incumbents_t *inc = init_incumbents(n, cur_sol);
+        (void) ctg(ctx, mod, cur_sol, NULL, inc);   /* must not abort */
+
+        /* The documented premise of this fixture: no accept is possible. */
+        assert_int_equal(inc->head, 0);
 
         free_incumbents(inc);
         free_state(cur_sol, 1);
@@ -564,6 +680,7 @@ int main(void) {
         cmocka_unit_test(test_opt_sat_equality_accept_flag_matches_eval),
         cmocka_unit_test(test_ctg_equality_never_reports_false_feasible),
         cmocka_unit_test(test_ctg_ignore_constraint_search_stays_in_opt_phase),
+        cmocka_unit_test(test_ctg_ignore_constraint_search_minimize_no_desync),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
