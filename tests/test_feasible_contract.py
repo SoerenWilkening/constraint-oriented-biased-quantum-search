@@ -271,3 +271,334 @@ class TestFeasibleFlagContract:
         # ...and every raw per-worker stream (bd o3f) is likewise unanchored
         for stream in r.worker_histories:
             assert all(oracle > 0 for (_v, oracle, *_rest) in stream)
+
+
+# --------------------------------------------------------------------------- #
+# The literal bd xjs / bd 47j repros, pinned end to end.
+# --------------------------------------------------------------------------- #
+
+def _xjs_model(con_sense, sense=MINIMIZE, n=40, seed=3):
+    """The verbatim repro fixture from bd xjs (`>=`) and bd 47j (`<=`)."""
+    rng = random.Random(seed)
+    m = Model()
+    xs = m.add_variables(n)
+    x = [xs[i] for i in range(n)]
+    w = [rng.randint(1, 9) for _ in range(n)]
+    v = [rng.randint(1, 9) for _ in range(n)]
+    rhs = sum(w) // 2
+    lhs = sum(w[i] * x[i] for i in range(n))
+    m.add_constraint(lhs >= rhs if con_sense == "ge" else lhs <= rhs)
+    m.set_objective(sum(v[i] * x[i] for i in range(n)), sense=sense)
+    m.close()
+    return m, w, v, rhs
+
+
+class TestAcceptanceRepros:
+    """The two repros must return a CORRECT, SELF-CONSISTENT result.
+
+    Pre-fix, the bd xjs repro (``>=``) first ``abort()``ed the process at ctg's
+    exploit->explore guard and then — once bd xjs alone made the flag truthful —
+    returned the silent wrong answer ``objective=0, feasible=False,
+    verified=False, solution=0^n`` while ``final_incumbents == [(104, True)]``
+    and ``history == [104]``: a result that contradicted its own history.
+    """
+
+    def test_bd_xjs_repro_ge_is_self_consistent(self):
+        m, w, v, rhs = _xjs_model("ge")
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        m.set_param("stopping_time", 900)
+        # The literal repro sets no M, i.e. the real T(40) = 1201 budget.
+        # `-1` opts out of the conftest default-budget cap (bd 8an.1.4).
+        m.set_param("M", -1)
+        r = m.solve()
+
+        sol = [int(b) for b in r.solution]
+        load = sum(w[i] * sol[i] for i in range(len(w)))
+
+        # (1) the returned vector really satisfies the covering constraint
+        assert load >= rhs, f"returned vector violates the constraint: {load} < {rhs}"
+        # (2) the reported flags agree with it
+        assert r.feasible is True
+        assert r.verified is True
+        assert list(r.violations) == []
+        # (3) the objective describes the returned vector ...
+        assert r.objective == sum(v[i] * sol[i] for i in range(len(w)))
+        # (4) ... and is consistent with the streams that reported it
+        assert r.history, "a run that reaches feasibility must log incumbents"
+        assert r.objective == min(e[0] for e in r.history)
+        assert r.final_incumbents == [(r.objective, True)]
+
+    def test_bd_47j_repro_le_reports_the_feasible_optimum(self):
+        m, w, v, rhs = _xjs_model("le")
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        m.set_param("stopping_time", 900)
+        # The literal repro sets no M, i.e. the real T(40) = 1201 budget.
+        # `-1` opts out of the conftest default-budget cap (bd 8an.1.4).
+        m.set_param("M", -1)
+        r = m.solve()
+
+        sol = [int(b) for b in r.solution]
+        load = sum(w[i] * sol[i] for i in range(len(w)))
+
+        assert load <= rhs
+        assert sum(sol) == 0, "the all-zeros vector is the MINIMIZE optimum here"
+        assert r.feasible is True
+        assert r.verified is True
+        assert list(r.violations) == []
+        assert r.objective == 0
+        assert r.final_incumbents == [(0, True)]
+        # The start was already optimal, so nothing ever improved on it: the
+        # history is the ACCEPTED-IMPROVEMENT stream and stays empty (see the
+        # scope pin on test_warm_feasible_start_is_unchanged).
+        assert r.history == []
+
+
+# --------------------------------------------------------------------------- #
+# EQUAL constraints (the stage-1 violation predicate)
+# --------------------------------------------------------------------------- #
+
+class TestEqualityConstraintFeasibility:
+    """`sum w_i x_i == R` must never report the all-zeros vector as feasible.
+
+    ``potentials[c] == rhs[c]`` means LHS == 0, not "the equality holds"; the
+    pre-fix stage-1 violation loop scored that as SATISFIED, so an `== R` model
+    with R != 0 reported ``final_incumbents == [(0, True)]`` on the all-zeros
+    vector (measured: seeds 2 and 3 below) with ``verified=False``.
+    """
+
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_equality_never_reports_a_violating_point_as_feasible(self, seed):
+        n, rng = 20, random.Random(7)
+        w = [rng.randint(1, 9) for _ in range(n)]
+        m = Model()
+        xs = m.add_variables(n)
+        x = [xs[i] for i in range(n)]
+        m.add_constraint(sum(w[i] * x[i] for i in range(n)) == 25)
+        m.set_objective(sum(x[i] for i in range(n)), sense=MINIMIZE)
+        m.close()
+        m.seed = seed
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        m.set_param("M", 600)
+        r = m.solve()
+
+        lhs = sum(w[i] * int(r.solution[i]) for i in range(n))
+        # the contract: the flag describes the vector, in BOTH directions
+        assert bool(r.feasible) == (lhs == 25), (
+            f"reported feasible={r.feasible} but sum w_i x_i == {lhs} (need 25)"
+        )
+        if r.feasible:
+            assert r.verified is True
+            assert list(r.violations) == []
+            assert r.objective == int(r.solution.sum())
+        # and no logged incumbent may be a violating point
+        assert all(ok for (_value, ok) in r.final_incumbents) == bool(r.feasible)
+
+
+# --------------------------------------------------------------------------- #
+# ignore_constraint_search: the SAME contract, no sense-dependent exemption
+# --------------------------------------------------------------------------- #
+
+class TestIgnoreConstraintSearchContract:
+    """``ignore_constraint_search`` is a search-strategy flag, not a contract opt-out.
+
+    It skips the sat/opt_sat phases, but ``eval_constraints`` still runs at ctg
+    entry and ``CSearch_opt`` still accepts only constraint-satisfying
+    candidates — so ``result.feasible`` must mean the same thing there.
+
+    Pre-fix the pre-loop ``global_opt`` seed excluded ICS while the in-loop
+    publish did not, which made the flag SENSE-DEPENDENT: MINIMIZE + ICS
+    returned a verify-clean feasible optimum and reported ``feasible=False``,
+    MAXIMIZE reported ``True``.
+    """
+
+    @pytest.mark.parametrize("sense", [MINIMIZE, MAXIMIZE])
+    @pytest.mark.parametrize("ics", [False, True])
+    def test_flag_matches_vector_for_both_senses(self, sense, ics):
+        m, w, v, cap = _knapsack(n=20, sense=sense)
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        m.set_param("M", 400)
+        m.set_param("ignore_constraint_search", ics)
+        r = m.solve()
+
+        truth = _cap_satisfied(r.solution, w, cap)
+        assert truth, "precondition: this fixture's returned vector is feasible"
+        assert bool(r.feasible) is True, (
+            f"sense={sense} ICS={ics}: verify-clean feasible vector reported "
+            f"feasible={r.feasible} (bd 47j contract, no ICS exemption)"
+        )
+        assert r.verified is True
+        assert list(r.violations) == []
+
+    def test_negative_control_unsatisfiable_under_ics_stays_false(self):
+        """Guards against "fix by always reporting True" on the ICS path too."""
+        m, w, v, need = _covering()
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("verify", True)
+        m.set_param("M", 200)
+        m.set_param("ignore_constraint_search", True)
+        r = m.solve()
+
+        covered = sum(int(w[i]) * int(r.solution[i]) for i in range(len(w)))
+        assert covered < need, "precondition: the returned vector is genuinely infeasible"
+        assert r.feasible is False
+        assert r.verified is False
+
+
+# --------------------------------------------------------------------------- #
+# stop_val (bd xjs follow-up): it had NO functional test at all
+# --------------------------------------------------------------------------- #
+
+def _covering_max(n=25, seed=4):
+    rng = random.Random(seed)
+    m = Model()
+    xs = m.add_variables(n)
+    x = [xs[i] for i in range(n)]
+    w = [rng.randint(1, 9) for _ in range(n)]
+    v = [rng.randint(1, 9) for _ in range(n)]
+    need = sum(w) // 2
+    m.add_constraint(sum(w[i] * x[i] for i in range(n)) >= need)
+    m.set_objective(sum(v[i] * x[i] for i in range(n)), sense=MAXIMIZE)
+    m.close()
+    return m, w, v, need
+
+
+class TestStopVal:
+    """``stop_val`` is an OBJECTIVE threshold on the internal ``tot_profit``.
+
+    MAXIMIZE stores the objective negated, so ``stop_val=-60`` means "stop once
+    the objective reaches 60". Two properties are pinned: it actually stops
+    early, and it is NOT silently inert under ``ignore_constraint_search`` (the
+    bd xjs ``&& stage != 3`` guard blocked the sticky ``feasible`` the break is
+    gated on, so the ICS arm ran the whole budget).
+    """
+
+    @pytest.mark.parametrize("ics", [False, True])
+    def test_stop_val_stops_early_and_meets_the_threshold(self, ics):
+        m, w, v, need = _covering_max()
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("M", 600)
+        m.set_param("stop_val", -60)
+        m.set_param("ignore_constraint_search", ics)
+        m.set_param("verify", True)
+        stopped = m.solve()
+
+        ref, w2, v2, need2 = _covering_max()
+        ref.seed = 5
+        ref.set_param("num_workers", 1)
+        ref.set_param("M", 600)
+        ref.set_param("ignore_constraint_search", ics)
+        unstopped = ref.solve()
+
+        assert stopped.feasible is True
+        assert stopped.verified is True
+        assert stopped.objective >= 60, (
+            "the run may only stop once the threshold is met"
+        )
+        assert stopped.oracle_calls < unstopped.oracle_calls, (
+            f"ICS={ics}: stop_val did not stop the run early "
+            f"({stopped.oracle_calls} vs {unstopped.oracle_calls} oracles) — "
+            "it is silently inert"
+        )
+        assert unstopped.oracle_calls >= 600, "the reference run must spend the budget"
+
+    def test_stop_val_unset_spends_the_budget(self):
+        """Negative control: -1 (the default) must not stop anything early."""
+        m, w, v, need = _covering_max()
+        m.seed = 5
+        m.set_param("num_workers", 1)
+        m.set_param("M", 600)
+        m.set_param("stop_val", -1)
+        r = m.solve()
+        assert r.oracle_calls >= 600
+
+
+# --------------------------------------------------------------------------- #
+# manual_initial(P, assignment): the semantics of P, pinned
+# --------------------------------------------------------------------------- #
+
+class TestManualInitialProfitSemantics:
+    """``P`` is ADVISORY and its role is phase-dependent — pin both halves.
+
+    bd 47j made ctg recompute the objective at the feasible-start entry, which
+    silently changed what a caller-supplied ``P`` does. The change is correct
+    (that state is now stamped feasible and seeded into the shared incumbent, so
+    an unvalidated ``P`` would be published as a *confidently feasible* wrong
+    answer) but it is ASYMMETRIC, and
+    ``test_warm_feasible_start_is_unchanged`` cannot catch it because it passes
+    the true objective as ``P``.
+    """
+
+    def test_wrong_P_on_a_feasible_start_is_ignored(self):
+        """FEASIBLE start: ``P`` must not reach ``result.objective`` or the history."""
+        results = {}
+        for P in (0, 999_999, -999_999):
+            m, w, v, cap = _knapsack(n=20)
+            n = len(w)
+            start, tot = [0] * n, 0
+            for i in range(n):
+                if tot + w[i] <= cap and sum(start) < 5:
+                    start[i], tot = 1, tot + w[i]
+            true_start_obj = sum(v[i] * start[i] for i in range(n))
+            assert true_start_obj != 0, "precondition: the start has a non-trivial objective"
+            m.manual_initial(P, start)
+            m.seed = 5
+            m.set_param("num_workers", 1)
+            m.set_param("verify", True)
+            m.set_param("M", 50)
+            r = m.solve()
+            assert r.feasible is True and r.verified is True
+            assert r.objective == sum(v[i] * int(r.solution[i]) for i in range(n)), (
+                f"P={P}: result.objective does not describe result.solution"
+            )
+            results[P] = (r.objective, tuple(e[0] for e in r.history))
+
+        assert len(set(results.values())) == 1, (
+            f"a wrong P changed the reported answer on a FEASIBLE start: {results}"
+        )
+
+    def test_P_on_an_infeasible_start_is_honoured_as_a_violation_bound(self):
+        """INFEASIBLE start: ``tot_profit`` is a VIOLATION sum, and ``P`` bounds it.
+
+        Not a defect — phase 1 does not hold an objective in that slot, so there
+        is nothing to recompute. Pinned so the asymmetry is documented rather
+        than silent (CLAUDE.md §2.1), and so a future "recompute everywhere"
+        change has to confront it.
+        """
+        objectives = {}
+        for P in (0, 100_000):
+            n, rng = 30, random.Random(0)
+            w = [rng.randint(1, 9) for _ in range(n)]
+            u = [rng.randint(1, 9) for _ in range(n)]
+            v = [rng.randint(1, 9) for _ in range(n)]
+            m = Model()
+            xs = m.add_variables(n)
+            x = [xs[i] for i in range(n)]
+            m.add_constraint(sum(w[i] * x[i] for i in range(n)) <= int(sum(w) * 0.35))
+            m.add_constraint(sum(u[i] * x[i] for i in range(n)) >= int(sum(u) * 0.45))
+            m.set_objective(sum(v[i] * x[i] for i in range(n)), sense=MINIMIZE)
+            m.close()
+            m.manual_initial(P, [0] * n)   # 0^n violates the covering constraint
+            m.seed = 5
+            m.set_param("num_workers", 1)
+            m.set_param("verify", True)
+            m.set_param("M", 300)
+            r = m.solve()
+            # whatever P does to the trajectory, the CONTRACT still holds
+            assert bool(r.feasible) == (r.verified is not False)
+            if r.feasible:
+                assert r.objective == sum(v[i] * int(r.solution[i]) for i in range(n))
+            objectives[P] = r.objective
+
+        assert objectives[0] != objectives[100_000], (
+            "P is documented as live on an INFEASIBLE start (the phase-1 "
+            f"acceptance bound); it made no difference: {objectives}"
+        )
