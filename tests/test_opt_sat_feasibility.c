@@ -46,6 +46,7 @@
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <cmocka.h>
 
 #include "SearchLib.h"
@@ -278,6 +279,228 @@ static void test_ctg_cold_minimize_covering_crosses_switch(void **state) {
     }
 }
 
+/* ================================================================== *
+ * EQUAL constraints: the stage-1 violation predicate
+ * ================================================================== *
+ *
+ * `potentials[c] == con->rhs[c]` means LHS_c == 0 ("nothing assigned"), NOT
+ * "the equality holds". The pre-fix predicate
+ *
+ *     total_violation += potentials[c] != con->rhs[c] ? llabs(potentials[c]) : 0;
+ *
+ * therefore scored every LHS == 0 point as SATISFIED, so CSearch_opt_sat's
+ * `feasible = (total_violation == 0)` declared the all-zeros vector feasible on
+ * an `== R` model with R != 0 -- and (bd xjs) stamped that verdict onto
+ * cur_sol->feasible, which ctg, run_sampling's per-worker final incumbent and
+ * the history callback all read. EQUAL feasibility is `potentials[c] == 0`,
+ * the predicate CSearch_opt's own `as1` uses and the one constraint.c's
+ * eval_constraint means.
+ */
+
+/* Golden values for the pure predicate. `potentials[c] = rhs[c] - LHS_c`. */
+static void test_potentials_total_violation_equal_golden(void **state) {
+    (void)state;
+    new_constraints_t con;
+    memset(&con, 0, sizeof(con));
+    int senses[1] = { EQUAL };
+    int64_t rhs[1] = { 25 };
+    con.num_constraints = 1;
+    con.sense = senses;
+    con.rhs = rhs;
+
+    int64_t p[1];
+
+    /* LHS == 0 (the all-zeros vector): potentials == rhs == 25. This is the
+     * regression: it must score as a violation of 25, NOT as satisfied. */
+    p[0] = 25;  assert_true(potentials_total_violation(&con, p) == 25);
+    /* LHS == rhs: satisfied. */
+    p[0] = 0;   assert_true(potentials_total_violation(&con, p) == 0);
+    /* LHS below rhs by 7 / above rhs by 3: |potentials| either way. */
+    p[0] = 7;   assert_true(potentials_total_violation(&con, p) == 7);
+    p[0] = -3;  assert_true(potentials_total_violation(&con, p) == 3);
+
+    /* rhs == 0 is the one case the old predicate got right (LHS == 0 IS the
+     * solution there) -- pin that it still does. */
+    rhs[0] = 0;
+    p[0] = 0;   assert_true(potentials_total_violation(&con, p) == 0);
+    p[0] = -4;  assert_true(potentials_total_violation(&con, p) == 4);
+}
+
+/* INERTNESS PIN (the blast-radius argument): with no EQUAL constraint the
+ * predicate is byte-identical to the pre-fix one -- the changed branch is
+ * guarded by `sense == EQUAL` and is unreachable. Eq.29 uses only `<=`/`>=`
+ * (both stored as LOWER, `>=` via negated factors), so the frozen baselines
+ * cannot move. */
+static void test_potentials_total_violation_lower_unchanged(void **state) {
+    (void)state;
+    new_constraints_t con;
+    memset(&con, 0, sizeof(con));
+    int senses[2] = { LOWER, LOWER };
+    int64_t rhs[2] = { 10, 0 };
+    con.num_constraints = 2;
+    con.sense = senses;
+    con.rhs = rhs;
+
+    int64_t p[2];
+    /* both slack -> 0 (note p[0] == rhs[0] == 10, the cell the EQUAL branch
+     * would have mis-scored; LOWER must be untouched by the fix) */
+    p[0] = 10; p[1] = 0;   assert_true(potentials_total_violation(&con, p) == 0);
+    p[0] = 3;  p[1] = 5;   assert_true(potentials_total_violation(&con, p) == 0);
+    /* shortfalls sum as -min(0, p) */
+    p[0] = -4; p[1] = 0;   assert_true(potentials_total_violation(&con, p) == 4);
+    p[0] = -4; p[1] = -6;  assert_true(potentials_total_violation(&con, p) == 10);
+    p[0] = 7;  p[1] = -6;  assert_true(potentials_total_violation(&con, p) == 6);
+}
+
+/* ------------------------------------------------------------------ *
+ * MINIMIZE sum_i x_i  subject to  sum_i (i+1)*x_i == R.
+ * The all-zeros start has LHS == 0 != R, i.e. it is INFEASIBLE -- which is
+ * exactly what the pre-fix predicate denied.
+ * ------------------------------------------------------------------ */
+static model_t *build_min_equality_model(int n, int R) {
+    model_t *mod = init_model();
+
+    expression_t *con_all = init_expression();
+    for (int i = 0; i < n; i++) {
+        expression_t *t = init_expression();
+        add_variable(t, i);
+        multiply_constant(t, i + 1);
+        add_expression(con_all, t);
+        free_expression(t);
+    }
+    add_sense_to_expression(con_all, EQUAL);      /* Expression.pyx __eq__ */
+    add_rhs_to_expression(con_all, R);
+    add_expression_to_constraints(mod->con, con_all);
+
+    expression_t *obj_all = init_expression();
+    for (int i = 0; i < n; i++) { add_variable(obj_all, i); }
+    add_sense_to_expression(obj_all, LOWER);
+    add_rhs_to_expression(obj_all, 0);
+    add_expression_to_constraints(mod->obj, obj_all);
+
+    preprocessing(n, mod->con);
+    preprocessing(n, mod->obj);
+
+    int *arr = calloc((size_t) n, sizeof(int));
+    assert_non_null(arr);
+    mod->initial_state = init_state(0, arr, n);
+    mod->global_opt = init_state(0, arr, n);
+    free(arr);
+
+    mod->n = n;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = -1;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_all);
+    free_expression(obj_all);
+    return mod;
+}
+
+/* Premise check: eval_constraints -- the ground truth the accept must agree
+ * with -- really does reject LHS == 0 on an `== R` model with R != 0. */
+static void test_equality_encoding_sanity(void **state) {
+    (void)state;
+    const int n = 6, R = 7;
+    model_t *mod = build_min_equality_model(n, R);
+
+    int zeros[6] = {0, 0, 0, 0, 0, 0};
+    int hit[6]   = {1, 0, 0, 0, 0, 1};   /* 1 + 6 == 7 */
+    int over[6]  = {0, 0, 0, 0, 0, 1};   /* 6 != 7 */
+    state_t *s0 = init_state(0, zeros, n);
+    state_t *sh = init_state(0, hit, n);
+    state_t *so = init_state(0, over, n);
+
+    assert_int_equal(eval_constraints(mod->con, s0, n), 0);
+    assert_int_equal(eval_constraints(mod->con, sh, n), 1);
+    assert_int_equal(eval_constraints(mod->con, so, n), 0);
+
+    free_state(s0, 1);
+    free_state(sh, 1);
+    free_state(so, 1);
+    free_model(mod);
+}
+
+/* THE REGRESSION, end to end through CSearch_opt_sat: every accepted state's
+ * `feasible` flag must agree with eval_constraints on an EQUAL model too.
+ * Pre-fix the direction == 1 "was not feasible before, but now" branch fires on
+ * the all-zeros candidate and stamps feasible = 1. */
+static void test_opt_sat_equality_accept_flag_matches_eval(void **state) {
+    (void)state;
+    const int n = 6, R = 7;
+
+    int accepts = 0;
+    for (uint64_t seed = 1; seed <= 64; ++seed) {
+        model_t *mod = build_min_equality_model(n, R);
+
+        int zeros[6] = {0, 0, 0, 0, 0, 0};
+        state_t *cur_sol = init_state(0, zeros, n);
+        cur_sol->feasible = 0;
+        cur_sol->tot_profit = 1000;      /* violation sentinel */
+        assert_int_equal(eval_constraints(mod->con, cur_sol, n), 0);
+
+        solver_ctx_t *ctx = solver_ctx_create();
+        ctx->seed = seed;
+        solver_ctx_init_prng(ctx);
+        ctx->active_stats = &ctx->branching_stats_opt_sat;
+
+        int samples = 0;
+        for (int round = 0; round < 8; ++round) {
+            int res = CSearch_opt_sat(ctx, cur_sol, 2, mod->con, mod->obj,
+                                      0, 1, NULL, &samples);
+            if (!res) continue;
+            accepts++;
+            assert_int_equal(cur_sol->feasible,
+                             eval_constraints(mod->con, cur_sol, n));
+        }
+
+        free_state(cur_sol, 1);
+        solver_ctx_free(ctx);
+        free_model(mod);
+    }
+    assert_true(accepts > 0);
+}
+
+/* ...and end to end through ctg: an `== R` model must never report a feasible
+ * point that eval_constraints rejects (the §8-protected final incumbent /
+ * history streams read exactly these fields). */
+static void test_ctg_equality_never_reports_false_feasible(void **state) {
+    (void)state;
+    const int n = 6, R = 7;
+
+    for (uint64_t seed = 1; seed <= 24; ++seed) {
+        model_t *mod = build_min_equality_model(n, R);
+        mod->M = 300;
+        mod->opt_switch_oracles = 40;
+
+        int zeros[6] = {0, 0, 0, 0, 0, 0};
+        state_t *cur_sol = init_state(0, zeros, n);
+
+        solver_ctx_t *ctx = solver_ctx_create();
+        ctx->seed = seed;
+        solver_ctx_init_prng(ctx);
+
+        incumbents_t *inc = init_incumbents(n, cur_sol);
+        int feasible = ctg(ctx, mod, cur_sol, NULL, inc);
+
+        if (feasible || cur_sol->feasible) {
+            assert_int_equal(eval_constraints(mod->con, cur_sol, n), 1);
+            assert_int_equal(cur_sol->feasible, 1);
+        }
+        if (mod->global_opt->feasible) {
+            assert_int_equal(eval_constraints(mod->con, mod->global_opt, n), 1);
+        }
+
+        free_incumbents(inc);
+        free_state(cur_sol, 1);
+        solver_ctx_free(ctx);
+        free_model(mod);
+    }
+}
+
 /*
  * ignore_constraint_search starts ctg in stage 3 / CSearch_opt / stats_opt even
  * from an INFEASIBLE point (the flag skips the sat + opt_sat phases). CSearch_opt
@@ -335,6 +558,11 @@ int main(void) {
         cmocka_unit_test(test_opt_sat_accept_feasible_flag_matches_eval),
         cmocka_unit_test(test_opt_sat_direction1_accept_flag_matches_eval),
         cmocka_unit_test(test_ctg_cold_minimize_covering_crosses_switch),
+        cmocka_unit_test(test_potentials_total_violation_equal_golden),
+        cmocka_unit_test(test_potentials_total_violation_lower_unchanged),
+        cmocka_unit_test(test_equality_encoding_sanity),
+        cmocka_unit_test(test_opt_sat_equality_accept_flag_matches_eval),
+        cmocka_unit_test(test_ctg_equality_never_reports_false_feasible),
         cmocka_unit_test(test_ctg_ignore_constraint_search_stays_in_opt_phase),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

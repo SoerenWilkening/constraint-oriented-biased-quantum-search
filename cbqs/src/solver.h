@@ -16,6 +16,38 @@
 
 int update_potentials(new_constraints_t *con, int64_t *potentials, int direction, int64_t *ret_total);
 
+/*
+ * potentials_total_violation(con, potentials) -- the stage-1 constraint-violation
+ * sum CSearch_opt_sat minimises, and the predicate its `feasible` verdict is
+ * derived from (`total_violation == 0`).
+ *
+ * `potentials[c]` is `con->rhs[c] - LHS_c(assignment)` (memcpy of con->rhs at
+ * the top of every candidate, then update_potentials subtracts each assigned
+ * clause's contribution with direction PLAIN == -1, solver.c). So:
+ *   - inequality (LOWER, incl. the negated-LOWER encoding of `>=`): satisfied
+ *     iff LHS <= rhs iff potentials >= 0, and the shortfall is -min(0, p);
+ *   - EQUAL: satisfied iff LHS == rhs iff potentials == 0 -- the SAME predicate
+ *     CSearch_opt's `as1` uses (solver.c) and the one constraint.c's
+ *     eval_constraint means -- and the violation magnitude is |p|.
+ *
+ * Lives in the header (not solver.c's .o) so the rule is directly unit-testable
+ * as a pure predicate (CLAUDE.md §2.2), like SearchLib.h's
+ * global_opt_superseded_by. Shared by CSearch_opt_sat and its Monte-Carlo twin
+ * so the two can never drift (CLAUDE.md §2.7).
+ */
+static inline int64_t potentials_total_violation(const new_constraints_t *con,
+                                                 const int64_t *potentials) {
+	int64_t total_violation = 0;
+	for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
+		if (con->sense[cnstr] == EQUAL) {
+			total_violation += llabs(potentials[cnstr]);
+		} else {
+			total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
+		}
+	}
+	return total_violation;
+}
+
 /* bd h8d: operates in traversal-POSITION space. `order` maps position ->
  * variable (NULL = identity) and `rank` is its inverse (NULL = natural-
  * equivalent traversal); both must describe the SAME traversal the caller

@@ -648,15 +648,9 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
-        int64_t total_violation = 0;
-
-		for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
-			// only sum up violations
-			if (con->sense[cnstr] == EQUAL) {
-			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
-			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
-		}
+        /* Shared with the Monte-Carlo twin below (solver.h) so the two copies
+         * of this predicate can never drift (CLAUDE.md §2.7). */
+        int64_t total_violation = potentials_total_violation(con, potentials);
 		int feasible = (total_violation == 0);
 
         if (direction == 1 && feasible){
@@ -1052,15 +1046,9 @@ double CSearch_opt_sat_monte_carlo_sampler(
 		}
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
-        int64_t total_violation = 0;
-
-		for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
-			// only sum up violations
-			if (con->sense[cnstr] == EQUAL) {
-			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
-			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
-		}
+        /* Shared with the Monte-Carlo twin below (solver.h) so the two copies
+         * of this predicate can never drift (CLAUDE.md §2.7). */
+        int64_t total_violation = potentials_total_violation(con, potentials);
 		int feasible = (total_violation == 0);
 
         if (direction == 1 && feasible){
