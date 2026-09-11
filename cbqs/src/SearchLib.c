@@ -142,6 +142,25 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
     int feasible = eval_constraints(mod->con, cur_sol, n);
 
+	/* bd 47j: publish that verdict onto the state itself. eval_constraints
+	 * RETURNS feasibility but does not write cur_sol->feasible (constraint.c:497),
+	 * and cur_sol was copied from mod->initial_state, whose flag is 0 for every
+	 * manual_initial()/cold solve() start (init_state, state.c:23). So a start
+	 * that satisfies every constraint carried feasible == 0 -- an internally
+	 * inconsistent state: the local `feasible` says 1 while the state says 0.
+	 * run_sampling reads this field into the per-worker final incumbent
+	 * (value, feasible) that metric.instance_feasible falls back on, and the
+	 * `if (callback && cur_sol->feasible)` history gate reads it too.
+	 * NO-OP on every other OPTIMIZE path: the WARM start
+	 * (initial_state_preparation, solver.c:309) already set the identical
+	 * eval_constraints verdict, and an infeasible start writes back the 0 that
+	 * was already there. SATISFY is EXCLUDED and stays bit-for-bit: CSearch_sat
+	 * never writes cur_sol->feasible, so the flag is 0 for the whole run there
+	 * (Model.pyx:932 documents it as unreliable in that mode and derives
+	 * feasibility from tot_profit) -- writing it would newly open the
+	 * `if (callback && cur_sol->feasible)` history gate for SATISFY solves. */
+	if (mod->solver == OPTIMIZE) cur_sol->feasible = feasible;
+
 	int stage = 1;
 	if (mod->solver == SATISFY) {
 	    search_function = CSearch_sat;
@@ -152,6 +171,23 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	    ctx->active_stats = &ctx->branching_stats_opt_sat;
 	}
 	if (mod->solver == OPTIMIZE && feasible) {
+	    /* bd 47j: recompute the objective, as EVERY other stage-3 entry does
+	     * (the ignore_constraint_search entry below, the first-feasible fixup
+	     * and the opt-switch in the loop). This one did not, so it inherited
+	     * `cur_sol->tot_profit` verbatim from mod->initial_state -- i.e. the
+	     * caller-supplied `P` of manual_initial(P, assignment) (Model.pyx).
+	     * That value is what CSearch_opt compares against to accept a move
+	     * (`cur_sol->tot_profit > val`, solver.c:521), what global_opt is
+	     * seeded with below, and what Model.pyx:1001 reports as
+	     * result.objective -- so a wrong P silently reported a wrong objective
+	     * AND could kill the whole opt phase. Now that the seed below stamps
+	     * that state feasible, an unvalidated P would be reported as a
+	     * CONFIDENTLY feasible wrong answer; recomputing removes the hazard.
+	     * Provable no-op on both canonical protocols: cold is P == 0 with
+	     * objective_value(0^n) == 0 (every clause needs an assigned variable,
+	     * constraint.c:512-528), and the WARM start already carries exactly
+	     * this value (initial_state_preparation, solver.c:312-314). */
+	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
 	    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
 	    search_function = CSearch_opt;
@@ -164,6 +200,56 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	    search_function = CSearch_opt;
 	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
+	/* bd 47j: seed the shared incumbent from an already-feasible start.
+	 *
+	 * global_opt is handed to ctg by Model.manual_initial/solve() as
+	 * init_state(P, assignment, n) -- tot_profit == P and the hardcoded
+	 * feasible == 0 sentinel (state.c:23) -- and the ONLY other write is the
+	 * `if (res)` site below, i.e. it requires an accepted, strictly-improving
+	 * move. A start that is feasible AND optimal (e.g. the cold 0^n start of a
+	 * MINIMIZE model with a `<=` constraint: 0 <= rhs, and no non-negative-cost
+	 * item can lower the objective) never produces one, so solve() returned that
+	 * start's vector -- verified clean by eval_constraints -- while reporting
+	 * feasible=False off the untouched sentinel (bd 47j).
+	 *
+	 * Recording it here makes global_opt's flag and vector agree BEFORE the
+	 * search loop, and goes through the SAME acceptance rule as every other
+	 * write, so:
+	 *   - a WARM start is a strict no-op: initial_state_preparation already
+	 *     copied (vector, tot_profit, feasible) into global_opt (solver.c:328-330),
+	 *     so neither dominance cell fires and tot_profit compares equal;
+	 *   - an infeasible start is a strict no-op (cell 1 needs c->feasible);
+	 *   - a late-arriving portfolio worker cannot REGRESS an incumbent another
+	 *     worker already improved -- the rule rejects the start state then.
+	 * No oracle is charged (CLAUDE.md §1.2: this is a classical bookkeeping
+	 * write, the same uncharged eval_constraints the entry test above already
+	 * performs) and NO callback fires: history stays the accepted-improvement
+	 * stream that benchmarks.baselines.warm_repair_history anchors at oracle 0.
+	 * (warm_repair_history DOES guard against a double seed -- baselines.py:435
+	 * leaves a history already stamped at oracle 0 verbatim -- so emitting here
+	 * would not double-count. It is excluded because it would change
+	 * result.history / result.worker_histories, both §8-listed structures, for
+	 * every run with a feasible start INCLUDING runs that already report
+	 * feasible=True; that is a separate change owing its own frozen-table A/B.
+	 * Consequence, flagged loudly: metric.compute_primal_integral still scores
+	 * this class +inf off the empty history while result.feasible now says
+	 * True. That divergence is NOT new -- it is exactly the warm
+	 * feasible-greedy-never-improved case warm_repair_history was written for
+	 * -- but it now also covers cold feasible starts. See the bd follow-up.)
+	 *
+	 * ignore_constraint_search is EXCLUDED: that legacy path deliberately
+	 * resets the acceptance bound with an UNLOCKED shared write
+	 * (`mod->global_opt->tot_profit = 0` above), which the seed would both
+	 * subvert and race; and "feasible" is meaningless on a path that ignores
+	 * the constraints. Strict no-op there. */
+	if (mod->solver == OPTIMIZE && !mod->ignore_constraint_search) {
+		cbqs_mutex_lock(&update_lock);
+		if (global_opt_superseded_by(mod->global_opt, cur_sol, 1)) {
+			copy_state_inplace(mod->global_opt, cur_sol);
+		}
+		cbqs_mutex_unlock(&update_lock);
+	}
+
 	int direction = 1;
 	int updated = feasible;
 
@@ -323,8 +409,11 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             }
 
 			// update global_opt if better solution is found
+			/* bd 47j: feasibility-dominant acceptance in OPTIMIZE (legacy
+			 * tot_profit comparison in SATISFY). See global_opt_superseded_by. */
 			cbqs_mutex_lock(&update_lock);
-			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
+			if (global_opt_superseded_by(mod->global_opt, cur_sol,
+			                             mod->solver == OPTIMIZE)){
 			    copy_state_inplace(mod->global_opt, cur_sol);
 			}
 			cbqs_mutex_unlock(&update_lock);

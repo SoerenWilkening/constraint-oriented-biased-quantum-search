@@ -224,6 +224,232 @@ static void test_opt_switch_feasibility_gate(void **state) {
     free_model(mod);
 }
 
+/* ---------- bd 47j: the shared-incumbent acceptance rule ---------- */
+
+/* global_opt_superseded_by is a pure predicate (SearchLib.h) -- pin EVERY cell
+ * directly. Cell 2 (feasible incumbent vs infeasible candidate) is otherwise
+ * unreachable from any fixture in this file, and an untested branch is a §2.2
+ * RED-GREEN gap in exactly the branch that protects the incumbent from being
+ * corrupted by a stage-2 slack state (solver.c:688-692). */
+static void test_global_opt_acceptance_rule(void **state) {
+    (void)state;
+    int z[1] = {0};
+    state_t *g = init_state(0, z, 1);
+    state_t *c = init_state(0, z, 1);
+
+    /* --- OPTIMIZE (feasibility_aware = 1) --- */
+    /* cell 1: infeasible incumbent, feasible candidate -> ALWAYS accept, even
+     * when the candidate's objective is strictly WORSE (this is the bd 47j
+     * cell: the cold MINIMIZE start has tot_profit 0 vs a 0 sentinel). */
+    g->feasible = 0; c->feasible = 1;
+    g->tot_profit = 0;      c->tot_profit = 0;      assert_int_equal(global_opt_superseded_by(g, c, 1), 1);
+    g->tot_profit = -1000;  c->tot_profit = 1000;   assert_int_equal(global_opt_superseded_by(g, c, 1), 1);
+
+    /* cell 2: feasible incumbent, infeasible candidate -> NEVER regress, even
+     * when the candidate's tot_profit looks better (a stage-2 slack is not an
+     * objective). The LEGACY rule accepted this and flipped global_opt back to
+     * infeasible. */
+    g->feasible = 1; c->feasible = 0;
+    g->tot_profit = 1000;   c->tot_profit = -1000;  assert_int_equal(global_opt_superseded_by(g, c, 1), 0);
+    g->tot_profit = 0;      c->tot_profit = -1;     assert_int_equal(global_opt_superseded_by(g, c, 1), 0);
+
+    /* cell 3: same class -> the legacy strict comparison, ties keep the incumbent. */
+    g->feasible = 1; c->feasible = 1;
+    g->tot_profit = 10; c->tot_profit = 9;  assert_int_equal(global_opt_superseded_by(g, c, 1), 1);
+    g->tot_profit = 10; c->tot_profit = 10; assert_int_equal(global_opt_superseded_by(g, c, 1), 0);
+    g->tot_profit = 10; c->tot_profit = 11; assert_int_equal(global_opt_superseded_by(g, c, 1), 0);
+    g->feasible = 0; c->feasible = 0;
+    g->tot_profit = 10; c->tot_profit = 9;  assert_int_equal(global_opt_superseded_by(g, c, 1), 1);
+    g->tot_profit = 10; c->tot_profit = 10; assert_int_equal(global_opt_superseded_by(g, c, 1), 0);
+
+    /* --- SATISFY (feasibility_aware = 0): reduces to the LEGACY comparison in
+     * every feasibility combination, bit-for-bit. --- */
+    for (int gf = 0; gf < 2; ++gf) for (int cf = 0; cf < 2; ++cf) {
+        g->feasible = gf; c->feasible = cf;
+        g->tot_profit = 5; c->tot_profit = 4;
+        assert_int_equal(global_opt_superseded_by(g, c, 0), 1);
+        g->tot_profit = 4; c->tot_profit = 5;
+        assert_int_equal(global_opt_superseded_by(g, c, 0), 0);
+        g->tot_profit = 4; c->tot_profit = 4;
+        assert_int_equal(global_opt_superseded_by(g, c, 0), 0);
+    }
+
+    free_state(g, 1);
+    free_state(c, 1);
+}
+
+/* ---------- bd 47j: a FEASIBLE start must be recorded as the incumbent ---------- */
+
+/* Mirror of the PYTHON cold path (Model.pyx manual_initial/solve), which is what
+ * bd 47j reports: constraint 2*sum x <= 33 (all-zeros FEASIBLE) and objective
+ * +2*sum x, so the internal minimize direction makes the all-zeros start the true
+ * OPTIMUM -- no strictly-improving move exists and `res` is never 1.
+ *
+ * Crucially, global_opt is seeded exactly as the Python layer seeds it:
+ * init_state(0, zeros, 5), i.e. tot_profit == 0 and the state.c:23 hardcoded
+ * `feasible = 0` sentinel -- NOT the INT64_MAX the other C builders here use.
+ * (INT64_MAX masks the defect: the first accepted move then always improves on
+ * it, so global_opt gets overwritten and picks up a correct feasible flag.) */
+static model_t *build_minimize_feasible_start_5var(void) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(con_expr, i); multiply_constant(con_expr, 2); }
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, 33);
+    add_expression_to_constraints(mod->con, con_expr);
+
+    /* NO multiply_constant(-1): minimizing tot_profit == minimizing +2*sum x. */
+    expression_t *obj_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(obj_expr, i); multiply_constant(obj_expr, 2); }
+    add_sense_to_expression(obj_expr, LOWER);
+    add_rhs_to_expression(obj_expr, 0);
+    add_expression_to_constraints(mod->obj, obj_expr);
+
+    preprocessing(5, mod->con);
+    preprocessing(5, mod->obj);
+
+    int arr[5] = {0, 0, 0, 0, 0};
+    mod->initial_state = init_state(0, arr, 5);   /* tot_profit 0, feasible 0 */
+    mod->global_opt    = init_state(0, arr, 5);   /* the Python-path sentinel   */
+
+    mod->n = 5;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = 1e6;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_expr);
+    free_expression(obj_expr);
+    return mod;
+}
+
+/* bd 47j (CLAUDE.md §2.1 / §5 "Feasibility sign/EQUAL accounting"): the feasibility
+ * flags must describe THE STATE THAT IS RETURNED, not "an improvement was accepted".
+ *
+ * PRE-FIX (RED): ctg computes `int feasible = eval_constraints(...)` at entry but
+ * writes that truth NOWHERE -- cur_sol->feasible keeps init_state's 0, and
+ * global_opt is only ever written inside `if (res)` under
+ * `global_opt->tot_profit > cur_sol->tot_profit`. With a feasible-and-optimal
+ * start, `res` is never 1, so BOTH flags stay 0 while the returned vector
+ * satisfies every constraint. Model.pyx:938 then reports feasible=False for a
+ * verified-clean optimum, and run_sampling's per-worker (value, feasible) tuple
+ * -- the metric.py empty-history fallback -- agrees with it. */
+static void test_feasible_start_recorded_as_incumbent(void **state) {
+    (void)state;
+    model_t *mod = build_minimize_feasible_start_5var();
+    mod->M = 400;
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, zeros, 5);
+
+    /* Preconditions: the start really is feasible, and global_opt really carries
+     * the feasible=0 sentinel the Python layer hands ctg. */
+    assert_int_equal(eval_constraints(mod->con, cur_sol, 5), 1);
+    assert_int_equal(mod->global_opt->feasible, 0);
+    assert_true(mod->global_opt->tot_profit == 0);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0x4701ULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    int feasible = ctg(ctx, mod, cur_sol, NULL, inc);
+
+    /* The oracle budget was spent (§1.2: the fix must not change accounting). */
+    assert_true(ctx->oracle_count >= (size_t) mod->M);
+
+    /* ctg's own return value was already right -- it is the two STATE flags that lie. */
+    assert_true(feasible);
+
+    /* (1) the worker's own state: run_sampling reads this into final_incumbents. */
+    assert_int_equal(eval_constraints(mod->con, cur_sol, 5), 1);
+    assert_int_equal(cur_sol->feasible, 1);
+
+    /* (2) the shared incumbent: Model.solve() reads BOTH the vector and the flag
+     *     off global_opt, so they must agree (the real API contract). */
+    assert_int_equal(eval_constraints(mod->con, mod->global_opt, 5), 1);
+    assert_int_equal(mod->global_opt->feasible, 1);
+    assert_true(mod->global_opt->tot_profit == 0);   /* the all-zeros optimum */
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
+/* UNSATISFIABLE covering instance: negated-LOWER factors -1 with rhs -1 requires
+ * 5 - sum x <= -1, i.e. sum x >= 6 over 5 variables -- no assignment satisfies it.
+ * global_opt is seeded with the Python-path (0, feasible=0) sentinel. */
+static model_t *build_unsat_covering_5var(void) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(con_expr, i); }
+    multiply_constant(con_expr, -1);
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, -1);        /* requires sum x >= 6: UNSAT */
+    add_expression_to_constraints(mod->con, con_expr);
+
+    expression_t *obj_expr = init_expression();
+    for (int i = 0; i < 5; i++) { add_variable(obj_expr, i); }
+    multiply_constant(obj_expr, -1);
+    add_sense_to_expression(obj_expr, LOWER);
+    add_rhs_to_expression(obj_expr, 0);
+    add_expression_to_constraints(mod->obj, obj_expr);
+
+    preprocessing(5, mod->con);
+    preprocessing(5, mod->obj);
+
+    int arr[5] = {0, 0, 0, 0, 0};
+    mod->initial_state = init_state(0, arr, 5);
+    mod->global_opt    = init_state(0, arr, 5);   /* the Python-path sentinel */
+
+    mod->n = 5;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = 1e6;
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+
+    free_expression(con_expr);
+    free_expression(obj_expr);
+    return mod;
+}
+
+/* Negative control for the same code path: with an INFEASIBLE start that no
+ * assignment can repair, global_opt must still report feasible == 0. Guards
+ * against "fix" by unconditionally setting the flag, and pins that the seeding
+ * is gated on the real eval_constraints result. */
+static void test_infeasible_start_not_marked_feasible(void **state) {
+    (void)state;
+    model_t *mod = build_unsat_covering_5var();   /* NO feasible assignment exists */
+    mod->M = 400;
+
+    int zeros[5] = {0, 0, 0, 0, 0};
+    state_t *cur_sol = init_state(0, zeros, 5);
+    assert_int_equal(eval_constraints(mod->con, cur_sol, 5), 0);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 0xBADF00DULL;
+    solver_ctx_init_prng(ctx);
+    incumbents_t *inc = init_incumbents(5, cur_sol);
+
+    ctg(ctx, mod, cur_sol, NULL, inc);
+
+    assert_int_equal(eval_constraints(mod->con, mod->global_opt, 5), 0);
+    assert_int_equal(mod->global_opt->feasible, 0);
+    assert_int_equal(cur_sol->feasible, 0);
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 /* ---------- bd lif: per-worker wall-clock telemetry (ctx->runtime) ---------- */
 
 /* ctg must record its wall-clock telemetry in the PER-WORKER ctx->runtime, never
@@ -297,7 +523,16 @@ static void test_callback_per_worker_incumbent_logging(void **state) {
     (void)state;
     model_t *mod = build_knapsack_5var();
     mod->M = 200;
+    /* An incumbent no worker can beat. bd 47j: the acceptance rule is now
+     * feasibility-dominant (global_opt_superseded_by, SearchLib.c), so an
+     * unbeatable pre-seed must ALSO be marked feasible -- an infeasible
+     * incumbent is superseded by any feasible state however good its
+     * tot_profit, and the all-zeros start of this knapsack IS feasible
+     * (2*sum x <= 33). The assertion below is unchanged and just as strong:
+     * with feasible == 1 and tot_profit == INT64_MIN/2 neither dominance cell
+     * nor the tot_profit comparison can fire. */
     mod->global_opt->tot_profit = INT64_MIN / 2;   /* never beaten by any worker */
+    mod->global_opt->feasible = 1;
 
     int zeros[5] = {0, 0, 0, 0, 0};
     state_t *cur_sol = init_state(0, zeros, 5);
@@ -330,6 +565,7 @@ static void test_callback_per_worker_incumbent_logging(void **state) {
     /* global_opt stays at the pre-seed: the callback provably no longer
      * depends on (or perturbs) the shared incumbent. */
     assert_true(mod->global_opt->tot_profit == INT64_MIN / 2);
+    assert_int_equal(mod->global_opt->feasible, 1);   /* bd 47j: flag unperturbed too */
 
     free_incumbents(inc);
     free_state(cur_sol, 1);
@@ -347,7 +583,13 @@ static void test_callback_first_feasible_objective(void **state) {
     (void)state;
     model_t *mod = build_covering_5var();
     mod->M = 2000;
+    /* bd 47j: an unbeatable incumbent must ALSO be feasible under the
+     * feasibility-dominant rule -- otherwise the first-feasible write
+     * supersedes it on the feasibility cell and the pre-seed is not, in fact,
+     * never beaten. (This test asserts nothing about global_opt; the pre-seed
+     * exists only to prove the CALLBACK does not depend on it.) */
     mod->global_opt->tot_profit = INT64_MIN / 2;   /* never beaten */
+    mod->global_opt->feasible = 1;
 
     int zeros[5] = {0, 0, 0, 0, 0};
     state_t *cur_sol = init_state(0, zeros, 5);
@@ -801,6 +1043,9 @@ int main(void) {
         cmocka_unit_test(test_callback_per_worker_incumbent_logging),
         cmocka_unit_test(test_callback_first_feasible_objective),
         cmocka_unit_test(test_opt_switch_feasibility_gate),
+        cmocka_unit_test(test_global_opt_acceptance_rule),
+        cmocka_unit_test(test_feasible_start_recorded_as_incumbent),
+        cmocka_unit_test(test_infeasible_start_not_marked_feasible),
         cmocka_unit_test(test_csearch_opt_diagnostics_exact),
         cmocka_unit_test(test_csearch_opt_diagnostics_flips),
         cmocka_unit_test(test_decision_touch_free_taxonomy),
