@@ -19,6 +19,16 @@
 #include "solver_ctx.h"
 #include "Branching.h"
 #include "platform.h"
+/* bd 47j / bd xjs follow-up: this file now also drives ctg() itself from
+ * several threads (test_ctg_concurrent_global_opt), which is the ONLY test
+ * anywhere that does so -- and tests/run_sanitizers.sh runs TSan on exactly
+ * this target (`-R test_thread_safety`). */
+#include "SearchLib.h"
+#include "solver.h"
+#include "model.h"
+#include "constraint.h"
+#include "Expression.h"
+#include "definitions.h"
 
 #if defined(_WIN32)
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -249,6 +259,157 @@ static void test_debug_output(void **state) {
     test_unsetenv("CBQS_DEBUG");
 }
 
+
+/* ============================================================
+ * bd 47j / bd xjs follow-up: ctg()'s cross-worker critical section
+ * ============================================================
+ *
+ * The production topology (Model.solve -> joblib threading): every worker gets
+ * its OWN solver_ctx_t, cur_sol and incumbents, and they ALL share ONE model_t*
+ * -- including mod->global_opt, which ctg now writes in TWO places under
+ * update_lock (the pre-loop feasible-start seed and the in-loop publish).
+ *
+ * Before this test NOTHING ran ctg from more than one thread: test_searchlib and
+ * test_opt_sat_feasibility are single-threaded, and this file (the one target
+ * run_sanitizers.sh puts under TSan) did not link SearchLib.c or solver.c at
+ * all. So the new critical section had ZERO sanitizer coverage.
+ *
+ * What it proves:
+ *   - no TSan report on the shared mod->global_opt / update_lock / g_active_ctx;
+ *   - the shared incumbent is SELF-CONSISTENT after the join (its flag agrees
+ *     with eval_constraints on its own vector) -- the bd 47j contract, now
+ *     under concurrent writers;
+ *   - no worker REGRESSES the incumbent (the feasibility-dominant acceptance
+ *     rule never overwrites a feasible global_opt with an infeasible state).
+ *
+ * `update_lock` itself needs no setup here: cbqs_call_once(&update_lock_once,
+ * update_lock_init) is the first statement of ctg.
+ */
+
+#define TS_N 8
+#define TS_THREADS 4
+
+/* MAXIMIZE sum_i (i+1)*x_i s.t. sum_i x_i >= 3, stored the way the Python layer
+ * stores it: `>=` as negated-LOWER (factors -1, rhs n-k) and MAXIMIZE as negated
+ * objective factors, so objective_value(0^n) == 0 and improving moves exist (a
+ * MINIMIZE fixture from 0^n would never accept and the test would be vacuous).
+ * global_opt carries the init_state(0, 0^n) sentinel the Python path hands ctg. */
+static model_t *ts_build_max_covering_model(void) {
+    model_t *mod = init_model();
+
+    expression_t *con_expr = init_expression();
+    for (int i = 0; i < TS_N; i++) { add_variable(con_expr, i); }
+    multiply_constant(con_expr, -1);
+    add_sense_to_expression(con_expr, LOWER);
+    add_rhs_to_expression(con_expr, TS_N - 3);      /* <=> sum x >= 3 */
+    add_expression_to_constraints(mod->con, con_expr);
+
+    expression_t *obj_all = init_expression();
+    for (int i = 0; i < TS_N; i++) {
+        expression_t *t = init_expression();
+        add_variable(t, i);
+        multiply_constant(t, -(i + 1));
+        add_expression(obj_all, t);
+        free_expression(t);
+    }
+    add_sense_to_expression(obj_all, LOWER);
+    add_rhs_to_expression(obj_all, 0);
+    add_expression_to_constraints(mod->obj, obj_all);
+
+    preprocessing(TS_N, mod->con);
+    preprocessing(TS_N, mod->obj);
+
+    int arr[TS_N] = {0};
+    mod->initial_state = init_state(0, arr, TS_N);
+    mod->global_opt    = init_state(0, arr, TS_N);
+
+    mod->n = TS_N;
+    mod->depth_look_ahead = 0;
+    mod->stopping_time = -1;          /* wall-clock stop OFF (oracle-indexed) */
+    mod->stop_val = -1;
+    mod->ignore_constraint_search = 0;
+    mod->solver = OPTIMIZE;
+    mod->break_item = 0;
+    mod->M = 200;                     /* small: TSan instrumentation is ~10x */
+    mod->opt_switch_oracles = 30;
+
+    free_expression(con_expr);
+    free_expression(obj_all);
+    return mod;
+}
+
+typedef struct {
+    model_t *mod;
+    uint64_t seed;
+    int returned_feasible;
+    int final_flag;
+} ctg_worker_data_t;
+
+static void *ctg_worker_thread(void *arg) {
+    ctg_worker_data_t *d = (ctg_worker_data_t *)arg;
+
+    int zeros[TS_N] = {0};
+    state_t *cur_sol = init_state(0, zeros, TS_N);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = d->seed;
+    solver_ctx_init_prng(ctx);
+
+    incumbents_t *inc = init_incumbents(TS_N, cur_sol);
+    d->returned_feasible = ctg(ctx, d->mod, cur_sol, NULL, inc);
+    d->final_flag = cur_sol->feasible;
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    return NULL;
+}
+
+static void test_ctg_concurrent_global_opt(void **state) {
+    (void)state;
+
+    model_t *mod = ts_build_max_covering_model();
+
+    /* Premise: the shared start is INFEASIBLE, so every worker has to publish a
+     * first-feasible state -- i.e. the critical section is actually contended. */
+    assert_int_equal(mod->global_opt->feasible, 0);
+    assert_int_equal(eval_constraints(mod->con, mod->global_opt, TS_N), 0);
+
+    ctg_worker_data_t data[TS_THREADS];
+    cbqs_thread_t threads[TS_THREADS];
+    for (int i = 0; i < TS_THREADS; i++) {
+        data[i].mod = mod;
+        data[i].seed = (uint64_t)(i + 1) * 0x9E3779B97F4A7C15ULL;
+        data[i].returned_feasible = 0;
+        data[i].final_flag = 0;
+        assert_int_equal(cbqs_thread_create(&threads[i], ctg_worker_thread, &data[i]), 0);
+    }
+    for (int i = 0; i < TS_THREADS; i++) {
+        assert_int_equal(cbqs_thread_join(&threads[i]), 0);
+    }
+
+    /* The contested field is self-consistent: the flag describes the vector. */
+    assert_int_equal(mod->global_opt->feasible,
+                     eval_constraints(mod->con, mod->global_opt, TS_N));
+
+    /* At least one worker reached feasibility (anti-vacuity: without this the
+     * assertion above is satisfied by the untouched infeasible sentinel). */
+    int any_feasible = 0;
+    for (int i = 0; i < TS_THREADS; i++) {
+        if (data[i].returned_feasible) any_feasible = 1;
+        /* per-worker state is self-consistent too */
+        assert_true(data[i].returned_feasible == 0 || data[i].final_flag == 1);
+    }
+    assert_true(any_feasible);
+
+    /* ...so the shared incumbent must have been raised and NEVER regressed. */
+    assert_int_equal(mod->global_opt->feasible, 1);
+    /* MAXIMIZE is stored negated, so a published objective is strictly < 0. */
+    assert_true(mod->global_opt->tot_profit < 0);
+
+    free_model(mod);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_independent_contexts),
@@ -256,6 +417,7 @@ int main(void) {
         cmocka_unit_test(test_stop_flag_visibility),
         cmocka_unit_test(test_timeout_triggers_stop),
         cmocka_unit_test(test_debug_output),
+        cmocka_unit_test(test_ctg_concurrent_global_opt),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

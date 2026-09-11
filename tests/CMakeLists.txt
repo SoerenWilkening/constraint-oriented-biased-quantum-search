@@ -257,6 +257,15 @@ add_cmocka_test(test_local_search
 # - Atomic stop flag visibility across threads
 # - Timeout mechanism works correctly
 # - Debug output doesn't crash
+# bd 47j / bd xjs follow-up: SearchLib.c + solver.c (and their deps) are linked
+# in so test_ctg_concurrent_global_opt can drive ctg() from several threads --
+# the ONLY multi-threaded ctg coverage anywhere, and the one that puts ctg's new
+# update_lock critical section over the shared mod->global_opt under TSan.
+# EXTENDING this existing target (rather than adding a new one) is deliberate:
+# tests/run_sanitizers.sh runs TSan with `-R test_thread_safety`, and CI's three
+# hand-maintained `ctest -R` filters (CLAUDE.md §5) already match it -- a new
+# target would have to be added to all four by hand and would silently not run
+# until it was.
 add_cmocka_test(test_thread_safety
     test_thread_safety.c
     ${CBQS_SRC_DIR}/solver_ctx.c
@@ -266,6 +275,14 @@ add_cmocka_test(test_thread_safety
     ${CBQS_SRC_DIR}/Branching.c
     ${CBQS_SRC_DIR}/state.c
     ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
 )
 
 # --- Plan 04-01: PRNG unit tests ---
@@ -463,4 +480,26 @@ add_cmocka_test(test_reduce_ops
     ${CBQS_SRC_DIR}/variable_vector.c
     ${CBQS_SRC_DIR}/Expression.c
     ${CBQS_SRC_DIR}/dyn_expr.c
+)
+
+# --- bd xjs: opt_sat feasibility bookkeeping / phase-machine coupling ---
+# Drives CSearch_opt_sat directly AND ctg end-to-end on the MINIMIZE + `>=`
+# covering + cold-start configuration (same source list as test_searchlib).
+add_cmocka_test(test_opt_sat_feasibility
+    test_opt_sat_feasibility.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
 )

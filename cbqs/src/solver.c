@@ -401,9 +401,20 @@ int CSearch_opt(solver_ctx_t *ctx, state_t *cur_sol, int j,
 	 * re-scans are replaced by O(C) incremental marginal reads; incr_create returns
 	 * NULL for k-ary (clause length > 2) models, which fall back to the dense path.
 	 * CBQS_NO_INCR=1 forces the dense path (kill-switch / equivalence A-B; cached once). */
-	static int incr_disabled = -1;
-	if (incr_disabled < 0) incr_disabled = getenv("CBQS_NO_INCR") ? 1 : 0;
-	incr_state_t *st = (depth_look_ahead == 0 && !incr_disabled) ? incr_create(con, n, var_order, var_rank) : NULL;
+	/* ATOMIC (relaxed): solve() runs CSearch_opt from P worker threads, so the
+	 * lazy init of this file-scope cache was a genuine write/read data race --
+	 * found by TSan the first time any test drove ctg from more than one thread
+	 * (tests/test_thread_safety.c::test_ctg_concurrent_global_opt). It is
+	 * value-idempotent (every thread computes the same 0/1 from the same env
+	 * var), so relaxed ordering is enough: the only cost of a lost race is one
+	 * extra getenv(). Do NOT demote this back to a plain `static int`. */
+	static _Atomic int incr_disabled = -1;
+	int incr_off = atomic_load_explicit(&incr_disabled, memory_order_relaxed);
+	if (incr_off < 0) {
+		incr_off = getenv("CBQS_NO_INCR") ? 1 : 0;
+		atomic_store_explicit(&incr_disabled, incr_off, memory_order_relaxed);
+	}
+	incr_state_t *st = (depth_look_ahead == 0 && !incr_off) ? incr_create(con, n, var_order, var_rank) : NULL;
 	for (l = 0; l < Leff; l++) {
 		/* bd 0o8.3: interrupt this round once the wall deadline passes (see the
 		 * opt_sat/sat loops); no-op when deadline_ns == 0, 2j+1 charge unaffected. */
@@ -648,15 +659,9 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
-        int64_t total_violation = 0;
-
-		for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
-			// only sum up violations
-			if (con->sense[cnstr] == EQUAL) {
-			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
-			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
-		}
+        /* Shared with the Monte-Carlo twin below (solver.h) so the two copies
+         * of this predicate can never drift (CLAUDE.md §2.7). */
+        int64_t total_violation = potentials_total_violation(con, potentials);
 		int feasible = (total_violation == 0);
 
         if (direction == 1 && feasible){
@@ -689,7 +694,22 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    sw_set_inplace(cur_sol->vector, new_sol->vector);
 		    sw_set_inplace(cur_sol->branch, new_sol->branch);
 		    cur_sol->tot_profit = total_violation;
-		    cur_sol->feasible = 0;
+		    /* bd xjs: report the TRUTH, not a constant. This branch used to stamp
+		     * `cur_sol->feasible = 0` unconditionally, which is only correct for
+		     * direction == 1: a direction == 1 candidate that IS feasible returns
+		     * through the dedicated first-feasibility branch above, so reaching
+		     * here with direction == 1 implies `feasible == 0` and the write is
+		     * bit-for-bit unchanged. With direction == -1 (stage 2, tightening an
+		     * already-feasible incumbent) the accept guard `(direction == 1 ||
+		     * feasible)` can only be satisfied by `feasible`, i.e. the accepted
+		     * candidate is PROVABLY feasible -- and stamping 0 handed ctg a state
+		     * whose vector satisfies every constraint while its flag denied it.
+		     * The exploit->explore switch's fail-loud guard then aborted the
+		     * process (NORTHSTAR §5 phase-machine coupling). Note tot_profit above
+		     * is a violation (direction 1) / slack (direction -1) sum either way,
+		     * NOT an objective; ctg tracks that separately (profit_is_objective)
+		     * instead of overloading this flag. */
+		    cur_sol->feasible = feasible;
             free_state(new_sol, 1);
             *samples += (int) l;
 			free(potentials);
@@ -1037,15 +1057,9 @@ double CSearch_opt_sat_monte_carlo_sampler(
 		}
         // this method is only called, when no feasible solution was found yet:
         // so we minimize either the constraint violation, or compute the objcetive value
-        int64_t total_violation = 0;
-
-		for (uint32_t cnstr = 0; cnstr < con->num_constraints; ++cnstr) {
-			// only sum up violations
-			if (con->sense[cnstr] == EQUAL) {
-			    // ehen equality, the total violation is the difference from protentials being unequal 0
-			    total_violation += potentials[cnstr] != con->rhs[cnstr] ? llabs(potentials[cnstr]) : 0;
-			}else total_violation -= potentials[cnstr] < 0 ? potentials[cnstr] : 0;
-		}
+        /* Shared with the Monte-Carlo twin below (solver.h) so the two copies
+         * of this predicate can never drift (CLAUDE.md §2.7). */
+        int64_t total_violation = potentials_total_violation(con, potentials);
 		int feasible = (total_violation == 0);
 
         if (direction == 1 && feasible){

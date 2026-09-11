@@ -62,12 +62,27 @@ void free_incumbents(incumbents_t *incumbents){
 
 /* Global pointer to active solver context for signal handler access.
  * This is needed because signal handlers cannot receive user data.
- * Only one solve can be active with signal handling at a time. */
-static solver_ctx_t *g_active_ctx = NULL;
+ *
+ * ATOMIC (not a plain pointer): solve() fans ctg out over P threads that all
+ * share this file-scope slot, so the plain `g_active_ctx = ctx` at ctg entry
+ * and the `= NULL` at exit were an unsynchronised write/write and a
+ * signal-handler read racing both -- a data race in the C sense (and one TSan
+ * reports the moment more than one thread runs ctg, which is why no test could
+ * see it before test_ctg_concurrent_global_opt). Relaxed ordering is
+ * sufficient: the pointee is a per-worker ctx whose only cross-thread field is
+ * the atomic `stop` flag solver_ctx_request_stop sets, and the semantics stay
+ * exactly what they were -- last writer wins, the handler stops whichever
+ * worker registered most recently. (That last-writer-wins behaviour is itself
+ * wrong for P > 1 -- one worker's exit also restores SIG_DFL while the others
+ * still run -- but fixing the INTERRUPT SEMANTICS is a separate change; this
+ * one only makes the access well-defined.) */
+static _Atomic(solver_ctx_t *) g_active_ctx = NULL;
 
 static void handle_signal(int signum) {
-    if (g_active_ctx != NULL) {
-        solver_ctx_request_stop(g_active_ctx);
+    (void) signum;
+    solver_ctx_t *ctx = atomic_load_explicit(&g_active_ctx, memory_order_relaxed);
+    if (ctx != NULL) {
+        solver_ctx_request_stop(ctx);
     }
 }
 
@@ -119,8 +134,33 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * unbounded (exact rejection sim). The 2j+1 oracle charge below is untouched. */
 	ctx->opt_sample_cap = (int64_t) mod->opt_sample_cap;
 
-	/* Function pointer for CSearch_* functions - all now take ctx as first parameter */
-	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
+	/* §2.1 FAIL LOUD (survives -DNDEBUG, unlike assert -- the production .so is
+	 * built with it). ctg dereferences mod->global_opt unconditionally below (the
+	 * bd 47j entry seed and the in-loop publish), and model.c:26 initialises it to
+	 * NULL. Unreachable from the Python API -- Model.pyx nulls it only together
+	 * with initialized=False, and solve() re-runs manual_initial -- but a raw-C-API
+	 * caller that forgets init_state would otherwise segfault inside the search
+	 * with no explanation. */
+	if (mod->global_opt == NULL) {
+		fprintf(stderr, "ctg: mod->global_opt is NULL -- initialise it with "
+		                "init_state() before calling ctg (Model.manual_initial does "
+		                "this; the raw C API must do it too)\n");
+		abort();
+	}
+	/* §2.1 FAIL LOUD: the phase machine below only assigns search_function under
+	 * SATISFY or OPTIMIZE. Any other value used to leave it INDETERMINATE and be
+	 * called through; the per-round coupling check reads it too. Reject up front. */
+	if (mod->solver != SATISFY && mod->solver != OPTIMIZE) {
+		fprintf(stderr, "ctg: unknown mod->solver == %d (expected SATISFY %d or "
+		                "OPTIMIZE %d)\n", mod->solver, SATISFY, OPTIMIZE);
+		abort();
+	}
+
+	/* Function pointer for CSearch_* functions - all now take ctx as first parameter.
+	 * Initialised to NULL so a missed phase assignment is a deterministic crash,
+	 * not an indeterminate call (CLAUDE.md §2.1); the entry guard above plus the
+	 * per-round coupling check make that unreachable. */
+	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *) = NULL;
  
 	array_t fulfilled_objective_terms = sw_init(mod->obj->num_clauses[0]);
 
@@ -142,6 +182,33 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
     int feasible = eval_constraints(mod->con, cur_sol, n);
 
+	/* bd 47j: publish that verdict onto the state itself. eval_constraints
+	 * RETURNS feasibility but does not write cur_sol->feasible (constraint.c:497),
+	 * and cur_sol was copied from mod->initial_state, whose flag is 0 for every
+	 * manual_initial()/cold solve() start (init_state, state.c:23). So a start
+	 * that satisfies every constraint carried feasible == 0 -- an internally
+	 * inconsistent state: the local `feasible` says 1 while the state says 0.
+	 * run_sampling reads this field into the per-worker final incumbent
+	 * (value, feasible) that metric.instance_feasible falls back on, and the
+	 * `if (callback && cur_sol->feasible)` history gate reads it too.
+	 * NO-OP on every other OPTIMIZE path: the WARM start
+	 * (initial_state_preparation, solver.c) already set the identical
+	 * eval_constraints verdict, and an infeasible start writes back the 0 that
+	 * was already there.
+	 *
+	 * SATISFY is EXCLUDED and stays bit-for-bit. CORRECTION (the bd 47j comment
+	 * here claimed "CSearch_sat never writes cur_sol->feasible, so the flag is 0
+	 * for the whole run there" -- that is FALSE): CSearch_sat indeed never writes
+	 * it, but initial_state_preparation does, for EVERY solver mode, so a WARM
+	 * SATISFY start carries feasible == 1 and the
+	 * `if (callback && cur_sol->feasible)` history gate is already open there.
+	 * Measured: n=12 trivially-satisfiable SATISFY model, warm -> len(history)
+	 * == 1, cold -> 0, on this build AND on ca97941. The exclusion is therefore
+	 * justified by "do not perturb a mode whose flag Model.pyx:932 documents as
+	 * unreliable and whose feasibility is derived from tot_profit", NOT by the
+	 * flag being constant. */
+	if (mod->solver == OPTIMIZE) cur_sol->feasible = feasible;
+
 	int stage = 1;
 	if (mod->solver == SATISFY) {
 	    search_function = CSearch_sat;
@@ -152,6 +219,33 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	    ctx->active_stats = &ctx->branching_stats_opt_sat;
 	}
 	if (mod->solver == OPTIMIZE && feasible) {
+	    /* bd 47j: recompute the objective, as EVERY other stage-3 entry does
+	     * (the ignore_constraint_search entry below, the first-feasible fixup
+	     * and the opt-switch in the loop). This one did not, so it inherited
+	     * `cur_sol->tot_profit` verbatim from mod->initial_state -- i.e. the
+	     * caller-supplied `P` of manual_initial(P, assignment) (Model.pyx).
+	     * That value is what CSearch_opt compares against to accept a move
+	     * (`cur_sol->tot_profit > val`, solver.c:521), what global_opt is
+	     * seeded with below, and what Model.pyx:1001 reports as
+	     * result.objective -- so a wrong P silently reported a wrong objective
+	     * AND could kill the whole opt phase. Now that the seed below stamps
+	     * that state feasible, an unvalidated P would be reported as a
+	     * CONFIDENTLY feasible wrong answer; recomputing removes the hazard.
+	     * No-op on both canonical protocols AS THEY ARE USED IN THIS REPO, but
+	     * NOT unconditionally. CORRECTION (the bd 47j comment here claimed
+	     * "objective_value(0^n) == 0 because every clause needs an assigned
+	     * variable" -- that is FALSE): objective_value's inner loop starts from
+	     * `assigned = 1`, so a ZERO-LENGTH clause -- a CONSTANT objective term --
+	     * contributes its factor unconditionally (constraint.c). Measured: a
+	     * `MINIMIZE sum v_i x_i + 100` model returns objective 100 on the cold
+	     * 0^n start here, where ca97941 returned the uncorrected P == 0. The new
+	     * value is the CORRECT objective of the returned vector, so this is a
+	     * deliberate correction, not a regression -- but it does move
+	     * result.objective and every `history` VALUE for constant-term
+	     * objectives. Eq.29 and every in-repo caller have no constant term (the
+	     * byte-identity A/B against ca97941 covers that). The WARM start carries
+	     * exactly this value already (initial_state_preparation, solver.c). */
+	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
 	    prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
 	    stage = 3;
 	    search_function = CSearch_opt;
@@ -160,19 +254,104 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	if (mod->solver == OPTIMIZE && mod->ignore_constraint_search) {
 	    stage = 3;
 	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
-        mod->global_opt->tot_profit = 0;
+	    /* The legacy `mod->global_opt->tot_profit = 0;` that stood here is GONE
+	     * (bd 47j follow-up). It was an UNSYNCHRONISED write to a field every
+	     * worker shares -- the same family of bug as the old mod->runtime
+	     * (CLAUDE.md §5) -- and it was destructive: a late-starting worker reset
+	     * an incumbent another worker had already improved. It never affected the
+	     * SEARCH (CSearch_opt's accept test reads cur_sol->tot_profit, never
+	     * global_opt), only what got PUBLISHED, and the feasibility-dominant
+	     * acceptance rule now supersedes an infeasible incumbent regardless of
+	     * its tot_profit -- which is exactly the "the old bound is a violation
+	     * sum, not an objective" case the reset was papering over. The locked
+	     * seed below replaces it. */
 	    search_function = CSearch_opt;
 	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
+	/* bd 47j: seed the shared incumbent from an already-feasible start.
+	 *
+	 * global_opt is handed to ctg by Model.manual_initial/solve() as
+	 * init_state(P, assignment, n) -- tot_profit == P and the hardcoded
+	 * feasible == 0 sentinel (state.c:23) -- and the ONLY other write is the
+	 * `if (res)` site below, i.e. it requires an accepted, strictly-improving
+	 * move. A start that is feasible AND optimal (e.g. the cold 0^n start of a
+	 * MINIMIZE model with a `<=` constraint: 0 <= rhs, and no non-negative-cost
+	 * item can lower the objective) never produces one, so solve() returned that
+	 * start's vector -- verified clean by eval_constraints -- while reporting
+	 * feasible=False off the untouched sentinel (bd 47j).
+	 *
+	 * Recording it here makes global_opt's flag and vector agree BEFORE the
+	 * search loop, and goes through the SAME acceptance rule as every other
+	 * write, so:
+	 *   - a WARM start is a strict no-op: initial_state_preparation already
+	 *     copied (vector, tot_profit, feasible) into global_opt (solver.c:328-330),
+	 *     so neither dominance cell fires and tot_profit compares equal;
+	 *   - an infeasible start is a strict no-op (cell 1 needs c->feasible);
+	 *   - a late-arriving portfolio worker cannot REGRESS an incumbent another
+	 *     worker already improved -- the rule rejects the start state then.
+	 * No oracle is charged (CLAUDE.md §1.2: this is a classical bookkeeping
+	 * write, the same uncharged eval_constraints the entry test above already
+	 * performs) and NO callback fires: history stays the accepted-improvement
+	 * stream that benchmarks.baselines.warm_repair_history anchors at oracle 0.
+	 * (warm_repair_history DOES guard against a double seed -- baselines.py:435
+	 * leaves a history already stamped at oracle 0 verbatim -- so emitting here
+	 * would not double-count. It is excluded because it would change
+	 * result.history / result.worker_histories, both §8-listed structures, for
+	 * every run with a feasible start INCLUDING runs that already report
+	 * feasible=True; that is a separate change owing its own frozen-table A/B.
+	 * Consequence, flagged loudly: metric.compute_primal_integral still scores
+	 * this class +inf off the empty history while result.feasible now says
+	 * True. That divergence is NOT new -- it is exactly the warm
+	 * feasible-greedy-never-improved case warm_repair_history was written for
+	 * -- but it now also covers cold feasible starts. See the bd follow-up.)
+	 *
+	 * ignore_constraint_search is INCLUDED (bd 47j follow-up). Excluding it while
+	 * the in-loop publish did not left result.feasible SENSE-DEPENDENT on a
+	 * public path: measured n=20 MINIMIZE knapsack, one `<=` cap, cold 0^n, P=1,
+	 * seed 5 -- ICS=True returned a capacity-satisfying, verify-clean optimum and
+	 * reported feasible=False, while ICS=False and MAXIMIZE both reported True.
+	 * Making both sites agree by excluding ICS everywhere would have LOCKED IN
+	 * that violation (CLAUDE.md §2.1: no silent asymmetry), so the seed is
+	 * extended instead and the unlocked `global_opt->tot_profit = 0` reset it
+	 * used to race with is gone (see the ICS branch above). Note ICS ignores the
+	 * constraints only for the SEARCH: eval_constraints is still evaluated at
+	 * entry and CSearch_opt still accepts only constraint-satisfying candidates,
+	 * so "feasible" is as meaningful here as anywhere. */
+	if (mod->solver == OPTIMIZE) {
+		cbqs_mutex_lock(&update_lock);
+		if (global_opt_superseded_by(mod->global_opt, cur_sol, 1)) {
+			copy_state_inplace(mod->global_opt, cur_sol);
+		}
+		cbqs_mutex_unlock(&update_lock);
+	}
+
 	int direction = 1;
 	int updated = feasible;
+
+	/* bd xjs: does cur_sol->tot_profit currently hold a true OBJECTIVE value?
+	 * The three phases all write DIFFERENT quantities into that one field --
+	 * stage 1 a constraint-violation sum, stage 2 the remaining slack, stage 3
+	 * the objective -- and the incumbent callback and the global_opt comparison
+	 * below are only meaningful for the last of those. That distinction used to
+	 * ride on `cur_sol->feasible` being *falsified* by the stage-2 accept in
+	 * CSearch_opt_sat ("slack travels with feasible==0"), which is exactly what
+	 * corrupted the phase machine (solver.c). The flag is truthful now, so the
+	 * value semantics get their own, explicit bit.
+	 *
+	 * SATISFY keeps it 1 unconditionally: there tot_profit is the one value the
+	 * whole run optimizes (the negated satisfied-constraint count) and there is
+	 * no second phase, so every consumer below behaves exactly as before.
+	 * For OPTIMIZE, stage == 3 here is reached only by the two init branches
+	 * that leave an objective in tot_profit (a feasible start carries the
+	 * caller's objective; ignore_constraint_search recomputes it). */
+	int profit_is_objective = (mod->solver != OPTIMIZE) || (stage == 3);
 
 	// Start sampling after initial_state_preparation
 	double total_time = 0;
 	int samples = 0;
 
 	/* Register this context for signal handler access */
-	g_active_ctx = ctx;
+	atomic_store_explicit(&g_active_ctx, ctx, memory_order_relaxed);
 	cbqs_install_interrupt_handler(handle_signal);
 
 	/* Primary gate: the never-reset oracle budget (mod->M carries T(n)), so
@@ -188,10 +367,58 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * loop near-unboundedly. */
 	while (mod->M > 0 && total_oracles < (size_t) mod->M
 	       && (mod->stopping_time <= 0 || total_time < mod->stopping_time)) {
-		if (solver_ctx_should_stop(ctx)) {
-			cbqs_install_interrupt_handler(NULL);
-			g_active_ctx = NULL;
-			return 0;
+		/* BREAK, never `return`: the epilogue below is the ONE exit every other
+		 * path takes, and it owes the caller four things an early return skipped
+		 * -- the stage-1/2 objective recompute, the `search_stage[head] = -1` /
+		 * `initial_samples[head] = 0` terminator, `sw_clear` of
+		 * fulfilled_objective_terms (a leak), and the truthful `return feasible`.
+		 * The recompute is the load-bearing one: run_sampling reads
+		 * cur_sol->tot_profit and cur_sol->feasible UNCONDITIONALLY, whatever ctg
+		 * returns (SearchLib.pyx), so a stage-2 interrupt published this worker's
+		 * final incumbent as (remaining-slack sum, feasible=True) -- a slack
+		 * scored as an objective by NORTHSTAR §8.3 / metric.instance_feasible.
+		 * Newly reachable on this branch: while the stage-2 accept still
+		 * falsified the flag the pair was (slack, False) and the scorer dropped
+		 * it (bd xjs). The mid-loop twin at `(rounds & 255) == 0` below already
+		 * broke; the two stop paths now agree.
+		 *
+		 * SIGINT is the only route here from the Python harness: the wall cap
+		 * (mod->stopping_time) is the `while` condition above and always reached
+		 * the epilogue, and ctx->timeout_ms has no Python setter -- the RUN
+		 * POLICY 15-30 min cap was never affected. */
+		if (solver_ctx_should_stop(ctx)) break;
+
+		/* §2.1 FAIL LOUD (survives -DNDEBUG): stage, search_function and
+		 * active_stats are one implicit state machine and must move together
+		 * (NORTHSTAR §5 phase-machine coupling). Setting active_stats without
+		 * search_function (or vice versa) applies one phase's bias to another
+		 * phase's search -- a silent faithfulness breach, not a crash. Three
+		 * pointer compares per Grover round, amortized over the round's
+		 * O(n*j^2) classical sampling work. */
+		int phase_ok;
+		if (stage == 3) {
+			phase_ok = (search_function == CSearch_opt)
+			        && (ctx->active_stats == &ctx->branching_stats_opt);
+		} else if (stage == 2) {
+			phase_ok = (search_function == CSearch_opt_sat)
+			        && (ctx->active_stats == &ctx->branching_stats_opt_sat);
+		} else if (stage == 1) {
+			/* Stage 1 legitimately pairs with EITHER phase-1 search -- SATISFY runs
+			 * CSearch_sat, an OPTIMIZE run with an infeasible start runs
+			 * CSearch_opt_sat -- but the DISJUNCTION is still fully checkable, and
+			 * leaving stage 1 unconstrained let a (CSearch_sat, stats_opt_sat)
+			 * desync pass silently. */
+			phase_ok = (search_function == CSearch_sat
+			            && ctx->active_stats == &ctx->branching_stats_sat)
+			        || (search_function == CSearch_opt_sat
+			            && ctx->active_stats == &ctx->branching_stats_opt_sat);
+		} else {
+			phase_ok = 0;   /* there is no stage 0 / 4: an out-of-range stage is corruption */
+		}
+		if (!phase_ok) {
+			fprintf(stderr, "ctg: phase-machine desync at stage=%d "
+			                "(NORTHSTAR §5 phase-machine coupling)\n", stage);
+			abort();
 		}
 
 		/* bd w29 (M5 / 71e): continuous oracle-indexed opt-radius DECAY lever.
@@ -283,13 +510,65 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 		if (res) {
 
-            // first found feasible solution
+            /* bd xjs: the round that just accepted wrote the quantity its OWN
+             * phase optimizes into cur_sol->tot_profit -- an objective only in
+             * stage 3 (CSearch_opt). Evaluate before the first-feasible handoff
+             * below, which overwrites tot_profit with the real objective. */
+            if (mod->solver == OPTIMIZE) profit_is_objective = (stage == 3);
+
+            /* first found feasible solution.
+             * bd xjs: `stage != 3` is LOAD-BEARING, and the new per-round
+             * coupling check above is what surfaced it. Under
+             * ignore_constraint_search ctg starts in stage 3 / CSearch_opt /
+             * stats_opt with `feasible == 0` (the flag skips the sat+opt_sat
+             * phases but CSearch_opt still only accepts constraint-satisfying
+             * candidates, so its first accept sets cur_sol->feasible = 1 and
+             * tripped this handoff). The handoff then set stage = 2 and
+             * active_stats = stats_opt_sat WITHOUT moving search_function,
+             * leaving CSearch_opt running on the opt_sat bias -- precisely the
+             * NORTHSTAR §5 "wrong phase's stats" breach, silent until now.
+             * The handoff belongs to the opt_sat phase only; a run already in
+             * the objective phase must stay there. `stage != 3` is redundant
+             * for every other entry path (stage is 3 there only when `feasible`
+             * is already 1, which `!feasible` excludes), so this is bit-for-bit
+             * for everything except ignore_constraint_search + infeasible
+             * start. */
             if (mod->solver == OPTIMIZE && !feasible && cur_sol->feasible){
-                stage = 2;
-                cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
-                direction = -1;
+                /* The STICKY local `feasible` must be raised on EVERY path that
+                 * reaches a feasible point, including ignore_constraint_search
+                 * (which starts in stage 3 and so never takes the opt_sat
+                 * handoff below). A bare `&& stage != 3` on the whole block --
+                 * the shape bd xjs landed -- blocked the raise as well, and
+                 * `feasible` gates the stop_val break (silently INERT under
+                 * ICS: measured n=25 MAXIMIZE `>=` covering, seed 5, M=600,
+                 * stop_val=-60 -> ICS=False stops at 70 oracles / obj 61,
+                 * ICS=True ran the full 600 / obj 130), the post-loop objective
+                 * recompute, and ctg's RETURN VALUE (1 -> 0). */
                 feasible = 1;
-                ctx->active_stats = &ctx->branching_stats_opt_sat;  // stays opt_sat
+                if (stage != 3) {
+                    /* The opt_sat handoff proper. It belongs to the opt_sat
+                     * phase only: it moves stage + active_stats but NOT
+                     * search_function, so firing it at stage 3 would leave
+                     * CSearch_opt running on the opt_sat bias -- precisely the
+                     * NORTHSTAR §5 "wrong phase's stats" breach the per-round
+                     * coupling check above now catches. */
+                    stage = 2;
+                    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
+                    direction = -1;
+                    profit_is_objective = 1;   /* bd xjs: recomputed just above */
+                    ctx->active_stats = &ctx->branching_stats_opt_sat;  // stays opt_sat
+                } else {
+                    /* Already in the objective phase (ignore_constraint_search):
+                     * stay there, and mark the exploit->explore switch as
+                     * already taken. Letting it fire once instead would call
+                     * prepare() mid-run and swap objective_value_incremental's
+                     * running value for a full recompute -- correctness would
+                     * then hinge on those two agreeing rather than on
+                     * construction. tot_profit already holds the objective
+                     * (profit_is_objective was set to `stage == 3` above), so
+                     * nothing needs recomputing. */
+                    updated = 1;
+                }
             }
             
             // add solution to incumbent list
@@ -313,18 +592,64 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
              * from mod->global_opt (that would be an unlocked cross-thread read
              * racing copy_state_inplace below). cur_sol->feasible is the exact
              * predicate the old gate used (global_opt->feasible was copied from
-             * cur_sol); it correctly excludes stage-1 violation states and
-             * stage-2 slack states (slack travels with feasible==0), and the
+             * cur_sol). bd xjs: it is NO LONGER also the value-type tag -- the
+             * old claim that "slack travels with feasible==0" described a LIE
+             * told by CSearch_opt_sat's stage-2 accept, which corrupted the
+             * phase machine. profit_is_objective now excludes the stage-1
+             * violation states and stage-2 slack states explicitly, and the
              * first-feasible objective recompute above precedes this site, so
-             * the first logged value is the true first-feasible objective. */
-            if (callback && cur_sol->feasible) {
+             * the first logged value is still the true first-feasible objective.
+             * CORRECTION (the bd xjs comment here claimed the logged stream is
+             * "byte-identical to the pre-fix one" -- that is only true for
+             * Eq.29 and every other in-repo caller, NOT in general): the
+             * entry-time objective recompute above moves every logged VALUE for
+             * a constant-term objective, and the EQUAL violation-predicate fix
+             * (solver.h) removes bogus entries that a `== R` model used to log
+             * on constraint-violating points. Both are corrections; the
+             * byte-identity A/B against ca97941 is what pins the no-op claim,
+             * and it is scoped to the models it covers. */
+            if (callback && cur_sol->feasible && profit_is_objective) {
                 ctx->callback_value = cur_sol->tot_profit;
                 callback(ctx);
             }
 
-			// update global_opt if better solution is found
+			/* update global_opt if better solution is found.
+			 *
+			 * MERGE RESOLUTION (bd xjs + bd 47j, integration branch): this site is
+			 * the one place both fixes had to land, and NEITHER is sufficient alone.
+			 *
+			 * bd 47j supplies the ACCEPTANCE KEY (global_opt_superseded_by):
+			 * feasibility dominates the objective in OPTIMIZE, legacy strict
+			 * tot_profit comparison bit-for-bit in SATISFY. Without it, global_opt is
+			 * born from init_state with the feasible==0 / tot_profit==0 sentinel
+			 * (state.c:23, Model.pyx manual_initial) and, for MINIMIZE with
+			 * non-negative objective coefficients, NOTHING FEASIBLE CAN EVER BEAT 0 --
+			 * so the bd xjs fix on its own merely demotes the opt-switch abort() into a
+			 * silent wrong answer (measured: objective=0, feasible=False,
+			 * verified=False, solution=0^n, while final_incumbents==[(104, True)] and
+			 * history==[104] on the literal bd xjs repro). CLAUDE.md §2.1: a silent
+			 * wrong answer is strictly worse than the crash it replaced.
+			 *
+			 * bd xjs supplies the PUBLISHABILITY GUARD: never publish a FEASIBLE state
+			 * whose tot_profit is not an objective. copy_state_inplace copies
+			 * tot_profit AND the feasibility flag, and solve() reports both, so a
+			 * stage-2 slack sum landing here with the now-truthful feasible==1 would
+			 * claim "feasible, objective = <slack>". This matters MORE after the merge,
+			 * not less: under the bd 47j key alone a stage-2 slack state (feasible==1
+			 * once solver.c:707 tells the truth) would SUPERSEDE an infeasible
+			 * incumbent outright via the feasibility cell.
+			 *
+			 * The guard is deliberately NOT the stronger `profit_is_objective &&`: an
+			 * INfeasible state's tot_profit is already documented as a violation sum
+			 * (result.feasible == False), and blocking those would change which point a
+			 * never-feasible run reports -- measured: the best-violation incumbent
+			 * becomes the untouched greedy start, for no correctness gain. SATISFY keeps
+			 * profit_is_objective == 1 throughout and takes the legacy comparison, so it
+			 * is exempt from both halves. */
 			cbqs_mutex_lock(&update_lock);
-			if (mod->global_opt->tot_profit > cur_sol->tot_profit){
+			if ((profit_is_objective || !cur_sol->feasible)
+			    && global_opt_superseded_by(mod->global_opt, cur_sol,
+			                                mod->solver == OPTIMIZE)){
 			    copy_state_inplace(mod->global_opt, cur_sol);
 			}
 			cbqs_mutex_unlock(&update_lock);
@@ -332,7 +657,10 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 			 * total_oracles is intentionally NOT reset here -- that reset is the
 			 * exact bug (old m_tot) that let cumulative oracles exceed mod->M. */
 			rounds = 0;
-			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || (feasible && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1))) {
+			/* bd xjs: stop_val is an OBJECTIVE threshold, so it may only be
+			 * compared against tot_profit while that holds an objective -- a
+			 * stage-2 slack sum of 0 would otherwise trip any stop_val >= 0. */
+			if ((mod->solver == SATISFY && cur_sol->tot_profit == - (int64_t) mod->con->num_constraints) || (feasible && profit_is_objective && (cur_sol->tot_profit <= mod->stop_val && mod->stop_val != -1))) {
 				break;
 			}
 		}
@@ -351,7 +679,15 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
              * CSearch_opt before a feasible point exists. The `feasible &&`
              * guard above makes this unreachable in correct operation; if it
              * ever trips, the phase machine is corrupt -- crash, don't optimize
-             * an infeasible state. */
+             * an infeasible state.
+             * bd xjs: `feasible` is STICKY (set once, at the first-feasible
+             * handoff) while cur_sol->feasible is per-accept, so the two agree
+             * only if no accept after first-feasibility can un-set the latter.
+             * Every such write now reports the truth: stage 2 (direction == -1)
+             * accepts only provably-feasible candidates and stamps 1
+             * (solver.c), and CSearch_opt stamps 1. That is what makes this
+             * guard unreachable BY CONSTRUCTION rather than by luck -- it used
+             * to fire on MINIMIZE + a `>=` covering constraint + a cold start. */
             if (!cur_sol->feasible) {
                 fprintf(stderr, "ctg: opt-switch reached with infeasible "
                                 "cur_sol (NORTHSTAR §5 phase-machine coupling)\n");
@@ -362,9 +698,26 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
             cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
 	        prepare(mod->obj, cur_sol, &fulfilled_objective_terms);
             updated = 1;
+            profit_is_objective = 1;   /* bd xjs: recomputed on the line above */
             ctx->active_stats = &ctx->branching_stats_opt;
         }
 	}
+	/* bd xjs: hand back a SELF-CONSISTENT state. A run that ends while still in
+	 * stage 1/2 leaves a constraint-violation / remaining-slack sum in
+	 * cur_sol->tot_profit; run_sampling publishes that field as this worker's
+	 * final incumbent VALUE alongside cur_sol->feasible (NORTHSTAR §8.3
+	 * median-of-P). While the flag was falsified by the stage-2 accept the pair
+	 * was (slack, infeasible) and the §8.3 scorer dropped it; with the truthful
+	 * flag it would be (slack, FEASIBLE) -- a slack sum scored as an objective.
+	 * Recomputing here (one O(nnz) pass, off the search path, no oracle charge)
+	 * makes it (objective, feasible), which is what both consumers mean. Only
+	 * reachable when the exploit->explore switch never fired, i.e. feasibility
+	 * arrived on the final round; a stage-3 exit already holds the objective. */
+	if (mod->solver == OPTIMIZE && feasible && !profit_is_objective && cur_sol->feasible) {
+		cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
+		profit_is_objective = 1;
+	}
+
 	incumbents->search_stage[incumbents->head] = -1; // last step, no better incumbents found
 	incumbents->initial_samples[incumbents->head] = 0; // last step, no better incumbents found
 
@@ -372,7 +725,7 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 
 	/* Clear signal handler context */
 	cbqs_install_interrupt_handler(NULL);
-	g_active_ctx = NULL;
+	atomic_store_explicit(&g_active_ctx, NULL, memory_order_relaxed);
 
 	return feasible;
 }

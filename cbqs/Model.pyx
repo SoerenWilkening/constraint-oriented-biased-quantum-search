@@ -646,7 +646,30 @@ or {self.runtime}s sampling
 		Parameters
 		----------
 		P : int
-			Initial objective/profit value for this state.
+			ADVISORY initial value for the state's ``tot_profit`` slot. It is
+			**not** read back as the objective, and what it does depends on
+			whether ``assignment`` is feasible — because the C core stores a
+			DIFFERENT quantity in that one slot in each phase:
+
+			* **Feasible ``assignment``** — ``P`` is **IGNORED**. ``ctg``
+			  recomputes the objective from ``assignment`` itself
+			  (``objective_value``) on entry, so ``result.objective`` always
+			  describes ``result.solution``. This is deliberate: that state is
+			  also stamped feasible and seeded into the shared incumbent, so an
+			  unvalidated ``P`` would otherwise be published as a *confidently
+			  feasible* wrong answer (bd 47j).
+			* **Infeasible ``assignment``** — ``P`` is **HONOURED**, but as a
+			  constraint-VIOLATION bound, not an objective: phase 1 keeps a
+			  violation sum in ``tot_profit`` and accepts a candidate only when
+			  ``tot_profit > total_violation``. A small ``P`` (the ``0`` of the
+			  default cold start) accepts nothing short of full feasibility; a
+			  large ``P`` also accepts intermediate violation reductions, which
+			  changes the trajectory (measured). Recomputing an objective here
+			  would be meaningless — the field does not hold one in phase 1.
+
+			Callers that want the objective of a feasible warm start reported
+			back do not need to supply it; callers that pass a wrong ``P``
+			cannot corrupt a feasible start's reported objective.
 		assignment : list of int
 			Binary assignment array of length *n* (one entry per variable,
 			each 0 or 1).

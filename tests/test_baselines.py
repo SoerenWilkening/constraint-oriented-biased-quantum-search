@@ -649,7 +649,7 @@ def test_real_default_anchors_n10_end_to_end():
     results = B.run_default_seed_bank(10, 0, seeds=(1, 2, 3), M=-1, num_workers=2)
     # harness contract: every history is feasible-only and oracle-ascending.
     for r in results:
-        oracles = [o for (_v, o) in r.history]
+        oracles = [o for (_v, o, *_) in r.history]
         assert oracles == sorted(oracles)
     frozen = os.path.join(os.path.dirname(__file__), "..", "benchmarks", "baselines_frozen.csv")
     table = B.load_frozen_baselines(frozen)
