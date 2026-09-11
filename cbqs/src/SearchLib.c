@@ -119,8 +119,33 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * unbounded (exact rejection sim). The 2j+1 oracle charge below is untouched. */
 	ctx->opt_sample_cap = (int64_t) mod->opt_sample_cap;
 
-	/* Function pointer for CSearch_* functions - all now take ctx as first parameter */
-	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *);
+	/* §2.1 FAIL LOUD (survives -DNDEBUG, unlike assert -- the production .so is
+	 * built with it). ctg dereferences mod->global_opt unconditionally below (the
+	 * bd 47j entry seed and the in-loop publish), and model.c:26 initialises it to
+	 * NULL. Unreachable from the Python API -- Model.pyx nulls it only together
+	 * with initialized=False, and solve() re-runs manual_initial -- but a raw-C-API
+	 * caller that forgets init_state would otherwise segfault inside the search
+	 * with no explanation. */
+	if (mod->global_opt == NULL) {
+		fprintf(stderr, "ctg: mod->global_opt is NULL -- initialise it with "
+		                "init_state() before calling ctg (Model.manual_initial does "
+		                "this; the raw C API must do it too)\n");
+		abort();
+	}
+	/* §2.1 FAIL LOUD: the phase machine below only assigns search_function under
+	 * SATISFY or OPTIMIZE. Any other value used to leave it INDETERMINATE and be
+	 * called through; the per-round coupling check reads it too. Reject up front. */
+	if (mod->solver != SATISFY && mod->solver != OPTIMIZE) {
+		fprintf(stderr, "ctg: unknown mod->solver == %d (expected SATISFY %d or "
+		                "OPTIMIZE %d)\n", mod->solver, SATISFY, OPTIMIZE);
+		abort();
+	}
+
+	/* Function pointer for CSearch_* functions - all now take ctx as first parameter.
+	 * Initialised to NULL so a missed phase assignment is a deterministic crash,
+	 * not an indeterminate call (CLAUDE.md §2.1); the entry guard above plus the
+	 * per-round coupling check make that unreachable. */
+	int (*search_function)(solver_ctx_t *, state_t *, int, new_constraints_t *, new_constraints_t *, int, int, array_t *, int *) = NULL;
  
 	array_t fulfilled_objective_terms = sw_init(mod->obj->num_clauses[0]);
 
@@ -196,7 +221,17 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	if (mod->solver == OPTIMIZE && mod->ignore_constraint_search) {
 	    stage = 3;
 	    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
-        mod->global_opt->tot_profit = 0;
+	    /* The legacy `mod->global_opt->tot_profit = 0;` that stood here is GONE
+	     * (bd 47j follow-up). It was an UNSYNCHRONISED write to a field every
+	     * worker shares -- the same family of bug as the old mod->runtime
+	     * (CLAUDE.md §5) -- and it was destructive: a late-starting worker reset
+	     * an incumbent another worker had already improved. It never affected the
+	     * SEARCH (CSearch_opt's accept test reads cur_sol->tot_profit, never
+	     * global_opt), only what got PUBLISHED, and the feasibility-dominant
+	     * acceptance rule now supersedes an infeasible incumbent regardless of
+	     * its tot_profit -- which is exactly the "the old bound is a violation
+	     * sum, not an objective" case the reset was papering over. The locked
+	     * seed below replaces it. */
 	    search_function = CSearch_opt;
 	    ctx->active_stats = &ctx->branching_stats_opt;
 	}
@@ -237,12 +272,19 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * feasible-greedy-never-improved case warm_repair_history was written for
 	 * -- but it now also covers cold feasible starts. See the bd follow-up.)
 	 *
-	 * ignore_constraint_search is EXCLUDED: that legacy path deliberately
-	 * resets the acceptance bound with an UNLOCKED shared write
-	 * (`mod->global_opt->tot_profit = 0` above), which the seed would both
-	 * subvert and race; and "feasible" is meaningless on a path that ignores
-	 * the constraints. Strict no-op there. */
-	if (mod->solver == OPTIMIZE && !mod->ignore_constraint_search) {
+	 * ignore_constraint_search is INCLUDED (bd 47j follow-up). Excluding it while
+	 * the in-loop publish did not left result.feasible SENSE-DEPENDENT on a
+	 * public path: measured n=20 MINIMIZE knapsack, one `<=` cap, cold 0^n, P=1,
+	 * seed 5 -- ICS=True returned a capacity-satisfying, verify-clean optimum and
+	 * reported feasible=False, while ICS=False and MAXIMIZE both reported True.
+	 * Making both sites agree by excluding ICS everywhere would have LOCKED IN
+	 * that violation (CLAUDE.md §2.1: no silent asymmetry), so the seed is
+	 * extended instead and the unlocked `global_opt->tot_profit = 0` reset it
+	 * used to race with is gone (see the ICS branch above). Note ICS ignores the
+	 * constraints only for the SEARCH: eval_constraints is still evaluated at
+	 * entry and CSearch_opt still accepts only constraint-satisfying candidates,
+	 * so "feasible" is as meaningful here as anywhere. */
+	if (mod->solver == OPTIMIZE) {
 		cbqs_mutex_lock(&update_lock);
 		if (global_opt_superseded_by(mod->global_opt, cur_sol, 1)) {
 			copy_state_inplace(mod->global_opt, cur_sol);
@@ -305,10 +347,27 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 		 * phase's search -- a silent faithfulness breach, not a crash. Three
 		 * pointer compares per Grover round, amortized over the round's
 		 * O(n*j^2) classical sampling work. */
-		if ((stage == 3) != (search_function == CSearch_opt)
-		    || (stage == 3) != (ctx->active_stats == &ctx->branching_stats_opt)
-		    || (stage == 2 && (search_function != CSearch_opt_sat
-		                       || ctx->active_stats != &ctx->branching_stats_opt_sat))) {
+		int phase_ok;
+		if (stage == 3) {
+			phase_ok = (search_function == CSearch_opt)
+			        && (ctx->active_stats == &ctx->branching_stats_opt);
+		} else if (stage == 2) {
+			phase_ok = (search_function == CSearch_opt_sat)
+			        && (ctx->active_stats == &ctx->branching_stats_opt_sat);
+		} else if (stage == 1) {
+			/* Stage 1 legitimately pairs with EITHER phase-1 search -- SATISFY runs
+			 * CSearch_sat, an OPTIMIZE run with an infeasible start runs
+			 * CSearch_opt_sat -- but the DISJUNCTION is still fully checkable, and
+			 * leaving stage 1 unconstrained let a (CSearch_sat, stats_opt_sat)
+			 * desync pass silently. */
+			phase_ok = (search_function == CSearch_sat
+			            && ctx->active_stats == &ctx->branching_stats_sat)
+			        || (search_function == CSearch_opt_sat
+			            && ctx->active_stats == &ctx->branching_stats_opt_sat);
+		} else {
+			phase_ok = 0;   /* there is no stage 0 / 4: an out-of-range stage is corruption */
+		}
+		if (!phase_ok) {
 			fprintf(stderr, "ctg: phase-machine desync at stage=%d "
 			                "(NORTHSTAR §5 phase-machine coupling)\n", stage);
 			abort();
@@ -426,13 +485,42 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
              * is already 1, which `!feasible` excludes), so this is bit-for-bit
              * for everything except ignore_constraint_search + infeasible
              * start. */
-            if (mod->solver == OPTIMIZE && !feasible && cur_sol->feasible && stage != 3){
-                stage = 2;
-                cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
-                direction = -1;
+            if (mod->solver == OPTIMIZE && !feasible && cur_sol->feasible){
+                /* The STICKY local `feasible` must be raised on EVERY path that
+                 * reaches a feasible point, including ignore_constraint_search
+                 * (which starts in stage 3 and so never takes the opt_sat
+                 * handoff below). A bare `&& stage != 3` on the whole block --
+                 * the shape bd xjs landed -- blocked the raise as well, and
+                 * `feasible` gates the stop_val break (silently INERT under
+                 * ICS: measured n=25 MAXIMIZE `>=` covering, seed 5, M=600,
+                 * stop_val=-60 -> ICS=False stops at 70 oracles / obj 61,
+                 * ICS=True ran the full 600 / obj 130), the post-loop objective
+                 * recompute, and ctg's RETURN VALUE (1 -> 0). */
                 feasible = 1;
-                profit_is_objective = 1;   /* bd xjs: recomputed just above */
-                ctx->active_stats = &ctx->branching_stats_opt_sat;  // stays opt_sat
+                if (stage != 3) {
+                    /* The opt_sat handoff proper. It belongs to the opt_sat
+                     * phase only: it moves stage + active_stats but NOT
+                     * search_function, so firing it at stage 3 would leave
+                     * CSearch_opt running on the opt_sat bias -- precisely the
+                     * NORTHSTAR §5 "wrong phase's stats" breach the per-round
+                     * coupling check above now catches. */
+                    stage = 2;
+                    cur_sol->tot_profit = objective_value(mod->obj, cur_sol);
+                    direction = -1;
+                    profit_is_objective = 1;   /* bd xjs: recomputed just above */
+                    ctx->active_stats = &ctx->branching_stats_opt_sat;  // stays opt_sat
+                } else {
+                    /* Already in the objective phase (ignore_constraint_search):
+                     * stay there, and mark the exploit->explore switch as
+                     * already taken. Letting it fire once instead would call
+                     * prepare() mid-run and swap objective_value_incremental's
+                     * running value for a full recompute -- correctness would
+                     * then hinge on those two agreeing rather than on
+                     * construction. tot_profit already holds the objective
+                     * (profit_is_objective was set to `stage == 3` above), so
+                     * nothing needs recomputing. */
+                    updated = 1;
+                }
             }
             
             // add solution to incumbent list
