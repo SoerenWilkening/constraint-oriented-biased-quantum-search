@@ -464,3 +464,25 @@ add_cmocka_test(test_reduce_ops
     ${CBQS_SRC_DIR}/Expression.c
     ${CBQS_SRC_DIR}/dyn_expr.c
 )
+
+# --- bd xjs: opt_sat feasibility bookkeeping / phase-machine coupling ---
+# Drives CSearch_opt_sat directly AND ctg end-to-end on the MINIMIZE + `>=`
+# covering + cold-start configuration (same source list as test_searchlib).
+add_cmocka_test(test_opt_sat_feasibility
+    test_opt_sat_feasibility.c
+    ${CBQS_SRC_DIR}/SearchLib.c
+    ${CBQS_SRC_DIR}/solver.c
+    ${CBQS_SRC_DIR}/incr_eval.c
+    ${CBQS_SRC_DIR}/Branching.c
+    ${CBQS_SRC_DIR}/model.c
+    ${CBQS_SRC_DIR}/constraint.c
+    ${CBQS_SRC_DIR}/Expression.c
+    ${CBQS_SRC_DIR}/dyn_expr.c
+    ${CBQS_SRC_DIR}/quantum_search.c
+    ${CBQS_SRC_DIR}/state.c
+    ${CBQS_SRC_DIR}/intarray.c
+    ${CBQS_SRC_DIR}/prng.c
+    ${CBQS_SRC_DIR}/platform.c
+    ${CBQS_SRC_DIR}/solver_ctx.c
+    ${CBQS_SRC_DIR}/arena.c
+)
