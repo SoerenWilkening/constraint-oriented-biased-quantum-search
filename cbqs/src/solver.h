@@ -4,6 +4,7 @@
 
 #include <time.h>
 #include <stdio.h>
+#include <stdlib.h>   /* llabs -- used by the inline potentials_total_violation below */
 #include <math.h>
 #include <string.h>
 #include "intarray.h"

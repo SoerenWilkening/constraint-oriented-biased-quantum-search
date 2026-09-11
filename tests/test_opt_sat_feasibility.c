@@ -62,6 +62,7 @@
 #include "Expression.h"
 #include "solver_ctx.h"
 #include "definitions.h"
+#include "platform.h"
 
 /* ------------------------------------------------------------------ *
  * Model: MINIMIZE sum_i (i+1)*x_i  subject to  sum_i x_i >= k.
@@ -674,6 +675,179 @@ static void test_ctg_ignore_constraint_search_minimize_no_desync(void **state) {
     }
 }
 
+/* ================================================================== *
+ * ctg's INTERRUPT exit must be the SAME exit as every other one
+ * ================================================================== *
+ *
+ * ctg has two stop-flag checks and they used to DISAGREE:
+ *
+ *   top of loop    if (solver_ctx_should_stop(ctx)) { ...teardown...; return 0; }
+ *   mid loop       if ((rounds & 255) == 0 && solver_ctx_should_stop(ctx)) break;
+ *
+ * The early `return 0` skipped the whole post-loop epilogue -- the stage-1/2
+ * objective RECOMPUTE, the `search_stage[head] = -1` / `initial_samples[head] = 0`
+ * terminator and the `sw_clear(fulfilled_objective_terms)` free -- and reported 0
+ * for a run that had reached feasibility.
+ *
+ * Reachability (CLAUDE.md §2.4, verified against source, not assumed):
+ *   - `mod->stopping_time` is the `while` CONDITION, so the RUN POLICY 15-30 min
+ *     wall cap already exits through the epilogue -- it was never affected;
+ *   - `ctx->timeout_ms` has no Python setter, so from the harness the ONLY way in
+ *     is SIGINT -> handle_signal -> solver_ctx_request_stop (SearchLib.c);
+ *   - run_sampling reads cur_sol->tot_profit and cur_sol->feasible
+ *     UNCONDITIONALLY (SearchLib.pyx), regardless of ctg's return value, so a
+ *     stage-2 interrupt published (slack, feasible=True) as this worker's
+ *     final incumbent -- a remaining-slack sum scored as a feasible OBJECTIVE by
+ *     NORTHSTAR §8.3 / metric.instance_feasible. Newly reachable on this branch:
+ *     before bd xjs made the flag truthful the pair was (slack, False) and the
+ *     scorer dropped it.
+ *
+ * Both tests drive the flag through solver_ctx_should_stop, which is exactly
+ * where the signal handler's atomic lands -- no signal is raised, so the tests
+ * stay single-threaded and TSan-clean.
+ */
+
+/* Fuse armed from the FIRST-FEASIBLE callback (the only callback ctg fires on
+ * this path: the stage-2 handoff sets profit_is_objective = 1, and every later
+ * stage-2 accept clears it, which closes the `&& profit_is_objective` history
+ * gate). The interrupt has to land AFTER at least one post-handoff stage-2
+ * accept -- that accept is what puts a SLACK sum in tot_profit -- and no
+ * in-thread hook exists at that point, so the stop is deferred by wall time
+ * instead. The fuse is ~4 orders of magnitude longer than the microseconds the
+ * tightening accept needs, and `exercised > 0` below makes a mistimed run fail
+ * LOUDLY rather than pass vacuously (CLAUDE.md §2.2). */
+#define CTG_INTERRUPT_FUSE_MS 20u
+
+static void arm_interrupt_fuse_cb(void *ctx_ptr) {
+    solver_ctx_t *c = (solver_ctx_t *) ctx_ptr;
+    c->start_time_ns = cbqs_monotonic_ns();
+    c->timeout_ms = CTG_INTERRUPT_FUSE_MS;   /* solver_ctx_should_stop sets ctx->stop when it expires */
+}
+
+/*
+ * THE REGRESSION. Interrupt a MINIMIZE covering run while it is tightening in
+ * stage 2 and the state handed back must carry the OBJECTIVE of its own vector,
+ * not the remaining-slack sum the stage-2 accept wrote there.
+ *
+ * The two quantities are provably distinct on this fixture, which is what makes
+ * the assertion non-vacuous: a stage-2 accept stores total_violation == sum of
+ * potentials == (#ones - k) in [0, n-k] (solver.c, direction == -1), while
+ * objective_value of any feasible point is sum of (i+1) over >= k chosen
+ * indices >= 1+2+3 == 6. The test checks that gap explicitly per run
+ * (`slack_recorded != obj`) before asserting.
+ *
+ * opt_switch_oracles is disabled so the run cannot leave stage 2: the
+ * exploit->explore switch recomputes the objective itself and would mask the bug.
+ */
+static void test_ctg_interrupt_in_stage2_hands_back_objective_not_slack(void **state) {
+    (void)state;
+    const int n = 6, k = 3;
+
+    int exercised = 0;
+    for (uint64_t seed = 1; seed <= 8; ++seed) {
+        model_t *mod = build_min_covering_model(n, k);
+        /* The FUSE must end this run, not the budget: stage 2 charges 3 oracles
+         * per round, so 20 ms of spinning costs O(10^5). M and the wall cap are
+         * pure safety nets against a run that never reaches the handoff. */
+        mod->M = 20000000;
+        mod->stopping_time = 5;
+        mod->opt_switch_oracles = SIZE_MAX;   /* stay in stage 2 (M0f: disabled) */
+
+        int zeros[6] = {0, 0, 0, 0, 0, 0};
+        state_t *cur_sol = init_state(0, zeros, n);
+        assert_int_equal(eval_constraints(mod->con, cur_sol, n), 0);   /* cold + infeasible */
+
+        solver_ctx_t *ctx = solver_ctx_create();
+        ctx->seed = seed;
+        solver_ctx_init_prng(ctx);
+
+        incumbents_t *inc = init_incumbents(n, cur_sol);
+        int feasible = ctg(ctx, mod, cur_sol, arm_interrupt_fuse_cb, inc);
+
+        /* Record j lives at states[j+1] / search_stage[j]; head counts them. */
+        int stage2_records = 0;
+        for (int i = 0; i < inc->head; ++i) {
+            if (inc->search_stage[i] == 2) stage2_records++;
+        }
+        int64_t slack_recorded = inc->head > 0 ? inc->states[inc->head].tot_profit : 0;
+        int64_t obj = objective_value(mod->obj, cur_sol);
+        int interrupted = atomic_load(&ctx->stop);
+
+        /* >= 2 stage-2 records == the handoff PLUS at least one tightening
+         * accept, i.e. profit_is_objective is 0 and tot_profit holds a slack. */
+        /* Gate on the PAIR run_sampling actually publishes -- (cur_sol->tot_profit,
+         * cur_sol->feasible) -- never on ctg's return value, which is itself
+         * under test here (pre-fix the early return hands back 0). */
+        if (cur_sol->feasible && interrupted && stage2_records >= 2 && slack_recorded != obj) {
+            exercised++;
+            assert_int_equal(eval_constraints(mod->con, cur_sol, n), 1);
+            /* THE ASSERT: pre-fix tot_profit is `slack_recorded` (0..3), not the
+             * objective (>= 6), and run_sampling publishes that as this worker's
+             * feasible final incumbent. */
+            assert_true(cur_sol->tot_profit == obj);
+            /* ...and the run DID reach feasibility, so ctg must say so. */
+            assert_int_equal(feasible, 1);
+        }
+
+        free_incumbents(inc);
+        free_state(cur_sol, 1);
+        solver_ctx_free(ctx);
+        free_model(mod);
+    }
+    /* ANTI-VACUITY (CLAUDE.md §2.2, the guard the neighbouring tests carry):
+     * without it the test passes while no run ever reached a stage-2 slack. */
+    assert_true(exercised > 0);
+}
+
+/*
+ * The same exit, pinned DETERMINISTICALLY (no fuse): arm the stop flag before
+ * ctg is entered, from a state that is already feasible. The first loop-top
+ * check fires, so the run is over before any round -- but the epilogue still
+ * owes the caller a truthful return value and the incumbent terminator.
+ *
+ * Pre-fix: `return 0` claims no feasible point was reached even though the
+ * entry eval_constraints said otherwise (and ctg had already published that
+ * state into mod->global_opt), and search_stage[head] keeps whatever
+ * init_incumbents' malloc left there -- poisoned here so the assert reads a
+ * known value instead of indeterminate memory.
+ */
+static void test_ctg_interrupt_at_entry_takes_the_shared_exit(void **state) {
+    (void)state;
+    const int n = 6, k = 3;
+
+    model_t *mod = build_min_covering_model(n, k);
+    mod->M = 300;
+    mod->opt_switch_oracles = 40;
+
+    int three[6] = {1, 1, 1, 0, 0, 0};              /* k ones => feasible */
+    state_t *cur_sol = init_state(0, three, n);
+    assert_int_equal(eval_constraints(mod->con, cur_sol, n), 1);
+
+    solver_ctx_t *ctx = solver_ctx_create();
+    ctx->seed = 1;
+    solver_ctx_init_prng(ctx);
+    solver_ctx_request_stop(ctx);        /* what handle_signal does on SIGINT */
+
+    incumbents_t *inc = init_incumbents(n, cur_sol);
+    inc->search_stage[0] = 77;           /* poison (malloc'd, indeterminate) */
+    inc->initial_samples[0] = 77;
+
+    int feasible = ctg(ctx, mod, cur_sol, NULL, inc);
+
+    assert_int_equal(inc->head, 0);      /* premise: not a single round ran */
+    assert_int_equal(feasible, 1);       /* the point IS feasible -- say so */
+    assert_int_equal(inc->search_stage[inc->head], -1);
+    assert_int_equal(inc->initial_samples[inc->head], 0);
+    /* ...and the state is self-consistent, as on every other exit. */
+    assert_int_equal(cur_sol->feasible, 1);
+    assert_true(cur_sol->tot_profit == objective_value(mod->obj, cur_sol));
+
+    free_incumbents(inc);
+    free_state(cur_sol, 1);
+    solver_ctx_free(ctx);
+    free_model(mod);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_covering_encoding_sanity),
@@ -687,6 +861,8 @@ int main(void) {
         cmocka_unit_test(test_ctg_equality_never_reports_false_feasible),
         cmocka_unit_test(test_ctg_ignore_constraint_search_stays_in_opt_phase),
         cmocka_unit_test(test_ctg_ignore_constraint_search_minimize_no_desync),
+        cmocka_unit_test(test_ctg_interrupt_in_stage2_hands_back_objective_not_slack),
+        cmocka_unit_test(test_ctg_interrupt_at_entry_takes_the_shared_exit),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

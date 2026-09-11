@@ -367,11 +367,26 @@ int ctg(solver_ctx_t *ctx, model_t *mod, state_t *cur_sol, callback_t callback, 
 	 * loop near-unboundedly. */
 	while (mod->M > 0 && total_oracles < (size_t) mod->M
 	       && (mod->stopping_time <= 0 || total_time < mod->stopping_time)) {
-		if (solver_ctx_should_stop(ctx)) {
-			cbqs_install_interrupt_handler(NULL);
-			atomic_store_explicit(&g_active_ctx, NULL, memory_order_relaxed);
-			return 0;
-		}
+		/* BREAK, never `return`: the epilogue below is the ONE exit every other
+		 * path takes, and it owes the caller four things an early return skipped
+		 * -- the stage-1/2 objective recompute, the `search_stage[head] = -1` /
+		 * `initial_samples[head] = 0` terminator, `sw_clear` of
+		 * fulfilled_objective_terms (a leak), and the truthful `return feasible`.
+		 * The recompute is the load-bearing one: run_sampling reads
+		 * cur_sol->tot_profit and cur_sol->feasible UNCONDITIONALLY, whatever ctg
+		 * returns (SearchLib.pyx), so a stage-2 interrupt published this worker's
+		 * final incumbent as (remaining-slack sum, feasible=True) -- a slack
+		 * scored as an objective by NORTHSTAR §8.3 / metric.instance_feasible.
+		 * Newly reachable on this branch: while the stage-2 accept still
+		 * falsified the flag the pair was (slack, False) and the scorer dropped
+		 * it (bd xjs). The mid-loop twin at `(rounds & 255) == 0` below already
+		 * broke; the two stop paths now agree.
+		 *
+		 * SIGINT is the only route here from the Python harness: the wall cap
+		 * (mod->stopping_time) is the `while` condition above and always reached
+		 * the epilogue, and ctx->timeout_ms has no Python setter -- the RUN
+		 * POLICY 15-30 min cap was never affected. */
+		if (solver_ctx_should_stop(ctx)) break;
 
 		/* §2.1 FAIL LOUD (survives -DNDEBUG): stage, search_function and
 		 * active_stats are one implicit state machine and must move together
