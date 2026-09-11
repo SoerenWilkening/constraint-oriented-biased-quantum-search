@@ -689,7 +689,22 @@ int CSearch_opt_sat(solver_ctx_t *ctx, state_t *cur_sol, int j,
 		    sw_set_inplace(cur_sol->vector, new_sol->vector);
 		    sw_set_inplace(cur_sol->branch, new_sol->branch);
 		    cur_sol->tot_profit = total_violation;
-		    cur_sol->feasible = 0;
+		    /* bd xjs: report the TRUTH, not a constant. This branch used to stamp
+		     * `cur_sol->feasible = 0` unconditionally, which is only correct for
+		     * direction == 1: a direction == 1 candidate that IS feasible returns
+		     * through the dedicated first-feasibility branch above, so reaching
+		     * here with direction == 1 implies `feasible == 0` and the write is
+		     * bit-for-bit unchanged. With direction == -1 (stage 2, tightening an
+		     * already-feasible incumbent) the accept guard `(direction == 1 ||
+		     * feasible)` can only be satisfied by `feasible`, i.e. the accepted
+		     * candidate is PROVABLY feasible -- and stamping 0 handed ctg a state
+		     * whose vector satisfies every constraint while its flag denied it.
+		     * The exploit->explore switch's fail-loud guard then aborted the
+		     * process (NORTHSTAR §5 phase-machine coupling). Note tot_profit above
+		     * is a violation (direction 1) / slack (direction -1) sum either way,
+		     * NOT an objective; ctg tracks that separately (profit_is_objective)
+		     * instead of overloading this flag. */
+		    cur_sol->feasible = feasible;
             free_state(new_sol, 1);
             *samples += (int) l;
 			free(potentials);
